@@ -1,0 +1,88 @@
+vectordb:
+  # 조합 1: KoSimCSE (한국어 최적화, 768차원)
+  - name: kosimcse_qdrant
+    db_type: qdrant
+    client_type: docker
+    embedding_model:
+      - type: huggingface
+        model_name: BM-K/KoSimCSE-roberta-multitask
+    collection_name: kosimcse
+    similarity_metric: cosine
+    embedding_batch: 64
+    dimension: 768
+
+  # 조합 2: E5 multilingual (다국어 균형, 1024차원)
+  - name: e5_qdrant
+    db_type: qdrant
+    client_type: docker
+    embedding_model:
+      - type: huggingface
+        model_name: intfloat/multilingual-e5-large
+    collection_name: e5_large
+    similarity_metric: cosine
+    embedding_batch: 64
+    dimension: 1024
+
+  # 조합 3: BGE-M3 (올인원, 1024차원)
+  - name: bge_m3_qdrant
+    db_type: qdrant
+    client_type: docker
+    embedding_model:
+      - type: huggingface
+        model_name: BAAI/bge-m3
+    collection_name: bge_m3
+    similarity_metric: cosine
+    embedding_batch: 64
+    dimension: 1024
+
+  # 조합 4: MiniLM (경량, 384차원)
+  - name: minilm_qdrant
+    db_type: qdrant
+    client_type: docker
+    embedding_model:
+      - type: huggingface
+        model_name: sentence-transformers/all-MiniLM-L6-v2
+    collection_name: minilm
+    similarity_metric: cosine
+    embedding_batch: 128
+    dimension: 384
+
+  # 조합 5: OpenAI Large (고성능 API, 3072차원)
+  - name: openai_qdrant
+    db_type: qdrant
+    client_type: docker
+    embedding_model: openai_embed_3_large
+    collection_name: openai_large
+    similarity_metric: cosine
+    embedding_batch: 100
+    dimension: 3072
+
+node_lines:
+  - node_line_name: retrieve_and_generate
+    nodes:
+      # 1. Dense Retrieval (VectorDB 임베딩 모델 비교)
+      - node_type: semantic_retrieval
+        top_k: 10
+        strategy:
+          metrics: [retrieval_f1, retrieval_recall, retrieval_precision]
+        modules:
+          - module_type: vectordb
+            vectordb: [kosimcse_qdrant, e5_qdrant, bge_m3_qdrant, minilm_qdrant, openai_qdrant]
+
+      # 2. Prompt Maker 노드
+      - node_type: prompt_maker
+        strategy:
+          metrics: [bleu, meteor, rouge]
+        modules:
+          - module_type: fstring
+            prompt: "Based on the following context, answer the question.\n\nContext:\n{retrieved_contents}\n\nQuestion: {query}\n\nAnswer:"
+
+      # 3. Generator 노드
+      - node_type: generator
+        strategy:
+          metrics: [bleu, meteor, rouge]
+        modules:
+          - module_type: llama_index_llm
+            llm: openai
+            model: [gpt-4o-mini]
+            temperature: [0, 0.3]

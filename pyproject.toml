@@ -1,0 +1,16 @@
+[project]
+name = "autorag-benchmark"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "autorag>=0.3.21",
+    "kiwipiepy>=0.22.2",
+    "konlpy>=0.6.0",
+    "llama-index-embeddings-huggingface>=0.6.1",
+    "llama-index-llms-ollama>=0.9.1",
+    "llama-index-llms-openai>=0.6.18",
+    "nbconvert>=7.17.0",
+    "pdfminer-six>=20260107",
+]
