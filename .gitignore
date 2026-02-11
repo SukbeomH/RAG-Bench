@@ -31,6 +31,17 @@ autorag_benchmark/chunk_project/
 .ipynb_checkpoints/
 *_executed.ipynb
 
+# 벡터 DB / 인덱스 (실행 시 새로 생성)
+qdrant_db*/
+colbert_index/
+parent_store/
+
+# Claude Code
+.claude/
+
+# 자동 생성 리포트
+VERIFICATION_*.md
+
 # 기타
 .mypy_cache/
 .sessions/
