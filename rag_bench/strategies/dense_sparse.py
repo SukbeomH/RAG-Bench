@@ -1,0 +1,374 @@
+"""
+DenseSparseStrategy — Dense + Sparse 하이브리드 검색 전략
+
+노트북의 6가지 임베딩 조합을 모듈화한 구현.
+Qdrant 벡터 DB에 Dense(벡터) + Sparse(BM25/SPLADE) 하이브리드 검색을 수행한다.
+"""
+
+import math
+from collections import Counter
+from typing import Any, Dict, List, Optional
+
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
+from qdrant_client.http.models import SparseVector
+
+from rag_bench.base import BaseRAGStrategy
+
+
+# ---------------------------------------------------------------------------
+# Sparse Encoders
+# ---------------------------------------------------------------------------
+
+
+class KoreanBM25Encoder:
+    """
+    한글 BM25 Sparse Encoder (OKt 형태소 분석).
+
+    조합 1, 6에서 사용. KoNLPy OKt로 한국어 형태소 분석 후 BM25 스코어링.
+    langchain_qdrant 호환: SparseVector 객체 반환.
+    """
+
+    def __init__(self, k1: float = 1.5, b: float = 0.75):
+        from konlpy.tag import Okt
+
+        self.okt = Okt()
+        self.k1 = k1
+        self.b = b
+        self.vocab: Dict[str, int] = {}
+        self.doc_freqs: Dict[str, int] = {}
+        self.doc_count = 0
+        self.avg_doc_len = 0.0
+        self._next_id = 0
+        print(f"KoreanBM25Encoder initialized (OKt, k1={k1}, b={b})")
+
+    def _tokenize(self, text: str) -> List[str]:
+        tokens = []
+        for word, pos in self.okt.pos(text, stem=True):
+            if pos in ["Noun", "Verb", "Adjective", "Foreign", "Alpha"]:
+                tokens.append(word.lower())
+        return tokens
+
+    def _get_or_create_id(self, token: str) -> int:
+        if token not in self.vocab:
+            self.vocab[token] = self._next_id
+            self._next_id += 1
+        return self.vocab[token]
+
+    def fit(self, documents: List[str]):
+        doc_lens = []
+        for doc in documents:
+            tokens = self._tokenize(doc)
+            doc_lens.append(len(tokens))
+            for token in set(tokens):
+                self._get_or_create_id(token)
+                self.doc_freqs[token] = self.doc_freqs.get(token, 0) + 1
+        self.doc_count = len(documents)
+        self.avg_doc_len = sum(doc_lens) / len(doc_lens) if doc_lens else 1.0
+        print(f"BM25 fit complete: {self.doc_count} docs, {len(self.vocab)} tokens")
+
+    def _compute_idf(self, token: str) -> float:
+        df = self.doc_freqs.get(token, 0)
+        if df == 0:
+            return 0.0
+        return math.log((self.doc_count - df + 0.5) / (df + 0.5) + 1)
+
+    def embed_query(self, text: str) -> SparseVector:
+        """langchain_qdrant 호환 sparse embedding (query)."""
+        tokens = self._tokenize(text)
+        if not tokens:
+            return SparseVector(indices=[0], values=[0.0])
+        tf_counter = Counter(tokens)
+        doc_len = len(tokens)
+        indices, values = [], []
+        for token, tf in tf_counter.items():
+            token_id = self._get_or_create_id(token)
+            idf = self._compute_idf(token)
+            tf_norm = (tf * (self.k1 + 1)) / (
+                tf + self.k1 * (1 - self.b + self.b * doc_len / self.avg_doc_len)
+            )
+            score = idf * tf_norm
+            if score > 0:
+                indices.append(token_id)
+                values.append(score)
+        if not indices:
+            return SparseVector(indices=[0], values=[0.0])
+        return SparseVector(indices=indices, values=values)
+
+    def embed_documents(self, texts: List[str]) -> List[SparseVector]:
+        """langchain_qdrant 호환 sparse embedding (documents)."""
+        return [self.embed_query(text) for text in texts]
+
+
+class SpladeEncoder:
+    """
+    SPLADE Sparse Encoder.
+
+    조합 2, 5에서 사용. naver/splade-cocondenser-ensembledistil 기반 Term Expansion.
+    langchain_qdrant 호환: SparseVector 객체 반환.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "naver/splade-cocondenser-ensembledistil",
+        device: Optional[str] = None,
+        max_length: int = 256,
+    ):
+        import torch
+        from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+        self.torch = torch
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.max_length = max_length
+
+        print(f"Loading {model_name}...")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForMaskedLM.from_pretrained(model_name)
+        self.model.to(self.device)
+        self.model.eval()
+        self.vocab_size = self.tokenizer.vocab_size
+        print(f"SPLADE Encoder ready (device={self.device}, vocab={self.vocab_size})")
+
+    def _compute_vector(self, text: str):
+        inputs = self.tokenizer(
+            text,
+            return_tensors="pt",
+            max_length=self.max_length,
+            truncation=True,
+            padding=True,
+        ).to(self.device)
+        with self.torch.no_grad():
+            logits = self.model(**inputs).logits
+        splade = self.torch.log1p(self.torch.relu(logits))
+        mask = inputs["attention_mask"].unsqueeze(-1)
+        splade = splade * mask
+        splade, _ = self.torch.max(splade, dim=1)
+        return splade.squeeze(0)
+
+    def _to_sparse_vector(self, text: str) -> SparseVector:
+        vec = self._compute_vector(text)
+        nonzero = vec > 0
+        indices = self.torch.nonzero(nonzero).squeeze(-1).cpu().tolist()
+        values = vec[nonzero].cpu().tolist()
+        if not indices:
+            return SparseVector(indices=[0], values=[0.0])
+        return SparseVector(indices=indices, values=values)
+
+    def embed_query(self, text: str) -> SparseVector:
+        """langchain_qdrant 호환 sparse embedding (query)."""
+        return self._to_sparse_vector(text)
+
+    def embed_documents(self, texts: List[str]) -> List[SparseVector]:
+        """langchain_qdrant 호환 sparse embedding (documents)."""
+        return [self._to_sparse_vector(t) for t in texts]
+
+
+# ---------------------------------------------------------------------------
+# 임베딩 조합 정의
+# ---------------------------------------------------------------------------
+
+COMBO_DEFINITIONS = {
+    1: {
+        "name": "한국어 최적 (KoSimCSE + BM25/OKt)",
+        "dense_model": "BM-K/KoSimCSE-roberta-multitask",
+        "sparse_type": "korean_bm25",
+        "description": "한국어 문서에 최적화. KoSimCSE(의미검색) + OKt(형태소 BM25) 조합.",
+    },
+    2: {
+        "name": "다국어 균형 (E5 + SPLADE)",
+        "dense_model": "intfloat/multilingual-e5-large",
+        "sparse_type": "splade",
+        "description": "70개+ 언어 지원. E5(다국어 의미검색) + SPLADE(Term Expansion) 조합.",
+    },
+    3: {
+        "name": "올인원 통합 (BGE-M3)",
+        "dense_model": "BAAI/bge-m3",
+        "sparse_type": "fastembed_bm25",
+        "description": "단일 모델 BGE-M3로 Dense/Sparse 통합. 중국어/영어/일본어 우수.",
+    },
+    4: {
+        "name": "경량/빠른 속도 (MiniLM + BM25)",
+        "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "sparse_type": "fastembed_bm25",
+        "description": "최소 리소스. MiniLM(384d) + FastEmbed BM25. 가볍고 빠름.",
+    },
+    5: {
+        "name": "고성능 API (OpenAI Large + SPLADE)",
+        "dense_model": "openai:text-embedding-3-large",
+        "sparse_type": "splade",
+        "description": "최고 품질 API. OpenAI Large(3072d) + SPLADE. 비용 발생.",
+    },
+    6: {
+        "name": "한국어 API (Upstage Solar + BM25/OKt)",
+        "dense_model": "upstage:solar-embedding-1-large",
+        "sparse_type": "korean_bm25",
+        "description": "한국어 특화 API. Upstage Solar + OKt BM25. OpenAI 한국어 대안.",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# DenseSparseStrategy
+# ---------------------------------------------------------------------------
+
+
+class DenseSparseStrategy(BaseRAGStrategy):
+    """
+    Dense + Sparse 하이브리드 검색 전략.
+
+    6가지 임베딩 조합 중 하나를 선택하여 Qdrant에서 Hybrid 검색을 수행한다.
+    """
+
+    def __init__(self, combo_id: int = 1, qdrant_path: Optional[str] = None):
+        if combo_id not in COMBO_DEFINITIONS:
+            raise ValueError(f"combo_id는 1~6이어야 합니다. 입력값: {combo_id}")
+
+        self._combo_id = combo_id
+        self._combo = COMBO_DEFINITIONS[combo_id]
+        self._qdrant_path = qdrant_path or f"qdrant_db_combo{combo_id}"
+        self._collection_name = "document_child_chunks"
+
+        self._dense_embeddings: Any = None
+        self._sparse_embeddings: Any = None
+        self._vector_store: Any = None
+        self._client: Optional[QdrantClient] = None
+        self._is_ready = False
+
+    @property
+    def name(self) -> str:
+        return f"[{self._combo_id}] {self._combo['name']}"
+
+    @property
+    def description(self) -> str:
+        return self._combo["description"]
+
+    @property
+    def is_ready(self) -> bool:
+        return self._is_ready
+
+    def _init_dense(self):
+        """Dense 임베딩 모델 초기화."""
+        model_spec = self._combo["dense_model"]
+
+        if model_spec.startswith("openai:"):
+            from langchain_openai import OpenAIEmbeddings
+
+            model_name = model_spec.split(":", 1)[1]
+            self._dense_embeddings = OpenAIEmbeddings(model=model_name)
+        elif model_spec.startswith("upstage:"):
+            from langchain_upstage import UpstageEmbeddings
+
+            model_name = model_spec.split(":", 1)[1]
+            self._dense_embeddings = UpstageEmbeddings(model=model_name)
+        else:
+            from langchain_huggingface import HuggingFaceEmbeddings
+
+            self._dense_embeddings = HuggingFaceEmbeddings(
+                model_name=model_spec,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
+
+        # 차원 확인
+        test_vec = self._dense_embeddings.embed_query("test")
+        self._embedding_dim = len(test_vec)
+        print(f"  Dense: {model_spec} ({self._embedding_dim}d)")
+
+    def _init_sparse(self):
+        """Sparse 임베딩 모델 초기화."""
+        sparse_type = self._combo["sparse_type"]
+
+        if sparse_type == "korean_bm25":
+            self._sparse_embeddings = KoreanBM25Encoder(k1=1.5, b=0.75)
+            self._use_langchain_sparse = False
+        elif sparse_type == "splade":
+            self._sparse_embeddings = SpladeEncoder()
+            self._use_langchain_sparse = False
+        elif sparse_type == "fastembed_bm25":
+            from langchain_qdrant.fastembed_sparse import FastEmbedSparse
+
+            self._sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
+            self._use_langchain_sparse = True
+        else:
+            raise ValueError(f"Unknown sparse type: {sparse_type}")
+
+        print(f"  Sparse: {sparse_type}")
+
+    def _init_qdrant(self):
+        """Qdrant 클라이언트 및 벡터 스토어 초기화."""
+        from langchain_qdrant import QdrantVectorStore
+        from langchain_qdrant.qdrant import RetrievalMode
+
+        if self._client is None:
+            self._client = QdrantClient(path=self._qdrant_path)
+
+        # 컬렉션 생성
+        if not self._client.collection_exists(self._collection_name):
+            self._client.create_collection(
+                collection_name=self._collection_name,
+                vectors_config=qmodels.VectorParams(
+                    size=self._embedding_dim,
+                    distance=qmodels.Distance.COSINE,
+                ),
+                sparse_vectors_config={"sparse": qmodels.SparseVectorParams()},
+            )
+            print(
+                f"  Created collection: {self._collection_name} (dim={self._embedding_dim})"
+            )
+        else:
+            print(f"  Collection exists: {self._collection_name}")
+
+        self._vector_store = QdrantVectorStore(
+            client=self._client,
+            collection_name=self._collection_name,
+            embedding=self._dense_embeddings,
+            sparse_embedding=self._sparse_embeddings,
+            retrieval_mode=RetrievalMode.HYBRID,
+            sparse_vector_name="sparse",
+        )
+
+    def _ensure_initialized(self):
+        """필요 시 모델 및 DB 초기화."""
+        if self._dense_embeddings is None:
+            print(f"\n[{self.name}] 초기화 중...")
+            self._init_dense()
+            self._init_sparse()
+            self._init_qdrant()
+
+    def index(self, documents: List[Document]) -> None:
+        """문서 인덱싱."""
+        self._ensure_initialized()
+
+        # 기존 컬렉션 삭제 후 재생성
+        assert self._client is not None
+        if self._client.collection_exists(self._collection_name):
+            self._client.delete_collection(self._collection_name)
+        self._init_qdrant()
+
+        # BM25 인코더인 경우 fit 수행
+        if isinstance(self._sparse_embeddings, KoreanBM25Encoder):
+            doc_texts = [doc.page_content for doc in documents]
+            self._sparse_embeddings.fit(doc_texts)
+
+        print(f"  Indexing {len(documents)} documents...")
+        self._vector_store.add_documents(documents)
+        self._is_ready = True
+        print("  Indexing complete.")
+
+    def retrieve(self, query: str, k: int = 5) -> List[Document]:
+        """검색 수행."""
+        self._ensure_initialized()
+        return self._vector_store.similarity_search(query, k=k)
+
+    def get_retriever(self, k: int = 5) -> BaseRetriever:
+        """LangChain Retriever 반환."""
+        self._ensure_initialized()
+        return self._vector_store.as_retriever(search_kwargs={"k": k})
+
+    def cleanup(self) -> None:
+        """Qdrant 리소스 정리."""
+        if self._client and self._client.collection_exists(self._collection_name):
+            self._client.delete_collection(self._collection_name)
+            print(f"  Cleaned up collection: {self._collection_name}")
