@@ -153,7 +153,7 @@ df92494 chore: Python 3.12로 업그레이드 및 lockfile 갱신
   - `scripts/generate_qa.py`: `docs/*.md` → Parent-Child 청킹 → GPT-4o-mini QA 자동 생성 (해시 캐싱, `--force` 재생성).
   - `scripts/run_bench.py`: DenseSparse(combo4) + ColBERT + ColBERTRerank 3종 벤치마크 + RAGAS 평가.
   - `scripts/run_all_combos.py`: DenseSparse 6종 + ColBERT + ColBERTRerank×N 전체 조합 비교 (실패 내성, `--skip_paid`, `--combos`, `--no_ragas`).
-- **시각화 노트북**: `scripts/bench_visualize.ipynb` — 7종 차트 (레이턴시 바, RAGAS Grouped Bar, 레이더, 품질-속도 Scatter, 히트맵, 쿼리별 분포, 종합 순위표).
+- **시각화 노트북**: `scripts/bench_visualize.ipynb` — 7종 차트 (레이턴시 바, RAGAS Grouped Bar, 레이더, 품질-속도 Scatter, 히트맵, 쿼리별 분포, 종합 순위표). 각 섹션에 **상세 해석 가이드** 포함 (읽는 법, 해석 포인트, 전략 선택 기준 등 한국어 설명).
 - **패키지 내부 파일 배치**:
   - `rag_bench/docs/`: 벤치마크 대상 markdown 문서 (2개).
   - `rag_bench/pyproject.toml`, `uv.lock`, `.python-version`, `docker-compose.yml`: 의존성 및 인프라 파일 복사.
