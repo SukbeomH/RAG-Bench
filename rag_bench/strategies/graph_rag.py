@@ -78,6 +78,7 @@ class GraphRAGStrategy(BaseRAGStrategy):
         self._rag: Any = None
         self._documents: List[Document] = []
         self._is_ready = False
+        self._loop: Any = None  # 영속 이벤트 루프 (LightRAG 워커 호환)
 
     @property
     def name(self) -> str:
@@ -97,24 +98,30 @@ class GraphRAGStrategy(BaseRAGStrategy):
 
     # -- async → sync 래핑 ------------------------------------------------
 
-    @staticmethod
-    def _run_async(coro):
+    def _run_async(self, coro):
         """async 코루틴을 sync 컨텍스트에서 실행한다.
 
+        LightRAG 내부 워커(PriorityQueue, Lock 등)가 이벤트 루프에 바인딩되므로,
+        인스턴스 수명 동안 동일한 루프를 재사용해야 한다.
         Jupyter 등 이미 이벤트 루프가 실행 중인 환경에서는
         nest_asyncio를 적용하여 중첩 루프를 허용한다.
         """
         try:
-            loop = asyncio.get_running_loop()
+            running = asyncio.get_running_loop()
         except RuntimeError:
-            loop = None
+            running = None
 
-        if loop and loop.is_running():
+        if running and running.is_running():
             import nest_asyncio
 
             nest_asyncio.apply()
-            return loop.run_until_complete(coro)
-        return asyncio.run(coro)
+            self._loop = running
+            return running.run_until_complete(coro)
+
+        # 영속 루프 생성 또는 재사용
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+        return self._loop.run_until_complete(coro)
 
     # -- lazy 초기화 -------------------------------------------------------
 
@@ -233,3 +240,7 @@ class GraphRAGStrategy(BaseRAGStrategy):
 
         self._rag = None
         self._is_ready = False
+
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.close()
+        self._loop = None
