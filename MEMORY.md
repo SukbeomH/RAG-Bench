@@ -104,6 +104,47 @@ df92494 chore: Python 3.12로 업그레이드 및 lockfile 갱신
 73dd2b9 feat: ColBERT Late Interaction 검색 전략 구현 (PyLate 기반)
 ```
 
+## 2026-02-11: GraphRAGStrategy 구현 (LightRAG 기반) + ColBERTRerankStrategy
+
+### 주요 활동
+- **ColBERTRerankStrategy 구현**: 임의의 1차 검색 전략 위에 ColBERT MaxSim 리랭킹을 얹는 2단계 전략.
+  - `ColBERTRerankRetriever`: LangChain `BaseRetriever` 래퍼.
+  - `ColBERTRerankStrategy` (~200 LOC): base_strategy → rerank_n개 후보 → ColBERT 인코딩 → MaxSim 재정렬 → top-k 반환.
+  - 커밋: `4ed947e feat: ColBERTRerankStrategy 구현 — 2단계 리랭킹 전략 추가`
+
+- **GraphRAGStrategy 전체 구현**: 스텁 상태였던 `graph_rag.py`를 LightRAG 백엔드로 완전 구현.
+  - `GraphRAGRetriever`: LangChain `BaseRetriever` 래퍼.
+  - `GraphRAGStrategy` (~180 LOC): LightRAG 기반 엔티티-관계 지식 그래프 RAG.
+    - async→sync 래핑 (`_run_async`): Jupyter 환경 지원 (`nest_asyncio`).
+    - Lazy 초기화 (`_ensure_initialized`): `openai_complete_if_cache`로 커스텀 LLM 함수 생성.
+    - 스토리지: JsonKV + NanoVectorDB + NetworkX (파일 기반, 서버 불필요).
+    - 검색 모드: local, global, hybrid, naive, mix.
+  - 기본 LLM: `gpt-4.1-nano` (GPT-4o-mini 대비 입력 7.5배, 출력 4배 저렴).
+  - 커밋: `da5bced feat: GraphRAGStrategy 구현 — LightRAG 기반 지식 그래프 RAG 전략`
+
+- **의존성 추가**: `lightrag-hku>=1.0`, `nest-asyncio>=1.6`.
+- **`.gitignore` 갱신**: `lightrag_index/` 추가.
+
+### LLM 비용 비교 (그래프 구축용)
+| 모델 | Input / 1M tokens | Output / 1M tokens |
+|------|-------------------|---------------------|
+| gpt-4.1-nano (기본) | $0.02 | $0.15 |
+| gpt-4o-mini | $0.15 | $0.60 |
+| Gemini 2.5 Flash | $0.10 | $0.40 |
+
+### 현재 전략 구현 상태 (4/4 완료)
+| 전략 | 상태 | 비고 |
+|------|------|------|
+| `DenseSparseStrategy` | **완료** | 6가지 임베딩 조합 (Qdrant 하이브리드) |
+| `ColBERTStrategy` | **완료** | PyLate 기반, brute-force + Voyager |
+| `ColBERTRerankStrategy` | **완료** | 2단계 리랭킹 (임의 1차 전략 + ColBERT MaxSim) |
+| `GraphRAGStrategy` | **완료** | LightRAG 기반, gpt-4.1-nano, hybrid 모드 |
+
+### 다음 작업
+1. **통합 벤치마크**: DenseSparse vs ColBERT vs GraphRAG 비교 + RAGAS 평가
+2. **GraphRAG E2E 검증**: 소규모 문서로 실제 index/retrieve 테스트
+3. **Contextual Retrieval**: Anthropic 방식 인덱싱 보강 구현
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동
