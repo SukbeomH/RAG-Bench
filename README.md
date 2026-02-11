@@ -1,6 +1,6 @@
 # AutoRAG Benchmark - 한국어 RAG 파이프라인 비교 평가
 
-한국어 문서(PDF)를 대상으로 6가지 임베딩 모델 조합의 RAG 파이프라인 성능을 [AutoRAG](https://github.com/Marker-Inc-Korea/AutoRAG) 프레임워크로 정량 평가하는 프로젝트입니다.
+한국어 문서(PDF)를 대상으로 5가지 임베딩 모델 조합의 RAG 파이프라인 성능을 [AutoRAG](https://github.com/Marker-Inc-Korea/AutoRAG) 프레임워크로 정량 평가하는 프로젝트입니다.
 
 ## 비교 대상
 
@@ -14,115 +14,111 @@
 
 추가로 BM25(한국어 토크나이저), Hybrid Retrieval, Reranker 조합도 비교합니다.
 
+---
+
+## 실행 가이드 (zip 압축 해제 후)
+
+### 사전 요구사항
+
+| 항목 | 필수 여부 | 설명 |
+|------|----------|------|
+| **Python 3.12+** | 필수 | `.python-version` 파일에 명시 |
+| **uv** | 필수 | Python 패키지 매니저 ([설치](https://docs.astral.sh/uv/getting-started/installation/): `curl -LsSf https://astral.sh/uv/install.sh \| sh`) |
+| **Docker Desktop** | 벤치마크 재실행 시 | Qdrant 벡터DB 실행용 |
+| **OpenAI API Key** | 벤치마크 재실행 시 | GPT-4o-mini 평가 + QA 생성용 |
+
+### A. 결과만 확인하기 (가장 빠른 방법)
+
+벤치마크 결과가 이미 포함되어 있으므로, 노트북만 실행하면 됩니다.
+
+```bash
+# 1. 압축 해제
+unzip autorag-benchmark.zip -d autorag
+cd autorag
+
+# 2. 의존성 설치
+uv sync
+
+# 3. 분석 노트북 실행
+uv run jupyter notebook autorag_benchmark_analysis.ipynb
+```
+
+> Docker, OpenAI API Key 없이도 결과 확인 가능합니다.
+
+### B. 벤치마크 전체 재실행
+
+처음부터 벤치마크를 직접 재현하고 싶다면 아래 순서를 따릅니다.
+
+```bash
+# 1. 압축 해제 및 의존성 설치
+unzip autorag-benchmark.zip -d autorag
+cd autorag
+uv sync
+
+# 2. 환경변수 설정
+export OPENAI_API_KEY="sk-your-api-key-here"
+
+# (선택) 사설 CA 인증서 사용 환경
+# export SSL_CERT_FILE="/path/to/your/ca-bundle.pem"
+
+# 3. Qdrant 벡터DB 시작
+docker compose up -d
+
+# 정상 확인
+curl http://localhost:6333/healthz
+# → "healthz check passed"
+
+# 4. (선택) 데이터 재생성 — 이미 포함되어 있으므로 건너뛰어도 됨
+# uv run python scripts/01_parse_and_chunk.py    # PDF 파싱 → 청킹
+# uv run python scripts/02_create_qa_dataset.py  # QA 데이터셋 생성 (API 비용 발생)
+
+# 5. Dense-only 벤치마크 실행 (Trial 0)
+uv run python scripts/03_run_benchmark.py
+
+# 6. Hybrid 벤치마크 실행 (Trial 1)
+#    scripts/03_run_benchmark.py 110행의 config 경로를 변경:
+#    benchmark_config.yaml → hybrid_benchmark_config.yaml
+uv run python scripts/03_run_benchmark.py
+
+# 7. 결과 확인
+uv run jupyter notebook autorag_benchmark_analysis.ipynb
+
+# 또는 AutoRAG 대시보드 (웹 UI)
+uv run autorag dashboard --trial_dir autorag_benchmark/results/0
+```
+
+---
+
 ## 프로젝트 구조
 
 ```
 .
-├── docker-compose.yml              # Qdrant 벡터DB
-├── pyproject.toml                  # Python 의존성 (uv)
-├── docs/                           # 평가 대상 PDF 문서
+├── docker-compose.yml                 # Qdrant 벡터DB (Docker Compose)
+├── pyproject.toml                     # Python 의존성 (uv)
+├── uv.lock                            # 의존성 lock 파일
+├── docs/                              # 평가 대상 PDF 문서
 │   ├── 20250910_AI 현황 보고서.pdf
 │   └── SPRi AI Brief_1월호_산업동향_0102_F.pdf
 ├── autorag_benchmark/
-│   ├── config/
-│   │   ├── parse_config.yaml       # PDF 파싱 설정
-│   │   ├── chunk_config.yaml       # 청킹 설정
-│   │   ├── benchmark_config.yaml   # Dense-only 벤치마크
+│   ├── config/                        # 벤치마크 설정
+│   │   ├── parse_config.yaml          #   PDF 파싱 설정
+│   │   ├── chunk_config.yaml          #   청킹 설정
+│   │   ├── benchmark_config.yaml      #   Dense-only 벤치마크
 │   │   └── hybrid_benchmark_config.yaml  # Hybrid 벤치마크
-│   └── data/
-│       ├── qa.parquet              # QA 데이터셋 (100쌍)
-│       └── corpus.parquet          # 청킹된 문서 (299청크)
+│   ├── data/                          # 데이터셋 (포함됨)
+│   │   ├── qa.parquet                 #   QA 100쌍
+│   │   └── corpus.parquet             #   문서 청크 299개
+│   └── results/                       # 벤치마크 결과 (포함됨)
+│       ├── 0/                         #   Trial 0: Dense-only
+│       └── 1/                         #   Trial 1: Hybrid
 ├── scripts/
-│   ├── 01_parse_and_chunk.py       # PDF → 청크
-│   ├── 02_create_qa_dataset.py     # 청크 → QA 쌍 생성
-│   ├── 03_run_benchmark.py         # 벤치마크 실행
-│   └── 04_analyze_results.py       # 결과 분석
-├── autorag_benchmark_analysis.ipynb  # 결과 시각화 노트북
-└── embedding_combinations_lab.ipynb  # 임베딩 조합 실험 노트북
-```
-
-## 사전 요구사항
-
-- **Python** 3.11+
-- **Docker** (Qdrant 실행용)
-- **uv** (Python 패키지 매니저) — [설치 가이드](https://docs.astral.sh/uv/getting-started/installation/)
-- **OpenAI API Key** (QA 생성 + GPT-4o-mini 평가용)
-
-## 빠른 시작
-
-### 1. 환경 설정
-
-```bash
-# 저장소 클론
-git clone <repository-url>
-cd autorag
-
-# Python 가상환경 + 의존성 설치
-uv sync
-
-# 환경변수 설정
-export OPENAI_API_KEY="sk-your-api-key-here"
-
-# (선택) 사설 CA 인증서 사용 시
-# export SSL_CERT_FILE="/path/to/your/ca-bundle.pem"
-```
-
-### 2. Qdrant 실행
-
-```bash
-docker compose up -d
-```
-
-정상 실행 확인:
-```bash
-curl http://localhost:6333/healthz
-# 응답: {"title":"qdrant - vectorass engine","version":"..."}
-```
-
-### 3. 데이터 준비 (이미 포함됨)
-
-`autorag_benchmark/data/`에 QA 데이터셋과 코퍼스가 이미 포함되어 있습니다.
-처음부터 재생성하려면:
-
-```bash
-# PDF 파싱 → 청킹
-uv run python scripts/01_parse_and_chunk.py
-
-# QA 데이터셋 생성 (OpenAI API 호출, 비용 발생)
-uv run python scripts/02_create_qa_dataset.py
-```
-
-### 4. 벤치마크 실행
-
-```bash
-# Trial 1: Dense-only (5개 임베딩 비교)
-uv run python scripts/03_run_benchmark.py
-
-# Trial 2: Hybrid (Dense + BM25 + Reranker)
-# config/benchmark_config.yaml → config/hybrid_benchmark_config.yaml 로 변경 후 실행
-```
-
-또는 Python API 직접 사용:
-
-```python
-from autorag.evaluator import Evaluator
-
-evaluator = Evaluator(
-    qa_data_path="autorag_benchmark/data/qa.parquet",
-    corpus_data_path="autorag_benchmark/data/corpus.parquet",
-    project_dir="autorag_benchmark/results",
-)
-evaluator.start_trial("autorag_benchmark/config/hybrid_benchmark_config.yaml")
-```
-
-### 5. 결과 확인
-
-```bash
-# AutoRAG 대시보드 (웹 UI)
-uv run autorag dashboard --trial_dir autorag_benchmark/results/0
-
-# 또는 분석 노트북 실행
-uv run jupyter notebook autorag_benchmark_analysis.ipynb
+│   ├── 01_parse_and_chunk.py          # PDF → 청크
+│   ├── 02_create_qa_dataset.py        # 청크 → QA 쌍 생성
+│   ├── 03_run_benchmark.py            # 벤치마크 실행
+│   └── 04_analyze_results.py          # 결과 분석
+├── autorag_benchmark_analysis.ipynb   # 결과 시각화/분석 노트북
+├── embedding_combinations_lab.ipynb   # 임베딩 조합 실험 노트북
+└── autorag_research.md                # AutoRAG 리서치 노트
 ```
 
 ## 벤치마크 설정
@@ -142,20 +138,27 @@ uv run jupyter notebook autorag_benchmark_analysis.ipynb
 ## 주요 결과 요약
 
 ### Dense Retrieval (Trial 0)
+
 | 모델 | Recall | F1 | 속도(초) |
 |------|--------|----|---------|
-| E5 multilingual | 0.940 | 0.118 | 1.22 |
+| **E5 multilingual** | 0.940 | 0.118 | 1.22 |
 | BGE-M3 | 0.945 | 0.118 | 1.32 |
 | OpenAI Large | 0.940 | 0.118 | 0.38 |
 | KoSimCSE | 0.755 | 0.098 | 0.53 |
 | MiniLM | 0.695 | 0.091 | 0.39 |
 
-### Hybrid Pipeline (Trial 1) - 최적 조합
+### Hybrid Pipeline (Trial 1) — 최적 조합
+
 ```
 E5 → BM25(ko_kiwi) → HybridCC(tmm, w=0.48) → KoReranker → GPT-4o-mini(temp=0)
 ```
-- Retrieval Recall: 0.94
-- ROUGE: 0.731, BLEU: 61.85, Semantic Score: 0.970
+
+| 메트릭 | 값 |
+|-------|------|
+| Retrieval Recall | 0.94 |
+| ROUGE | 0.731 |
+| BLEU | 61.85 |
+| Semantic Score | 0.970 |
 
 ## 평가 메트릭
 
@@ -177,20 +180,34 @@ docker compose down -v
 
 ## 트러블슈팅
 
+### uv가 설치되어 있지 않음
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# 설치 후 터미널 재시작
+```
+
 ### Qdrant 연결 실패
 ```
 [WARN] Qdrant에 연결할 수 없습니다.
 ```
-→ `docker compose up -d`로 Qdrant 시작 확인
+→ Docker Desktop이 실행 중인지 확인 후 `docker compose up -d`
 
 ### konlpy 관련 오류 (ko_okt 토크나이저)
 ```
 ModuleNotFoundError: No module named 'konlpy'
 ```
-→ Java JDK 설치 필요: `brew install openjdk` (macOS)
+→ Java JDK 설치 필요:
+  - macOS: `brew install openjdk`
+  - Ubuntu: `sudo apt install default-jdk`
 
 ### OpenAI API 오류
-→ `OPENAI_API_KEY` 환경변수 확인
+→ `OPENAI_API_KEY` 환경변수가 올바르게 설정되어 있는지 확인
+
+### 사설 CA 인증서 (기업 네트워크)
+→ SSL 오류 발생 시:
+```bash
+export SSL_CERT_FILE="/path/to/your/ca-bundle.pem"
+```
 
 ## 라이선스
 
