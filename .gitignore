@@ -34,6 +34,7 @@ autorag_benchmark/chunk_project/
 # 벡터 DB / 인덱스 (실행 시 새로 생성)
 qdrant_db*/
 colbert_index/
+lightrag_index/
 parent_store/
 
 # Claude Code
