@@ -141,8 +141,77 @@ df92494 chore: Python 3.12로 업그레이드 및 lockfile 갱신
 | `GraphRAGStrategy` | **완료** | LightRAG 기반, gpt-4.1-nano, hybrid 모드 |
 
 ### 다음 작업
-1. **통합 벤치마크**: DenseSparse vs ColBERT vs GraphRAG 비교 + RAGAS 평가
-2. **GraphRAG E2E 검증**: 소규모 문서로 실제 index/retrieve 테스트
+- ~~**통합 벤치마크**: DenseSparse vs ColBERT vs GraphRAG 비교 + RAGAS 평가~~ → **완료** (아래 세션 참조)
+- **GraphRAG E2E 검증**: 소규모 문서로 실제 index/retrieve 테스트
+- **Contextual Retrieval**: Anthropic 방식 인덱싱 보강 구현
+
+## 2026-02-11: 통합 벤치마크 스크립트 + 전체 9종 비교 + 시각화 노트북
+
+### 주요 활동
+- **rag_bench 패키지 독립 공유 구조화**: 스크립트, 문서, 의존성 파일을 패키지 내부에 배치하여 `rag_bench/` 단독 공유 가능.
+- **벤치마크 스크립트 3종 신규 작성**:
+  - `scripts/generate_qa.py`: `docs/*.md` → Parent-Child 청킹 → GPT-4o-mini QA 자동 생성 (해시 캐싱, `--force` 재생성).
+  - `scripts/run_bench.py`: DenseSparse(combo4) + ColBERT + ColBERTRerank 3종 벤치마크 + RAGAS 평가.
+  - `scripts/run_all_combos.py`: DenseSparse 6종 + ColBERT + ColBERTRerank×N 전체 조합 비교 (실패 내성, `--skip_paid`, `--combos`, `--no_ragas`).
+- **시각화 노트북**: `scripts/bench_visualize.ipynb` — 7종 차트 (레이턴시 바, RAGAS Grouped Bar, 레이더, 품질-속도 Scatter, 히트맵, 쿼리별 분포, 종합 순위표).
+- **패키지 내부 파일 배치**:
+  - `rag_bench/docs/`: 벤치마크 대상 markdown 문서 (2개).
+  - `rag_bench/pyproject.toml`, `uv.lock`, `.python-version`, `docker-compose.yml`: 의존성 및 인프라 파일 복사.
+  - `rag_bench/_benchdata/`: 벤치마크 중간 산출물 (.gitignore 제외).
+- **config.py 확장**: `PACKAGE_ROOT`, `BENCH_DOCS_DIR`, `BENCH_DATA_DIR` 경로 상수 추가.
+- **README.md 전면 개편**: 아키텍처 다이어그램, 전략 4종 상세, 스크립트 사용법, 독립 공유 안내 반영.
+
+### 전체 9종 벤치마크 실행 결과 (2개 QA, --skip_paid)
+
+**레이턴시 순위:**
+| 전략 | 평균 레이턴시 |
+|------|-------------|
+| DS4-MiniLM+BM25 | 107ms |
+| DS1-KoSimCSE+BM25/OKt | 1,309ms |
+| DS3-BGE-M3 | 1,882ms |
+| DS2-E5+SPLADE | 3,251ms |
+| ColBERT (jina-colbert-v2) | 8,143ms |
+| ColBERTRerank (DS4) | 8,640ms |
+| ColBERTRerank (DS2) | 12,363ms |
+| ColBERTRerank (DS3) | 12,417ms |
+| ColBERTRerank (DS1) | 13,550ms |
+
+**RAGAS 품질 순위 (종합):**
+| 전략 | Faithfulness | Answer Rel. | Context Prec. | Context Recall |
+|------|:-:|:-:|:-:|:-:|
+| ColBERT | **1.00** | 0.86 | **1.00** | **1.00** |
+| Rerank-E5+SPLADE | 0.75 | **0.93** | **1.00** | **1.00** |
+| Rerank-KoSimCSE | 0.67 | 0.92 | **1.00** | **1.00** |
+| DS3-BGE-M3 | 0.75 | 0.84 | 0.92 | **1.00** |
+| DS2-E5+SPLADE | **1.00** | 0.46 | 0.92 | **1.00** |
+| DS4-MiniLM | 0.42 | 0.86 | 0.25 | 0.50 |
+
+**인사이트**: ColBERT가 품질 최고(4개 메트릭 만점), ColBERTRerank가 기존 전략 위에 품질 향상 효과 확인. MiniLM+BM25는 속도 최고지만 한국어 품질 약함.
+
+### 디렉토리 구조 (최종)
+```
+rag_bench/
+├── scripts/
+│   ├── generate_qa.py       # QA 데이터셋 자동 생성
+│   ├── run_bench.py         # 3종 통합 벤치마크
+│   ├── run_all_combos.py    # 전체 조합 비교
+│   └── bench_visualize.ipynb # 시각화 노트북
+├── docs/                    # 벤치마크 대상 문서
+├── _benchdata/              # 중간 산출물 (.gitignore)
+├── pyproject.toml           # 의존성 (복사본)
+├── uv.lock                  # 버전 잠금 (복사본)
+├── docker-compose.yml       # Qdrant (복사본)
+└── .python-version          # Python 3.12
+```
+
+### 커밋 히스토리
+```
+1f5ae06 feat: 통합 벤치마크 스크립트 추가 — QA 생성 + RAGAS 평가 + 전체 조합 비교
+```
+
+### 다음 작업
+1. **QA 데이터셋 확충**: `--num_qa 20`+ 로 더 많은 QA 생성하여 벤치마크 신뢰도 향상
+2. **GraphRAG 벤치마크 통합**: `run_all_combos.py`에 GraphRAG 전략 추가
 3. **Contextual Retrieval**: Anthropic 방식 인덱싱 보강 구현
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립

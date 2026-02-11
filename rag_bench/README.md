@@ -2,23 +2,29 @@
 
 Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스로 비교 벤치마크하는 LangChain/LangGraph 통합 패키지.
 
+> 이 디렉토리 단독으로 공유 가능합니다. `pyproject.toml`, `uv.lock`, `docker-compose.yml`이 포함되어 있습니다.
+
 ## 아키텍처
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    BenchmarkRunner                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │  Dense   │  │  ColBERT │  │  Graph   │  │  Custom  │ │
-│  │ +Sparse  │  │(RAGatou) │  │(NodeRAG) │  │  (확장)  │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
-│       └─────────────┴──────┬──────┴─────────────┘        │
-│                  ┌─────────▼─────────┐                   │
-│                  │  BaseRAGStrategy  │  ← ABC            │
-│                  │  index()          │                    │
-│                  │  retrieve()       │                    │
-│                  │  get_retriever()  │                    │
-│                  └───────────────────┘                    │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      BenchmarkRunner                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐   │
+│  │  Dense   │ │  ColBERT │ │  Graph   │ │ColBERT Rerank │   │
+│  │ +Sparse  │ │ (PyLate) │ │(LightRAG)│ │ (2-stage)     │   │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬────────┘   │
+│       └─────────────┴──────┬─────┴──────────────┘            │
+│                  ┌─────────▼─────────┐                       │
+│                  │  BaseRAGStrategy  │  ← ABC                │
+│                  │  index()          │                        │
+│                  │  retrieve()       │                        │
+│                  │  get_retriever()  │                        │
+│                  └───────────────────┘                        │
+│                            │                                  │
+│                  ┌─────────▼─────────┐                       │
+│                  │   RAGEvaluator    │  ← RAGAS 평가          │
+│                  └───────────────────┘                        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## 패키지 구조
@@ -29,46 +35,86 @@ rag_bench/
 ├── config.py                # 전역 설정 (경로, LLM, SSL)
 ├── base.py                  # BaseRAGStrategy ABC
 ├── runner.py                # BenchmarkRunner (전략 비교)
+├── evaluation.py            # RAGEvaluator (RAGAS 평가)
 ├── cli.py                   # RAGChat (대화 인터페이스)
-├── strategies/              # RAG 전략 모듈
+├── strategies/              # RAG 전략 모듈 (4종 구현 완료)
 │   ├── dense_sparse.py      # 6가지 Dense+Sparse 조합
-│   ├── colbert.py           # ColBERT 스텁 (TODO)
-│   └── graph_rag.py         # GraphRAG 스텁 (TODO)
+│   ├── colbert.py           # ColBERT Late Interaction (PyLate)
+│   ├── colbert_rerank.py    # ColBERT 2-stage 리랭킹
+│   └── graph_rag.py         # GraphRAG (LightRAG 기반)
 ├── indexing/                # 문서 처리
 │   ├── pdf_converter.py     # PDF → Markdown (pymupdf4llm)
 │   └── chunker.py           # Parent-Child 청킹
-└── graph/                   # LangGraph 에이전트
-    ├── state.py             # State, AgentState, QueryAnalysis
-    ├── prompts.py           # 시스템 프롬프트 4종
-    ├── nodes.py             # 그래프 노드 + 라우팅
-    └── builder.py           # build_agent_graph()
+├── graph/                   # LangGraph 에이전트
+│   ├── state.py             # State, AgentState, QueryAnalysis
+│   ├── prompts.py           # 시스템 프롬프트 4종
+│   ├── nodes.py             # 그래프 노드 + 라우팅
+│   └── builder.py           # build_agent_graph()
+├── scripts/                 # 벤치마크 실행 스크립트
+│   ├── generate_qa.py       # QA 데이터셋 자동 생성
+│   ├── run_bench.py         # 3종 통합 벤치마크 + RAGAS
+│   └── run_all_combos.py    # 전체 13종 조합 비교
+├── docs/                    # 벤치마크 대상 문서 (*.md)
+├── _benchdata/              # 벤치마크 중간 산출물 (.gitignore)
+├── pyproject.toml           # 의존성 정의
+├── uv.lock                  # 버전 잠금
+├── docker-compose.yml       # Qdrant 컨테이너
+└── .python-version          # Python 3.12
 ```
 
 ## 빠른 시작
 
-### 1. 전략 비교 벤치마크
+### 0. 환경 설정
+
+```bash
+# 의존성 설치
+uv sync
+
+# Qdrant 실행 (DenseSparse 전략에 필요)
+docker compose up -d
+
+# .env 파일에 OpenAI API 키 설정
+echo "OPENAI_API_KEY=sk-..." > .env
+```
+
+### 1. 벤치마크 실행 (CLI)
+
+```bash
+# Step 1: docs/에 Markdown 문서 배치 (이미 포함됨)
+
+# Step 2: QA 데이터셋 자동 생성
+python -m rag_bench.scripts.generate_qa --num_qa 20
+
+# Step 3-A: 3종 벤치마크 (DenseSparse + ColBERT + ColBERTRerank)
+python -m rag_bench.scripts.run_bench --k 3
+
+# Step 3-B: 전체 13종 조합 비교
+python -m rag_bench.scripts.run_all_combos --skip_paid
+
+# Step 3-C: 특정 조합만 선택
+python -m rag_bench.scripts.run_all_combos --combos 1,3,4 --skip_rerank
+```
+
+### 2. Python API로 전략 비교
 
 ```python
 from rag_bench import BenchmarkRunner
 from rag_bench.strategies import DenseSparseStrategy
 
-# 비교할 전략 선택
 strategies = [
     DenseSparseStrategy(combo_id=1),  # 한국어 최적 (KoSimCSE + BM25/OKt)
     DenseSparseStrategy(combo_id=4),  # 경량 (MiniLM + BM25)
 ]
 
-# 벤치마크 실행
-queries = ["쿠버네티스 Pod란?", "Docker와 VM의 차이"]
+queries = ["AI 산업 동향은?", "생성형 AI의 주요 활용 분야는?"]
 runner = BenchmarkRunner(strategies, queries)
 results = runner.run()
 runner.compare()
 
-# pandas DataFrame 변환
 df = runner.to_dataframe()
 ```
 
-### 2. 문서 인덱싱 파이프라인
+### 3. 문서 인덱싱 파이프라인
 
 ```python
 from rag_bench.indexing import pdfs_to_markdowns, create_parent_child_chunks
@@ -81,12 +127,11 @@ parents, children = create_parent_child_chunks(
     parent_store_path="parent_store",
 )
 
-# 전략에 인덱싱
 strategy = DenseSparseStrategy(combo_id=1)
 strategy.index(children)
 ```
 
-### 3. Agentic RAG 대화
+### 4. Agentic RAG 대화
 
 ```python
 from rag_bench.strategies import DenseSparseStrategy
@@ -101,7 +146,9 @@ chat.ask("제네시스 미션이 뭐야?")
 chat.clear()  # 세션 초기화
 ```
 
-## 임베딩 조합 상세
+## 전략 상세
+
+### DenseSparse 임베딩 6종 조합
 
 | # | 조합 | Dense Model | Sparse Model | 한국어 | 비용 |
 |---|------|-------------|-------------|--------|------|
@@ -112,9 +159,41 @@ chat.clear()  # 세션 초기화
 | 5 | 고성능 API | OpenAI Large (3072d) | SPLADE | ★★☆ | 유료 |
 | 6 | 한국어 API | Upstage Solar (4096d) | BM25+OKt | ★★★ | 유료 |
 
+### ColBERT / ColBERTRerank
+
+| 전략 | 모델 | 방식 | 특징 |
+|------|------|------|------|
+| ColBERT | jina-colbert-v2 | Late Interaction MaxSim | 전체 코퍼스 인코딩, 높은 정확도 |
+| ColBERTRerank | jina-colbert-v2 | 2-stage 리랭킹 | 후보 N개만 인코딩, 임의의 base 전략 위에 적용 |
+
+### GraphRAG
+
+| 전략 | 백엔드 | 모드 | 특징 |
+|------|--------|------|------|
+| GraphRAG | LightRAG | local/global/hybrid | LLM 기반 엔터티/관계 추출, 지식 그래프 검색 |
+
+## 벤치마크 스크립트
+
+| 스크립트 | 설명 | 사용법 |
+|----------|------|--------|
+| `generate_qa.py` | docs/*.md에서 QA 자동 생성 (GPT-4o-mini) | `python -m rag_bench.scripts.generate_qa --num_qa 20` |
+| `run_bench.py` | 3종 전략 벤치마크 + RAGAS 평가 | `python -m rag_bench.scripts.run_bench --k 3` |
+| `run_all_combos.py` | 최대 13종 전체 조합 비교 | `python -m rag_bench.scripts.run_all_combos --skip_paid` |
+
+### run_all_combos.py 옵션
+
+```
+--k K             검색 결과 수 (기본: 3)
+--combos 1,3,4    DenseSparse 조합 ID 지정 (미지정 시 전체)
+--skip_paid       유료 API 조합(5, 6) 건너뛰기
+--skip_colbert    ColBERT 단독 전략 건너뛰기
+--skip_rerank     ColBERTRerank 전략 건너뛰기
+--no_ragas        RAGAS 평가 건너뛰기 (레이턴시만 측정)
+```
+
 ## 새 전략 추가하기
 
-`BaseRAGStrategy`를 상속하여 5개 메서드를 구현하면 자동으로 벤치마크에 편입됩니다:
+`BaseRAGStrategy`를 상속하여 구현하면 벤치마크에 편입됩니다:
 
 ```python
 from rag_bench.base import BaseRAGStrategy
@@ -129,38 +208,34 @@ class MyStrategy(BaseRAGStrategy):
         return "커스텀 RAG 전략"
 
     def index(self, documents):
-        # 문서 인덱싱 로직
         ...
 
     def retrieve(self, query, k=5):
-        # 검색 로직
         ...
 
     def get_retriever(self, k=5):
-        # LangChain Retriever 반환
         ...
 ```
 
-## Future TODO
-
-- [ ] **RAGAS 벤치마크 통합** — LLM 기반 평가 메트릭 (Faithfulness, Context Precision 등)
-- [ ] **ColBERT/RAGatouille 실제 구현** — `jinaai/jina-colbert-v2` 한국어 벤치마크
-- [ ] **NodeRAG/GraphRAG 실제 구현** — 이질적 그래프 기반 다중 홉 추론
-- [ ] **통합 노트북** — `benchmark_lab.ipynb` 작성
-
 ## 의존성
 
-**필수:**
-- `langchain-core`, `langchain-text-splitters`
-- `qdrant-client`, `langchain-qdrant`
-- `pydantic`
+전체 의존성은 `pyproject.toml`을 참고하세요. 주요 항목:
 
-**전략별 선택:**
+**핵심:**
+- `langchain-core`, `langchain-text-splitters`, `langchain-qdrant`
+- `qdrant-client`, `pandas`, `python-dotenv`
+
+**전략별:**
 - 조합 1, 6: `konlpy` (OKt 형태소 분석)
 - 조합 2, 5: `transformers` (SPLADE)
-- 조합 3, 4: `langchain-qdrant[fastembed]`
+- 조합 3, 4: `fastembed`
 - 조합 5: `langchain-openai`
 - 조합 6: `langchain-upstage`
+- ColBERT: `pylate`, `sentence-transformers`
+- GraphRAG: `lightrag-hku`, `nest-asyncio`
+
+**평가:**
+- `ragas`, `datasets`
 
 **Agentic RAG:**
 - `langgraph`, `langchain-openai`
