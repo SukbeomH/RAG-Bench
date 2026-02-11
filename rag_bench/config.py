@@ -18,6 +18,13 @@ MARKDOWN_DIR = PROJECT_ROOT / "markdown"
 PARENT_STORE_PATH = PROJECT_ROOT / "parent_store"
 QDRANT_BASE_PATH = PROJECT_ROOT  # qdrant_db_<strategy> 접두사로 사용
 
+# ---------------------------------------------------------------------------
+# 패키지 내부 경로 (rag_bench/ 패키지를 독립 공유할 때 사용)
+# ---------------------------------------------------------------------------
+PACKAGE_ROOT = Path(__file__).parent
+BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"      # 벤치마크 대상 markdown 문서
+BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"  # 벤치마크 중간 산출물
+
 # .env 파일 로드
 from dotenv import load_dotenv
 

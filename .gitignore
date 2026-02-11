@@ -37,6 +37,9 @@ colbert_index/
 lightrag_index/
 parent_store/
 
+# 벤치마크 중간 산출물 (실행 시 새로 생성)
+rag_bench/_benchdata/
+
 # Claude Code
 .claude/
 
