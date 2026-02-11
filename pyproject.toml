@@ -1,16 +1,33 @@
 [project]
-name = "autorag-benchmark"
+name = "rag-bench"
 version = "0.1.0"
-description = "Add your description here"
+description = "Modular RAG Benchmark System"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "autorag>=0.3.21",
-    "kiwipiepy>=0.22.2",
+    "langchain>=1.0",
+    "langchain-community>=0.3",
+    "langchain-core>=0.3",
+    "langchain-huggingface>=0.1",
+    "langchain-openai>=0.2",
+    "langchain-qdrant>=0.2",
+    "langchain-text-splitters>=0.3",
+    "langgraph>=0.2",
+    "qdrant-client>=1.11",
+    "pymupdf4llm>=0.0.17",
     "konlpy>=0.6.0",
-    "llama-index-embeddings-huggingface>=0.6.1",
-    "llama-index-llms-ollama>=0.9.1",
-    "llama-index-llms-openai>=0.6.18",
-    "nbconvert>=7.17.0",
-    "pdfminer-six>=20260107",
+    "pandas>=2.2",
+    "fastembed>=0.4",
+    "pylate>=1.0",
+    "sentence-transformers>=3.1",
+    "transformers>=4.40",
+    "torch>=2.2",
+    "python-dotenv>=1.0",
+    "jupyter>=1.0",
+    "ipython>=8.27",
+    "ragas>=0.4.3",
+    "einops>=0.8.2",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["rag_bench"]
