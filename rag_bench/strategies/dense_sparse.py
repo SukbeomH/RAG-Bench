@@ -194,18 +194,6 @@ COMBO_DEFINITIONS = {
         "sparse_type": "fastembed_bm25",
         "description": "최소 리소스. MiniLM(384d) + FastEmbed BM25. 가볍고 빠름.",
     },
-    5: {
-        "name": "고성능 API (OpenAI Large + SPLADE)",
-        "dense_model": "openai:text-embedding-3-large",
-        "sparse_type": "splade",
-        "description": "최고 품질 API. OpenAI Large(3072d) + SPLADE. 비용 발생.",
-    },
-    6: {
-        "name": "한국어 API (Upstage Solar + BM25/OKt)",
-        "dense_model": "upstage:solar-embedding-1-large",
-        "sparse_type": "korean_bm25",
-        "description": "한국어 특화 API. Upstage Solar + OKt BM25. OpenAI 한국어 대안.",
-    },
 }
 
 
@@ -223,7 +211,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     def __init__(self, combo_id: int = 1, qdrant_path: Optional[str] = None):
         if combo_id not in COMBO_DEFINITIONS:
-            raise ValueError(f"combo_id는 1~6이어야 합니다. 입력값: {combo_id}")
+            raise ValueError(f"combo_id는 1~4이어야 합니다. 입력값: {combo_id}")
 
         self._combo_id = combo_id
         self._combo = COMBO_DEFINITIONS[combo_id]
@@ -252,24 +240,13 @@ class DenseSparseStrategy(BaseRAGStrategy):
         """Dense 임베딩 모델 초기화."""
         model_spec = self._combo["dense_model"]
 
-        if model_spec.startswith("openai:"):
-            from langchain_openai import OpenAIEmbeddings
+        from langchain_huggingface import HuggingFaceEmbeddings
 
-            model_name = model_spec.split(":", 1)[1]
-            self._dense_embeddings = OpenAIEmbeddings(model=model_name)
-        elif model_spec.startswith("upstage:"):
-            from langchain_upstage import UpstageEmbeddings
-
-            model_name = model_spec.split(":", 1)[1]
-            self._dense_embeddings = UpstageEmbeddings(model=model_name)
-        else:
-            from langchain_huggingface import HuggingFaceEmbeddings
-
-            self._dense_embeddings = HuggingFaceEmbeddings(
-                model_name=model_spec,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+        self._dense_embeddings = HuggingFaceEmbeddings(
+            model_name=model_spec,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
 
         # 차원 확인
         test_vec = self._dense_embeddings.embed_query("test")

@@ -290,6 +290,11 @@ def main():
         action="store_true",
         help="rag_bench 결과와 비교",
     )
+    parser.add_argument(
+        "--convert_only",
+        action="store_true",
+        help="데이터 변환만 수행 (벤치마크 실행 건너뛰기). 별도 venv에서 실행 시 사용.",
+    )
     args = parser.parse_args()
 
     setup_ssl_bypass()
@@ -308,10 +313,11 @@ def main():
     print(f"  비교 모드: {'ON' if args.compare else 'OFF'}")
 
     # ── Step 1: Prerequisites ──
-    print(f"\n{'=' * 60}")
-    print("Step 1: Prerequisites 확인")
-    print(f"{'=' * 60}")
-    _check_prerequisites(config_path)
+    if not args.convert_only:
+        print(f"\n{'=' * 60}")
+        print("Step 1: Prerequisites 확인")
+        print(f"{'=' * 60}")
+        _check_prerequisites(config_path)
 
     # ── Step 2: 데이터 변환 ──
     print(f"\n{'=' * 60}")
@@ -330,6 +336,20 @@ def main():
         t0 = time.time()
         _convert_data(dataset)
         print(f"  변환 소요: {time.time() - t0:.1f}s")
+
+    if args.convert_only:
+        print(f"\n{'═' * 60}")
+        print(f" 데이터 변환 완료 (--convert_only)")
+        print(f"{'═' * 60}")
+        print(f"  QA:     {AUTORAG_DATA_DIR / 'qa.parquet'}")
+        print(f"  Corpus: {AUTORAG_DATA_DIR / 'corpus.parquet'}")
+        print(f"\n  별도 venv에서 벤치마크 실행:")
+        print(f"  /tmp/autorag-env/.venv/bin/python scripts/run_autorag_isolated.py \\")
+        print(f"    --config {config_path} \\")
+        print(f"    --qa {AUTORAG_DATA_DIR / 'qa.parquet'} \\")
+        print(f"    --corpus {AUTORAG_DATA_DIR / 'corpus.parquet'} \\")
+        print(f"    --project_dir {AUTORAG_RESULTS_DIR}")
+        return
 
     # ── Step 3: AutoRAG 벤치마크 ──
     print(f"\n{'=' * 60}")

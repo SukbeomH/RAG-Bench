@@ -47,16 +47,6 @@ vectordb:
     embedding_batch: 128
     dimension: 384
 
-  # 조합 5: OpenAI Large (고성능 API, 3072차원)
-  - name: openai_qdrant
-    db_type: qdrant
-    client_type: docker
-    embedding_model: openai_embed_3_large
-    collection_name: openai_large
-    similarity_metric: cosine
-    embedding_batch: 100
-    dimension: 3072
-
 node_lines:
   - node_line_name: retrieve_and_generate
     nodes:
@@ -67,7 +57,7 @@ node_lines:
           metrics: [retrieval_f1, retrieval_recall, retrieval_precision]
         modules:
           - module_type: vectordb
-            vectordb: [kosimcse_qdrant, e5_qdrant, bge_m3_qdrant, minilm_qdrant, openai_qdrant]
+            vectordb: [kosimcse_qdrant, e5_qdrant, bge_m3_qdrant, minilm_qdrant]
 
       # 2. Prompt Maker 노드
       - node_type: prompt_maker

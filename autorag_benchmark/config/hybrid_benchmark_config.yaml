@@ -47,28 +47,18 @@ vectordb:
     embedding_batch: 128
     dimension: 384
 
-  # 조합 5: OpenAI Large (고성능 API, 3072차원)
-  - name: openai_qdrant
-    db_type: qdrant
-    client_type: docker
-    embedding_model: openai_embed_3_large
-    collection_name: openai_large
-    similarity_metric: cosine
-    embedding_batch: 100
-    dimension: 3072
-
 node_lines:
   # 1단계: Retrieval (Dense → Sparse → Hybrid Fusion → Reranker)
   - node_line_name: retrieve_node_line
     nodes:
-      # Dense Retrieval: 5개 임베딩 모델 비교
+      # Dense Retrieval: 4개 임베딩 모델 비교
       - node_type: semantic_retrieval
         top_k: 10
         strategy:
           metrics: [retrieval_f1, retrieval_recall, retrieval_precision]
         modules:
           - module_type: vectordb
-            vectordb: [kosimcse_qdrant, e5_qdrant, bge_m3_qdrant, minilm_qdrant, openai_qdrant]
+            vectordb: [kosimcse_qdrant, e5_qdrant, bge_m3_qdrant, minilm_qdrant]
 
       # Sparse Retrieval: BM25 한국어 토크나이저 비교
       - node_type: lexical_retrieval

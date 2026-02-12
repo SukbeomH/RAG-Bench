@@ -1,23 +1,24 @@
 """
-전체 조합 벤치마크 — DenseSparse 6종 + ColBERT + ColBERTRerank + GraphRAG 완전 비교.
+전체 조합 벤치마크 — DenseSparse 6종 + ColBERT + ColBERTRerank + GraphRAG
+                    + Contextual Retrieval + FlashRank Rerank 완전 비교.
 
 DenseSparse 조합:
   1. 한국어 최적 (KoSimCSE + BM25/OKt)      — konlpy 필요
   2. 다국어 균형 (E5 + SPLADE)               — SPLADE 모델 필요
   3. 올인원 통합 (BGE-M3)                    — fastembed
   4. 경량/빠른 속도 (MiniLM + BM25)          — fastembed
-  5. 고성능 API (OpenAI Large + SPLADE)      — 유료 API
-  6. 한국어 API (Upstage Solar + BM25/OKt)   — 유료 API + konlpy
 
 추가 전략:
-  7. ColBERT (jina-colbert-v2, brute-force)
-  8~13. ColBERTRerank (각 DenseSparse 위에 리랭킹)
-  14. GraphRAG (LightRAG, hybrid)            — LLM API (gpt-4.1-nano)
+  5. ColBERT (jina-colbert-v2, brute-force)
+  6~9. ColBERTRerank (각 DenseSparse 위에 리랭킹)
+  10. GraphRAG (LightRAG, hybrid)            — LLM API (gpt-4.1-nano)
+  11. Contextual Retrieval (DenseSparse 위)  — LLM API (인덱싱 시)
+  12~15. FlashRank Rerank (각 DenseSparse 위) — CPU, ~150MB
 
 초기화/인덱싱 실패 전략은 건너뛰고, 성공한 전략만 평가한다.
 
 Usage:
-    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_paid] [--skip_colbert] [--skip_rerank] [--skip_graphrag] [--no_ragas] [--reindex]
+    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_colbert] [--skip_rerank] [--skip_graphrag] [--skip_contextual] [--skip_flashrank] [--no_ragas] [--reindex] [--contextual_base 3]
 """
 
 import argparse
@@ -36,8 +37,7 @@ from rag_bench.config import (
 from rag_bench.indexing.chunker import create_parent_child_chunks
 from rag_bench.runner import BenchmarkRunner
 
-ALL_COMBO_IDS = [1, 2, 3, 4, 5, 6]
-PAID_COMBO_IDS = {5, 6}
+ALL_COMBO_IDS = [1, 2, 3, 4]
 
 
 def _load_qa_dataset() -> dict:
@@ -103,6 +103,40 @@ def _try_build_rerank(base_strategy, child_chunks):
     )
     # base는 이미 인덱싱 됨 → ColBERT 모델만 로드
     strategy._base_strategy = base_strategy  # 이미 인덱싱된 base 재사용
+    strategy._ensure_initialized()
+    strategy._is_ready = True
+    return strategy, None
+
+
+def _try_build_contextual(
+    base_combo_id: int, child_chunks, parent_pairs, qdrant_suffix: str, reindex=True
+):
+    """Contextual Retrieval 전략을 생성한다. 별도 Qdrant 경로 사용."""
+    from rag_bench.strategies.dense_sparse import DenseSparseStrategy
+    from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+
+    qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{qdrant_suffix}")
+    base = DenseSparseStrategy(combo_id=base_combo_id, qdrant_path=qdrant_path)
+    strategy = ContextualRetrievalStrategy(
+        base_strategy=base,
+        parent_pairs=parent_pairs,
+        llm_model="gpt-4o-mini",
+    )
+    strategy.index(child_chunks)
+    return strategy, None
+
+
+def _try_build_flashrank_rerank(base_strategy, child_chunks):
+    """FlashRank 리랭킹 전략을 생성한다."""
+    from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
+
+    strategy = FlashRankRerankStrategy(
+        base_strategy=base_strategy,
+        model_name="ms-marco-MultiBERT-L-12",
+        rerank_n=20,
+    )
+    # base는 이미 인덱싱 됨 → FlashRank 모델만 로드
+    strategy._base_strategy = base_strategy
     strategy._ensure_initialized()
     strategy._is_ready = True
     return strategy, None
@@ -214,11 +248,6 @@ def main():
         help="DenseSparse 조합 ID (쉼표 구분, 예: 1,3,4). 미지정 시 전체.",
     )
     parser.add_argument(
-        "--skip_paid",
-        action="store_true",
-        help="유료 API 조합(5, 6) 건너뛰기",
-    )
-    parser.add_argument(
         "--skip_colbert",
         action="store_true",
         help="ColBERT 단독 전략 건너뛰기",
@@ -232,6 +261,22 @@ def main():
         "--skip_graphrag",
         action="store_true",
         help="GraphRAG 전략 건너뛰기",
+    )
+    parser.add_argument(
+        "--skip_contextual",
+        action="store_true",
+        help="Contextual Retrieval 전략 건너뛰기",
+    )
+    parser.add_argument(
+        "--skip_flashrank",
+        action="store_true",
+        help="FlashRank Rerank 전략 건너뛰기",
+    )
+    parser.add_argument(
+        "--contextual_base",
+        type=int,
+        default=3,
+        help="Contextual Retrieval의 기반 DenseSparse 조합 ID (기본: 3=BGE-M3)",
     )
     parser.add_argument(
         "--no_ragas",
@@ -253,15 +298,14 @@ def main():
     else:
         combo_ids = list(ALL_COMBO_IDS)
 
-    if args.skip_paid:
-        combo_ids = [c for c in combo_ids if c not in PAID_COMBO_IDS]
-
     reindex = args.reindex
 
     print(f"대상 DenseSparse 조합: {combo_ids}")
     print(f"ColBERT: {'OFF' if args.skip_colbert else 'ON'}")
     print(f"ColBERTRerank: {'OFF' if args.skip_rerank else 'ON'}")
     print(f"GraphRAG: {'OFF' if args.skip_graphrag else 'ON'}")
+    print(f"Contextual Retrieval: {'OFF' if args.skip_contextual else f'ON (base=combo{args.contextual_base})'}")
+    print(f"FlashRank Rerank: {'OFF' if args.skip_flashrank else 'ON'}")
     print(f"RAGAS 평가: {'OFF' if args.no_ragas else 'ON'}")
     print(f"인덱스 모드: {'재인덱싱' if reindex else '기존 재사용'}")
 
@@ -301,6 +345,8 @@ def main():
         + (0 if args.skip_colbert else 1)
         + (0 if args.skip_rerank else len(combo_ids))
         + (0 if args.skip_graphrag else 1)
+        + (0 if args.skip_contextual else 1)
+        + (0 if args.skip_flashrank else len(combo_ids))
     )
     current = 0
 
@@ -356,6 +402,34 @@ def main():
         build_results.append((label, strategy, err))
         graphrag_strategy = strategy
 
+    # 3-e. Contextual Retrieval — 별도 DenseSparse 인스턴스 + LLM 문맥 부착
+    contextual_strategy = None
+    if not args.skip_contextual:
+        current += 1
+        ctx_base_id = args.contextual_base
+        label = f"Contextual Retrieval (base=combo{ctx_base_id})"
+        strategy, err = _safe_build(
+            label, _try_build_contextual, ctx_base_id, child_chunks, parent_pairs,
+            f"contextual_combo{ctx_base_id}", reindex,
+            progress=f"[{current}/{total_strategies}]",
+        )
+        build_results.append((label, strategy, err))
+        contextual_strategy = strategy
+
+    # 3-f. FlashRank Rerank (각 성공한 DenseSparse 위에)
+    flashrank_strategies = {}
+    if not args.skip_flashrank:
+        for cid, ds in ds_strategies.items():
+            current += 1
+            label = f"FlashRank Rerank (base=combo{cid})"
+            strategy, err = _safe_build(
+                label, _try_build_flashrank_rerank, ds, child_chunks,
+                progress=f"[{current}/{total_strategies}]",
+            )
+            build_results.append((label, strategy, err))
+            if strategy is not None:
+                flashrank_strategies[cid] = strategy
+
     _print_init_summary(build_results)
 
     # ── 성공한 전략만 수집 ──
@@ -370,6 +444,11 @@ def main():
             active_strategies.append(rerank_strategies[cid])
     if graphrag_strategy is not None:
         active_strategies.append(graphrag_strategy)
+    if contextual_strategy is not None:
+        active_strategies.append(contextual_strategy)
+    for cid in combo_ids:
+        if cid in flashrank_strategies:
+            active_strategies.append(flashrank_strategies[cid])
 
     if not active_strategies:
         print("\n성공한 전략이 없습니다. 종료합니다.")
