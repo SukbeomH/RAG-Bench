@@ -1,6 +1,13 @@
 # AutoRAG Benchmark - 한국어 RAG 파이프라인 비교 평가
 
-한국어 문서(PDF)를 대상으로 5가지 임베딩 모델 조합의 RAG 파이프라인 성능을 [AutoRAG](https://github.com/Marker-Inc-Korea/AutoRAG) 프레임워크로 정량 평가하는 프로젝트입니다.
+한국어 문서(PDF)를 대상으로 다양한 RAG 파이프라인 성능을 정량 평가하는 프로젝트입니다.
+
+**두 가지 벤치마크 프레임워크를 동일 데이터로 비교합니다:**
+
+| 프레임워크 | 설명 | 스크립트 |
+|-----------|------|----------|
+| **rag_bench** (자체) | Strategy Pattern 기반 모듈화 RAG 벤치마크 (10종 전략) | `rag_bench/scripts/run_all_combos.py` |
+| **AutoRAG** (외부) | AutoRAG 프레임워크 파이프라인 탐색 | `rag_bench/scripts/run_autorag.py` |
 
 ## 비교 대상
 
@@ -12,7 +19,7 @@
 | 4 | sentence-transformers/all-MiniLM-L6-v2 | 경량/빠름 | 384 |
 | 5 | OpenAI text-embedding-3-large | 고성능 API | 3072 |
 
-추가로 BM25(한국어 토크나이저), Hybrid Retrieval, Reranker 조합도 비교합니다.
+추가로 BM25(한국어 토크나이저), Hybrid Retrieval, Reranker, ColBERT, GraphRAG 조합도 비교합니다.
 
 ---
 
@@ -105,21 +112,49 @@ uv run autorag dashboard --trial_dir autorag_benchmark/results/0
 │   │   ├── chunk_config.yaml          #   청킹 설정
 │   │   ├── benchmark_config.yaml      #   Dense-only 벤치마크
 │   │   └── hybrid_benchmark_config.yaml  # Hybrid 벤치마크
-│   ├── data/                          # 데이터셋 (포함됨)
+│   ├── data/                          # AutoRAG 독립 데이터셋 (100 QA)
 │   │   ├── qa.parquet                 #   QA 100쌍
 │   │   └── corpus.parquet             #   문서 청크 299개
+│   ├── data_ragbench/                 # rag_bench 동일 데이터 변환본 (20 QA)
 │   └── results/                       # 벤치마크 결과 (포함됨)
 │       ├── 0/                         #   Trial 0: Dense-only
 │       └── 1/                         #   Trial 1: Hybrid
-├── scripts/
+├── scripts/                           # AutoRAG 독립 스크립트 (레거시)
 │   ├── 01_parse_and_chunk.py          # PDF → 청크
 │   ├── 02_create_qa_dataset.py        # 청크 → QA 쌍 생성
 │   ├── 03_run_benchmark.py            # 벤치마크 실행
 │   └── 04_analyze_results.py          # 결과 분석
+├── rag_bench/                         # 모듈화 RAG 벤치마크 패키지
+│   ├── scripts/
+│   │   ├── generate_qa.py             # QA 데이터셋 자동 생성
+│   │   ├── run_all_combos.py          # 전체 10종 조합 비교
+│   │   └── run_autorag.py             # AutoRAG 크로스 프레임워크 벤치마크
+│   └── ...                            # 전략, 인덱싱, 평가 모듈
 ├── autorag_benchmark_analysis.ipynb   # 결과 시각화/분석 노트북
 ├── embedding_combinations_lab.ipynb   # 임베딩 조합 실험 노트북
 └── autorag_research.md                # AutoRAG 리서치 노트
 ```
+
+## 크로스 프레임워크 벤치마크 (rag_bench ↔ AutoRAG)
+
+rag_bench의 QA 20개 + child_chunks를 AutoRAG parquet 포맷으로 변환하여 동일 데이터 기반 비교:
+
+```bash
+# AutoRAG 의존성 설치 (optional)
+uv pip install -e '.[autorag]'
+
+# Dense 벤치마크
+docker compose up -d
+python -m rag_bench.scripts.run_autorag --config dense
+
+# Hybrid + Reranker 벤치마크
+python -m rag_bench.scripts.run_autorag --config hybrid
+
+# rag_bench 결과와 비교
+python -m rag_bench.scripts.run_autorag --config dense --compare
+```
+
+> AutoRAG는 LangChain 버전 충돌 위험이 있으므로 optional dependency로 분리되어 있습니다.
 
 ## 벤치마크 설정
 

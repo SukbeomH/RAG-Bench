@@ -53,7 +53,8 @@ rag_bench/
 ├── scripts/                 # 벤치마크 실행 스크립트
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성
 │   ├── run_bench.py         # 3종 통합 벤치마크 + RAGAS
-│   └── run_all_combos.py    # 전체 13종 조합 비교
+│   ├── run_all_combos.py    # 전체 10종 조합 비교
+│   └── run_autorag.py       # AutoRAG 크로스 프레임워크 벤치마크
 ├── docs/                    # 벤치마크 대상 문서 (*.md)
 ├── _benchdata/              # 벤치마크 중간 산출물 (.gitignore)
 ├── pyproject.toml           # 의존성 정의
@@ -178,7 +179,8 @@ chat.clear()  # 세션 초기화
 |----------|------|--------|
 | `generate_qa.py` | docs/*.md에서 QA 자동 생성 (GPT-4o-mini) | `python -m rag_bench.scripts.generate_qa --num_qa 20` |
 | `run_bench.py` | 3종 전략 벤치마크 + RAGAS 평가 | `python -m rag_bench.scripts.run_bench --k 3` |
-| `run_all_combos.py` | 최대 13종 전체 조합 비교 | `python -m rag_bench.scripts.run_all_combos --skip_paid` |
+| `run_all_combos.py` | 최대 10종 전체 조합 비교 | `python -m rag_bench.scripts.run_all_combos --skip_paid` |
+| `run_autorag.py` | AutoRAG 크로스 프레임워크 벤치마크 | `python -m rag_bench.scripts.run_autorag --config dense` |
 
 ### run_all_combos.py 옵션
 
@@ -188,7 +190,30 @@ chat.clear()  # 세션 초기화
 --skip_paid       유료 API 조합(5, 6) 건너뛰기
 --skip_colbert    ColBERT 단독 전략 건너뛰기
 --skip_rerank     ColBERTRerank 전략 건너뛰기
+--skip_graphrag   GraphRAG 전략 건너뛰기
 --no_ragas        RAGAS 평가 건너뛰기 (레이턴시만 측정)
+--reindex         기존 인덱스 삭제 후 재인덱싱 (기본: 기존 인덱스 재사용)
+```
+
+### run_autorag.py 옵션 (크로스 프레임워크)
+
+```
+--config CONFIG   YAML 설정: dense, hybrid, 또는 커스텀 경로 (기본: dense)
+--skip_convert    데이터 변환 건너뛰기 (기존 parquet 사용)
+--compare         rag_bench 결과와 비교 출력
+```
+
+rag_bench QA 20개 + child_chunks를 AutoRAG parquet 포맷으로 변환하여 동일 데이터 기반 비교:
+
+```bash
+# AutoRAG 설치 (optional dependency)
+uv pip install -e '.[autorag]'
+
+# Dense 벤치마크
+python -m rag_bench.scripts.run_autorag --config dense
+
+# Hybrid + rag_bench 비교
+python -m rag_bench.scripts.run_autorag --config hybrid --compare
 ```
 
 ## 새 전략 추가하기
