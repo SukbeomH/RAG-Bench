@@ -3,6 +3,9 @@ DenseSparseStrategy — Dense + Sparse 하이브리드 검색 전략
 
 노트북의 6가지 임베딩 조합을 모듈화한 구현.
 Qdrant 벡터 DB에 Dense(벡터) + Sparse(BM25/SPLADE) 하이브리드 검색을 수행한다.
+
+v2: dense_model / sparse_type 독립 파라미터화.
+    combo_id는 하위 호환용으로 유지.
 """
 
 import math
@@ -166,7 +169,20 @@ class SpladeEncoder:
 
 
 # ---------------------------------------------------------------------------
-# 임베딩 조합 정의
+# 모델 레지스트리
+# ---------------------------------------------------------------------------
+
+DENSE_MODELS: Dict[str, str] = {
+    "kosimcse": "BM-K/KoSimCSE-roberta-multitask",
+    "e5": "intfloat/multilingual-e5-large",
+    "bge-m3": "BAAI/bge-m3",
+    "minilm": "sentence-transformers/all-MiniLM-L6-v2",
+}
+
+SPARSE_TYPES: List[str] = ["korean_bm25", "splade", "fastembed_bm25"]
+
+# ---------------------------------------------------------------------------
+# 임베딩 조합 정의 (하위 호환용)
 # ---------------------------------------------------------------------------
 
 COMBO_DEFINITIONS = {
@@ -206,16 +222,49 @@ class DenseSparseStrategy(BaseRAGStrategy):
     """
     Dense + Sparse 하이브리드 검색 전략.
 
-    6가지 임베딩 조합 중 하나를 선택하여 Qdrant에서 Hybrid 검색을 수행한다.
+    항상 Hybrid 모드로 동작하는 base retriever.
+    Reranker/LLM Support 변형은 Decorator 패턴(ColBERTRerank, FlashRank, ContextualRetrieval)이 처리.
+
+    사용법:
+        # 새로운 독립 파라미터 방식
+        strategy = DenseSparseStrategy(dense_model="kosimcse", sparse_type="splade")
+        strategy = DenseSparseStrategy(dense_model="BM-K/KoSimCSE-roberta-multitask", sparse_type="fastembed_bm25")
+
+        # 하위 호환: combo_id
+        strategy = DenseSparseStrategy(combo_id=1)
     """
 
-    def __init__(self, combo_id: int = 1, qdrant_path: Optional[str] = None):
-        if combo_id not in COMBO_DEFINITIONS:
-            raise ValueError(f"combo_id는 1~4이어야 합니다. 입력값: {combo_id}")
+    def __init__(
+        self,
+        dense_model: Optional[str] = None,
+        sparse_type: Optional[str] = None,
+        qdrant_path: Optional[str] = None,
+        combo_id: Optional[int] = None,
+    ):
+        if combo_id is not None:
+            if combo_id not in COMBO_DEFINITIONS:
+                raise ValueError(f"combo_id는 1~4이어야 합니다. 입력값: {combo_id}")
+            combo = COMBO_DEFINITIONS[combo_id]
+            self._dense_model = combo["dense_model"]
+            self._sparse_type = combo["sparse_type"]
+            self._combo_id = combo_id
+            self._combo = combo
+        elif dense_model is not None:
+            self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
+            self._sparse_type = sparse_type or "fastembed_bm25"
+            self._combo_id = None
+            self._combo = None
+        else:
+            raise ValueError("combo_id 또는 dense_model 중 하나는 필수")
 
-        self._combo_id = combo_id
-        self._combo = COMBO_DEFINITIONS[combo_id]
-        self._qdrant_path = qdrant_path or f"qdrant_db_combo{combo_id}"
+        if qdrant_path is not None:
+            self._qdrant_path = qdrant_path
+        elif self._combo_id is not None:
+            self._qdrant_path = f"qdrant_db_combo{self._combo_id}"
+        else:
+            dense_short = self._dense_model.split("/")[-1]
+            self._qdrant_path = f"qdrant_db_{dense_short}_{self._sparse_type}"
+
         self._collection_name = "document_child_chunks"
 
         self._dense_embeddings: Any = None
@@ -226,11 +275,17 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     @property
     def name(self) -> str:
-        return f"[{self._combo_id}] {self._combo['name']}"
+        if self._combo_id:
+            return f"[{self._combo_id}] {self._combo['name']}"
+        dense_short = self._dense_model.split("/")[-1]
+        return f"DS({dense_short}+{self._sparse_type})"
 
     @property
     def description(self) -> str:
-        return self._combo["description"]
+        if self._combo_id and self._combo:
+            return self._combo["description"]
+        dense_short = self._dense_model.split("/")[-1]
+        return f"Hybrid: {dense_short} (dense) + {self._sparse_type} (sparse)"
 
     @property
     def is_ready(self) -> bool:
@@ -238,7 +293,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     def _init_dense(self):
         """Dense 임베딩 모델 초기화."""
-        model_spec = self._combo["dense_model"]
+        model_spec = self._dense_model
 
         from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -255,7 +310,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     def _init_sparse(self):
         """Sparse 임베딩 모델 초기화."""
-        sparse_type = self._combo["sparse_type"]
+        sparse_type = self._sparse_type
 
         if sparse_type == "korean_bm25":
             self._sparse_embeddings = KoreanBM25Encoder(k1=1.5, b=0.75)
