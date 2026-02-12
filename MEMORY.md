@@ -260,8 +260,56 @@ TBD — 이 세션에서 커밋 예정
 ```
 
 ### 다음 작업
-1. Contextual Retrieval 구현
+1. ~~Contextual Retrieval 구현~~ → **완료** (아래 세션 참조)
 2. 추가 평가 메트릭 확장
+
+## 2026-02-12: FlashRank/Contextual Retrieval 추가 + 유료 모델 제거 + AutoRAG 전면 제거
+
+### 주요 활동
+- **FlashRank 리랭커 전략 추가**: `strategies/flashrank_rerank.py` 신규 (~110 LOC).
+  - ms-marco-MultiBERT-L-12 (ONNX, CPU 전용, ~150MB).
+  - ColBERTRerank과 동일한 Decorator 패턴 (base_strategy.retrieve → FlashRank 리랭킹).
+- **Contextual Retrieval 전략 추가**: `strategies/contextual_retrieval.py` 신규 (~200 LOC).
+  - Anthropic 방식 LLM 문맥 부착. parent 문서 기반으로 child chunk에 컨텍스트 프리픽스 생성.
+  - JSON 해시 캐싱으로 중복 LLM 호출 방지. 검색 시 원본 콘텐츠 복원.
+- **유료 API 전략 제거**: DenseSparse combo 5(OpenAI), 6(Upstage) 제거.
+  - `dense_sparse.py`: COMBO_DEFINITIONS에서 제거, `_init_dense()` HuggingFace 전용으로 단순화.
+  - `run_all_combos.py`: `PAID_COMBO_IDS`, `--skip_paid` 제거, 새 전략 플래그 추가.
+- **AutoRAG 전면 제거** (`refactor/remove-autorag` 브랜치 → main 머지):
+  - `autorag_benchmark/` 디렉토리 전체 삭제 (config, data, results).
+  - `scripts/01-04`, `run_autorag_isolated.py`, `rag_bench/scripts/run_autorag.py` 삭제.
+  - `autorag_benchmark_analysis.ipynb`, `autorag_research.md`, `main.py` 삭제.
+  - README.md, rag_bench/README.md, pyproject.toml, setup_guide.md 정리.
+  - AutoRAG 포기 사유: langchain-core 버전 충돌, httpx 클라이언트 호환성 문제.
+- **조합형 벤치마크 리팩토링 실현 가능성 분석** (`rag_bench/review_report.md`):
+  - 5-Layer 파이프라인 설계: Dense × Sparse × Mode × Reranker × LLM Support.
+  - 유효 조합 134개 (이론적 288개 중 무효 제거).
+  - 핵심: DenseSparseStrategy 분해 (combo_id → 독립 파라미터).
+  - Reranker/LLM 레이어는 이미 Decorator 패턴으로 분리 → 변경 불필요.
+  - 실행 시간: 레이턴시만 ~30분, 선별 RAGAS ~1시간.
+  - API 비용: ~$4.40.
+
+### 커밋 히스토리
+```
+c73c41a feat: FlashRank/Contextual Retrieval 전략 추가 + 유료 모델 제거 + AutoRAG 분리
+f547dfa refactor: AutoRAG 의존성 및 관련 파일 전면 제거
+```
+
+### 현재 전략 구현 상태 (6종)
+| 전략 | 상태 | 비고 |
+|------|------|------|
+| `DenseSparseStrategy` | **완료** | 4가지 임베딩 조합 (combo 1-4, HuggingFace 전용) |
+| `ColBERTStrategy` | **완료** | PyLate 기반, brute-force + Voyager |
+| `ColBERTRerankStrategy` | **완료** | 2단계 리랭킹 (base + ColBERT MaxSim) |
+| `FlashRankRerankStrategy` | **완료** | 2단계 리랭킹 (base + FlashRank ONNX) |
+| `ContextualRetrievalStrategy` | **완료** | Anthropic 방식 LLM 문맥 부착 + base 래핑 |
+| `GraphRAGStrategy` | **완료** | LightRAG 기반, gpt-4.1-nano |
+
+### 다음 작업 (별도 세션에서 진행)
+1. **DenseSparseStrategy 분해**: combo_id → (dense_model, sparse_type, retrieval_mode) 독립 파라미터화
+2. **RAGAS E2E 파이프라인**: 134 유효 조합 자동 열거 + 2-Pass 실행 + 레이어별 기여도 분석
+3. **evaluation 서브패키지**: RAGAS v0.4 API 마이그레이션 + Extended 메트릭 + per-sample 점수
+4. **QA 데이터셋 개선**: `feature/qa-dataset-improvement` 워크트리에서 난이도 태깅 작업 완료 후 머지
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
