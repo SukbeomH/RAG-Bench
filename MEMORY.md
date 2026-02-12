@@ -262,8 +262,55 @@ TBD — 이 세션에서 커밋 예정
 ```
 
 ### 다음 작업
-1. AutoRAG 벤치마크 스크립트 제작 (Phase 1-2: 데이터 브릿지 + YAML 확장)
+1. ~~AutoRAG 벤치마크 스크립트 제작~~ → **완료** (아래 세션 참조)
 2. Contextual Retrieval 구현
+
+## 2026-02-12: AutoRAG 크로스 프레임워크 벤치마크 스크립트 제작
+
+### 주요 활동
+- **AutoRAG 벤치마크 스크립트 신규 작성**: `rag_bench/scripts/run_autorag.py` (~240 LOC).
+  - rag_bench의 QA 20개 + child_chunks를 AutoRAG parquet 포맷으로 변환하여 동일 데이터 기반 크로스 프레임워크 비교 가능.
+  - 기존 `autorag_benchmark/data/` (100 QA, 별도 데이터)는 보존. 새 데이터는 `data_ragbench/`에 저장.
+
+- **의존성 추가**: `pyproject.toml`에 `[project.optional-dependencies]` 섹션 추가. `autorag>=0.3.21` optional dependency.
+
+### CLI
+```
+python -m rag_bench.scripts.run_autorag [--config dense|hybrid|PATH] [--skip_convert] [--compare]
+```
+
+### 5단계 실행 흐름
+1. **Prerequisites 확인**: AutoRAG import, OPENAI_API_KEY, Qdrant Docker(6333), 설정 파일 확인
+2. **데이터 변환**: `qa_dataset.json` + `child_chunks` → `corpus.parquet` + `qa.parquet` (해시 캐싱)
+3. **AutoRAG 벤치마크**: `Evaluator(qa, corpus, project_dir).start_trial(config)` 호출
+4. **결과 분석**: `summary.csv` + `semantic_retrieval/summary.csv` 파싱 출력
+5. **(선택) rag_bench 비교**: `all_combos_ragas.csv` 로드하여 크로스 프레임워크 비교
+
+### 데이터 변환 핵심
+- **corpus.parquet**: `doc_id`=`ragbench_{i:06d}`, `contents`=page_content, `metadata`에 `last_modified_datetime` 추가
+- **qa.parquet**: `retrieval_gt`는 `parent_id` → 동일 parent_id를 가진 child doc_ids 매핑 → `[[ids]]` 중첩 리스트
+- 해시 기반 캐싱: `docs_hash + num_qa → .conversion_hash`
+
+### 설계 결정
+- **optional dependency**: AutoRAG가 LangChain 구버전을 강제하므로 `[project.optional-dependencies]`로 분리.
+- **기존 data/ 보존**: `autorag_benchmark/data/` (100 QA)는 기존 수동 실행 결과. `data_ragbench/`에 별도 저장.
+- **config preset**: `dense` → `benchmark_config.yaml`, `hybrid` → `hybrid_benchmark_config.yaml`.
+- **Qdrant**: AutoRAG YAML은 `client_type: docker` (6333). rag_bench는 로컬 파일 Qdrant → 충돌 없음.
+
+### 디렉토리 구조
+```
+rag_bench/scripts/
+├── generate_qa.py         # QA 데이터셋 자동 생성
+├── run_bench.py           # 3종 통합 벤치마크
+├── run_all_combos.py      # 전체 조합 비교
+├── run_autorag.py         # AutoRAG 크로스 프레임워크 벤치마크 (신규)
+└── bench_visualize.ipynb  # 시각화 노트북
+```
+
+### 다음 작업
+1. AutoRAG 실제 실행 검증 (`uv pip install -e '.[autorag]'` → `--config dense`)
+2. Contextual Retrieval 구현
+3. 추가 평가 메트릭 확장
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 

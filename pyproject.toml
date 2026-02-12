@@ -32,5 +32,8 @@ dependencies = [
     "matplotlib>=3.10.8",
 ]
 
+[project.optional-dependencies]
+autorag = ["autorag>=0.3.21"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["rag_bench"]
