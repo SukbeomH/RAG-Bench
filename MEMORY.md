@@ -214,6 +214,57 @@ rag_bench/
 2. **GraphRAG 벤치마크 통합**: `run_all_combos.py`에 GraphRAG 전략 추가
 3. **Contextual Retrieval**: Anthropic 방식 인덱싱 보강 구현
 
+## 2026-02-12: QA 확충 + GraphRAG 벤치마크 통합 + 인덱스 재사용 + AutoRAG 리서치
+
+### 주요 활동
+- **QA 데이터셋 확충**: 2개 → 20개로 확대. `generate_qa.py`의 `_sample_parents()` 에서 `max_size=5000` 제한 제거 (대부분 parent가 5000자 이상이어서 필터링됨).
+- **GraphRAG 벤치마크 통합**: `run_all_combos.py`에 GraphRAG 전략 추가. parent 단위 삽입(33개)으로 LLM 비용 절감 (child 763개 대비).
+- **10종 전략 벤치마크 완료**: DenseSparse 4종 + ColBERT + ColBERTRerank 4종 + GraphRAG. 20 QA × 10 전략 = 200회 검색 + RAGAS 평가.
+- **인덱스 재사용 기능 구현**: `--reindex` 옵션 추가. 기본값은 기존 인덱스 재사용 (DenseSparse: Qdrant 연결 + BM25 fit, GraphRAG: LightRAG 초기화만). 인덱스 없으면 자동 폴백.
+- **진행률 표시 추가**: `[1/10] ▶ 생성 중: ...` + `[기존 로드]`/`[재인덱싱]` 단계별 출력.
+- **bench_visualize.ipynb GraphRAG 호환**: shorten/classify/TYPE_COLORS에 GraphRAG 추가 (#54A24B 초록).
+- **AutoRAG 통합 리서치**: AutoRAG 프레임워크 분석, rag_bench와의 매핑 가능성 및 병행 운영 전략 도출. `docs/research/autorag_benchmark_integration_research.md` 작성.
+
+### 10종 벤치마크 결과 (20 QA, --skip_paid)
+
+**레이턴시:**
+| 전략 | 평균 레이턴시 |
+|------|------------|
+| DS4 MiniLM+BM25 | 60.8ms |
+| DS1 KoSimCSE+BM25 | 197.5ms |
+| DS3 BGE-M3 | 443.2ms |
+| DS2 E5+SPLADE | 488.6ms |
+| ColBERT | 669.8ms |
+| GraphRAG | 1,734.2ms |
+| Rerank-DS4 | 1,925.2ms |
+| Rerank-DS1 | 2,991.8ms |
+| Rerank-DS3 | 5,378.8ms |
+| Rerank-DS2 | 6,615.2ms |
+
+**RAGAS 품질 (상위 5):**
+| 전략 | Faithfulness | Answer Rel. | Context Prec. | Context Recall |
+|------|:-:|:-:|:-:|:-:|
+| Rerank-DS3 (BGE-M3) | **0.7592** | 0.7639 | 0.9500 | **1.0000** |
+| DS3 BGE-M3 | 0.7317 | **0.8647** | 0.9250 | 0.9250 |
+| Rerank-DS1 | 0.7258 | 0.8161 | 0.9500 | 0.9250 |
+| Rerank-DS4 | 0.6917 | 0.7632 | 0.8000 | 0.8750 |
+| Rerank-DS2 | 0.6275 | 0.7240 | **0.9917** | 0.9750 |
+
+**인사이트**: BGE-M3 + ColBERT Rerank 조합이 최고 품질 (context_recall 완벽). GraphRAG는 context_recall 0.975로 높지만 precision 0.5, answer_relevancy 0.65로 noise 많음.
+
+### 해결된 이슈
+1. **QA 생성 2개만 생성**: `_sample_parents()`의 `max_size=5000` 필터 → 대부분 parent 17,860자 → 제거하여 해결.
+2. **GraphRAG 763 child_chunks 인덱싱 6시간+**: parent 33개로 변경하여 수분 내 완료.
+
+### 커밋 히스토리
+```
+TBD — 이 세션에서 커밋 예정
+```
+
+### 다음 작업
+1. AutoRAG 벤치마크 스크립트 제작 (Phase 1-2: 데이터 브릿지 + YAML 확장)
+2. Contextual Retrieval 구현
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동

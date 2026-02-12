@@ -1,5 +1,5 @@
 """
-전체 조합 벤치마크 — DenseSparse 6종 + ColBERT + ColBERTRerank 완전 비교.
+전체 조합 벤치마크 — DenseSparse 6종 + ColBERT + ColBERTRerank + GraphRAG 완전 비교.
 
 DenseSparse 조합:
   1. 한국어 최적 (KoSimCSE + BM25/OKt)      — konlpy 필요
@@ -12,11 +12,12 @@ DenseSparse 조합:
 추가 전략:
   7. ColBERT (jina-colbert-v2, brute-force)
   8~13. ColBERTRerank (각 DenseSparse 위에 리랭킹)
+  14. GraphRAG (LightRAG, hybrid)            — LLM API (gpt-4.1-nano)
 
 초기화/인덱싱 실패 전략은 건너뛰고, 성공한 전략만 평가한다.
 
 Usage:
-    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_paid] [--skip_colbert] [--skip_rerank] [--no_ragas]
+    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_paid] [--skip_colbert] [--skip_rerank] [--skip_graphrag] [--no_ragas] [--reindex]
 """
 
 import argparse
@@ -24,6 +25,7 @@ import json
 import sys
 import time
 import traceback
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from rag_bench.config import (
@@ -49,13 +51,34 @@ def _load_qa_dataset() -> dict:
     return dataset
 
 
-def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str):
+def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str, reindex=True):
     """DenseSparseStrategy를 생성·인덱싱하고, 실패하면 (None, error_msg)를 반환한다."""
     from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 
     qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{qdrant_suffix}")
     strategy = DenseSparseStrategy(combo_id=combo_id, qdrant_path=qdrant_path)
-    strategy.index(child_chunks)
+
+    if reindex:
+        print(f"  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
+        strategy.index(child_chunks)
+    else:
+        # 기존 인덱스가 없으면 자동으로 재인덱싱 전환
+        qdrant_dir = Path(qdrant_path)
+        if not qdrant_dir.exists() or not any(qdrant_dir.iterdir()):
+            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            strategy.index(child_chunks)
+        else:
+            print(f"  [기존 로드] 임베딩 모델 로드 중...")
+            strategy._ensure_initialized()
+            print(f"  [기존 로드] Qdrant 컬렉션 연결 완료")
+            # BM25 인코더는 쿼리 인코딩을 위해 항상 fit 필요
+            from rag_bench.indexing.bm25_encoder import KoreanBM25Encoder
+            if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
+                print(f"  [기존 로드] BM25 어휘 구축 중...")
+                texts = [doc.page_content for doc in child_chunks]
+                strategy._sparse_embeddings.fit(texts)
+            strategy._is_ready = True
+            print(f"  [기존 로드] 준비 완료")
     return strategy, None
 
 
@@ -85,10 +108,42 @@ def _try_build_rerank(base_strategy, child_chunks):
     return strategy, None
 
 
-def _safe_build(label: str, build_fn, *args) -> Tuple[Optional[object], Optional[str]]:
+def _try_build_graphrag(parent_docs, reindex=True):
+    """GraphRAG는 LLM 엔티티 추출 비용이 문서 수에 비례하므로 parent 단위로 삽입한다."""
+    from rag_bench.strategies.graph_rag import GraphRAGStrategy
+
+    working_dir = str(BENCH_DATA_DIR / "lightrag_graphrag")
+    strategy = GraphRAGStrategy(
+        mode="hybrid",
+        working_dir=working_dir,
+        llm_model="gpt-4.1-nano",
+        top_k=60,
+    )
+
+    if reindex:
+        print(f"  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
+        strategy.index(parent_docs)
+    else:
+        # 기존 그래프가 없으면 자동으로 재인덱싱 전환
+        wd = Path(working_dir)
+        if not wd.exists() or not any(wd.iterdir()):
+            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            strategy.index(parent_docs)
+        else:
+            print(f"  [기존 로드] LightRAG 그래프 로드 중...")
+            strategy._ensure_initialized()
+            strategy._is_ready = True
+            print(f"  [기존 로드] 그래프 로드 완료")
+    return strategy, None
+
+
+def _safe_build(
+    label: str, build_fn, *args, progress: str = ""
+) -> Tuple[Optional[object], Optional[str]]:
     """전략 생성을 시도하고, 실패 시 에러 메시지를 반환한다."""
     print(f"\n{'─' * 60}")
-    print(f"▶ 생성 중: {label}")
+    prefix = f"{progress} " if progress else ""
+    print(f"{prefix}▶ 생성 중: {label}")
     print(f"{'─' * 60}")
     t0 = time.time()
     try:
@@ -174,9 +229,19 @@ def main():
         help="ColBERTRerank 전략 건너뛰기",
     )
     parser.add_argument(
+        "--skip_graphrag",
+        action="store_true",
+        help="GraphRAG 전략 건너뛰기",
+    )
+    parser.add_argument(
         "--no_ragas",
         action="store_true",
         help="RAGAS 평가 건너뛰기 (검색 성능만 측정)",
+    )
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="기존 인덱스를 삭제하고 처음부터 재인덱싱 (기본: 기존 인덱스 재사용)",
     )
     args = parser.parse_args()
 
@@ -191,10 +256,14 @@ def main():
     if args.skip_paid:
         combo_ids = [c for c in combo_ids if c not in PAID_COMBO_IDS]
 
+    reindex = args.reindex
+
     print(f"대상 DenseSparse 조합: {combo_ids}")
     print(f"ColBERT: {'OFF' if args.skip_colbert else 'ON'}")
     print(f"ColBERTRerank: {'OFF' if args.skip_rerank else 'ON'}")
+    print(f"GraphRAG: {'OFF' if args.skip_graphrag else 'ON'}")
     print(f"RAGAS 평가: {'OFF' if args.no_ragas else 'ON'}")
+    print(f"인덱스 모드: {'재인덱싱' if reindex else '기존 재사용'}")
 
     # ── Step 1: QA 로드 ──
     print(f"\n{'=' * 60}")
@@ -226,22 +295,37 @@ def main():
     # (label, strategy_or_None, error_or_None)
     build_results: List[Tuple[str, object, Optional[str]]] = []
 
+    # 진행률 카운터
+    total_strategies = (
+        len(combo_ids)
+        + (0 if args.skip_colbert else 1)
+        + (0 if args.skip_rerank else len(combo_ids))
+        + (0 if args.skip_graphrag else 1)
+    )
+    current = 0
+
     # 3-a. DenseSparse 6종
     ds_strategies = {}  # combo_id → strategy (성공한 것만)
     for cid in combo_ids:
+        current += 1
         label = f"DenseSparse combo={cid}"
         strategy, err = _safe_build(
-            label, _try_build_dense_sparse, cid, child_chunks, f"combo{cid}"
+            label, _try_build_dense_sparse, cid, child_chunks, f"combo{cid}", reindex,
+            progress=f"[{current}/{total_strategies}]",
         )
         build_results.append((label, strategy, err))
         if strategy is not None:
             ds_strategies[cid] = strategy
 
-    # 3-b. ColBERT 단독
+    # 3-b. ColBERT 단독 (메모리 기반 — 항상 재인덱싱)
     colbert_strategy = None
     if not args.skip_colbert:
+        current += 1
         label = "ColBERT (jina-colbert-v2, brute-force)"
-        strategy, err = _safe_build(label, _try_build_colbert, child_chunks)
+        strategy, err = _safe_build(
+            label, _try_build_colbert, child_chunks,
+            progress=f"[{current}/{total_strategies}]",
+        )
         build_results.append((label, strategy, err))
         colbert_strategy = strategy
 
@@ -249,11 +333,28 @@ def main():
     rerank_strategies = {}
     if not args.skip_rerank:
         for cid, ds in ds_strategies.items():
+            current += 1
             label = f"ColBERTRerank (base=combo{cid})"
-            strategy, err = _safe_build(label, _try_build_rerank, ds, child_chunks)
+            strategy, err = _safe_build(
+                label, _try_build_rerank, ds, child_chunks,
+                progress=f"[{current}/{total_strategies}]",
+            )
             build_results.append((label, strategy, err))
             if strategy is not None:
                 rerank_strategies[cid] = strategy
+
+    # 3-d. GraphRAG (LightRAG) — parent 단위 삽입 (LLM 비용 절감)
+    graphrag_strategy = None
+    if not args.skip_graphrag:
+        current += 1
+        parent_docs = [doc for _, doc in parent_pairs]
+        label = "GraphRAG (LightRAG, hybrid)"
+        strategy, err = _safe_build(
+            label, _try_build_graphrag, parent_docs, reindex,
+            progress=f"[{current}/{total_strategies}]",
+        )
+        build_results.append((label, strategy, err))
+        graphrag_strategy = strategy
 
     _print_init_summary(build_results)
 
@@ -267,6 +368,8 @@ def main():
     for cid in combo_ids:
         if cid in rerank_strategies:
             active_strategies.append(rerank_strategies[cid])
+    if graphrag_strategy is not None:
+        active_strategies.append(graphrag_strategy)
 
     if not active_strategies:
         print("\n성공한 전략이 없습니다. 종료합니다.")
@@ -278,6 +381,7 @@ def main():
     print(f"\n{'=' * 60}")
     print("Step 4: 벤치마크 실행")
     print(f"{'=' * 60}")
+    print(f"  총 검색: {len(active_strategies)}개 전략 x {len(queries)}개 쿼리 = {len(active_strategies) * len(queries)}회")
 
     evaluator = None
     if not args.no_ragas:

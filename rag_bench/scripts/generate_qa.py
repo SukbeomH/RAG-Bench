@@ -36,14 +36,13 @@ def _sample_parents(
     parent_pairs: list,
     num_qa: int,
     min_size: int = 200,
-    max_size: int = 5000,
 ) -> list:
     """Parent 청크에서 문서별 균등 샘플링한다."""
-    # 유효 크기 필터링
+    # 최소 크기 필터링 (max_size 제한 없음 — QA 생성 시 context[:3000]으로 잘림)
     valid = [
         (pid, doc)
         for pid, doc in parent_pairs
-        if min_size <= len(doc.page_content) <= max_size
+        if len(doc.page_content) >= min_size
     ]
     if not valid:
         valid = list(parent_pairs)
