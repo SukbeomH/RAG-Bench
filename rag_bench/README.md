@@ -13,7 +13,11 @@ Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스�
 │  │  Dense   │ │  ColBERT │ │  Graph   │ │ColBERT Rerank │   │
 │  │ +Sparse  │ │ (PyLate) │ │(LightRAG)│ │ (2-stage)     │   │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬────────┘   │
-│       └─────────────┴──────┬─────┴──────────────┘            │
+│       │       ┌────────────┐ ┌──────────────┐   │            │
+│       │       │ FlashRank  │ │ Contextual   │   │            │
+│       │       │  Rerank    │ │  Retrieval   │   │            │
+│       │       └─────┬──────┘ └──────┬───────┘   │            │
+│       └─────────────┴──────┬────────┴───────────┘            │
 │                  ┌─────────▼─────────┐                       │
 │                  │  BaseRAGStrategy  │  ← ABC                │
 │                  │  index()          │                        │
@@ -37,10 +41,12 @@ rag_bench/
 ├── runner.py                # BenchmarkRunner (전략 비교)
 ├── evaluation.py            # RAGEvaluator (RAGAS 평가)
 ├── cli.py                   # RAGChat (대화 인터페이스)
-├── strategies/              # RAG 전략 모듈 (4종 구현 완료)
-│   ├── dense_sparse.py      # 6가지 Dense+Sparse 조합
+├── strategies/              # RAG 전략 모듈 (6종)
+│   ├── dense_sparse.py      # 4가지 Dense+Sparse 조합
 │   ├── colbert.py           # ColBERT Late Interaction (PyLate)
 │   ├── colbert_rerank.py    # ColBERT 2-stage 리랭킹
+│   ├── flashrank_rerank.py  # FlashRank 경량 리랭킹 (ONNX, CPU)
+│   ├── contextual_retrieval.py # Contextual Retrieval (LLM 문맥 부착)
 │   └── graph_rag.py         # GraphRAG (LightRAG 기반)
 ├── indexing/                # 문서 처리
 │   ├── pdf_converter.py     # PDF → Markdown (pymupdf4llm)
@@ -53,8 +59,7 @@ rag_bench/
 ├── scripts/                 # 벤치마크 실행 스크립트
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성
 │   ├── run_bench.py         # 3종 통합 벤치마크 + RAGAS
-│   ├── run_all_combos.py    # 전체 10종 조합 비교
-│   └── run_autorag.py       # AutoRAG 크로스 프레임워크 벤치마크
+│   └── run_all_combos.py    # 전체 15종 조합 비교
 ├── docs/                    # 벤치마크 대상 문서 (*.md)
 ├── _benchdata/              # 벤치마크 중간 산출물 (.gitignore)
 ├── pyproject.toml           # 의존성 정의
@@ -89,8 +94,8 @@ python -m rag_bench.scripts.generate_qa --num_qa 20
 # Step 3-A: 3종 벤치마크 (DenseSparse + ColBERT + ColBERTRerank)
 python -m rag_bench.scripts.run_bench --k 3
 
-# Step 3-B: 전체 13종 조합 비교
-python -m rag_bench.scripts.run_all_combos --skip_paid
+# Step 3-B: 전체 15종 조합 비교
+python -m rag_bench.scripts.run_all_combos
 
 # Step 3-C: 특정 조합만 선택
 python -m rag_bench.scripts.run_all_combos --combos 1,3,4 --skip_rerank
@@ -149,7 +154,7 @@ chat.clear()  # 세션 초기화
 
 ## 전략 상세
 
-### DenseSparse 임베딩 6종 조합
+### DenseSparse 임베딩 4종 조합
 
 | # | 조합 | Dense Model | Sparse Model | 한국어 | 비용 |
 |---|------|-------------|-------------|--------|------|
@@ -157,8 +162,6 @@ chat.clear()  # 세션 초기화
 | 2 | 다국어 균형 | E5-large (1024d) | SPLADE | ★★☆ | 무료 |
 | 3 | 올인원 통합 | BGE-M3 (1024d) | BGE-M3 | ★★☆ | 무료 |
 | 4 | 경량/빠른 | MiniLM-L6 (384d) | BM25 | ★☆☆ | 무료 |
-| 5 | 고성능 API | OpenAI Large (3072d) | SPLADE | ★★☆ | 유료 |
-| 6 | 한국어 API | Upstage Solar (4096d) | BM25+OKt | ★★★ | 유료 |
 
 ### ColBERT / ColBERTRerank
 
@@ -166,6 +169,18 @@ chat.clear()  # 세션 초기화
 |------|------|------|------|
 | ColBERT | jina-colbert-v2 | Late Interaction MaxSim | 전체 코퍼스 인코딩, 높은 정확도 |
 | ColBERTRerank | jina-colbert-v2 | 2-stage 리랭킹 | 후보 N개만 인코딩, 임의의 base 전략 위에 적용 |
+
+### FlashRank Rerank
+
+| 전략 | 모델 | 방식 | 특징 |
+|------|------|------|------|
+| FlashRank | ms-marco-MultiBERT-L-12 | ONNX 리랭킹 | CPU 전용, ~150MB, 100+ 언어 |
+
+### Contextual Retrieval
+
+| 전략 | 방식 | 특징 |
+|------|------|------|
+| Contextual | LLM 문맥 부착 + base 전략 | Anthropic 방식, 인덱싱 시 LLM으로 청크 문맥 생성 |
 
 ### GraphRAG
 
@@ -179,41 +194,21 @@ chat.clear()  # 세션 초기화
 |----------|------|--------|
 | `generate_qa.py` | docs/*.md에서 QA 자동 생성 (GPT-4o-mini) | `python -m rag_bench.scripts.generate_qa --num_qa 20` |
 | `run_bench.py` | 3종 전략 벤치마크 + RAGAS 평가 | `python -m rag_bench.scripts.run_bench --k 3` |
-| `run_all_combos.py` | 최대 10종 전체 조합 비교 | `python -m rag_bench.scripts.run_all_combos --skip_paid` |
-| `run_autorag.py` | AutoRAG 크로스 프레임워크 벤치마크 | `python -m rag_bench.scripts.run_autorag --config dense` |
+| `run_all_combos.py` | 최대 15종 전체 조합 비교 | `python -m rag_bench.scripts.run_all_combos` |
 
 ### run_all_combos.py 옵션
 
 ```
---k K             검색 결과 수 (기본: 3)
---combos 1,3,4    DenseSparse 조합 ID 지정 (미지정 시 전체)
---skip_paid       유료 API 조합(5, 6) 건너뛰기
---skip_colbert    ColBERT 단독 전략 건너뛰기
---skip_rerank     ColBERTRerank 전략 건너뛰기
---skip_graphrag   GraphRAG 전략 건너뛰기
---no_ragas        RAGAS 평가 건너뛰기 (레이턴시만 측정)
---reindex         기존 인덱스 삭제 후 재인덱싱 (기본: 기존 인덱스 재사용)
-```
-
-### run_autorag.py 옵션 (크로스 프레임워크)
-
-```
---config CONFIG   YAML 설정: dense, hybrid, 또는 커스텀 경로 (기본: dense)
---skip_convert    데이터 변환 건너뛰기 (기존 parquet 사용)
---compare         rag_bench 결과와 비교 출력
-```
-
-rag_bench QA 20개 + child_chunks를 AutoRAG parquet 포맷으로 변환하여 동일 데이터 기반 비교:
-
-```bash
-# AutoRAG 설치 (optional dependency)
-uv pip install -e '.[autorag]'
-
-# Dense 벤치마크
-python -m rag_bench.scripts.run_autorag --config dense
-
-# Hybrid + rag_bench 비교
-python -m rag_bench.scripts.run_autorag --config hybrid --compare
+--k K                검색 결과 수 (기본: 3)
+--combos 1,3,4       DenseSparse 조합 ID 지정 (미지정 시 전체)
+--skip_colbert       ColBERT 단독 전략 건너뛰기
+--skip_rerank        ColBERTRerank 전략 건너뛰기
+--skip_graphrag      GraphRAG 전략 건너뛰기
+--skip_contextual    Contextual Retrieval 건너뛰기
+--skip_flashrank     FlashRank Rerank 건너뛰기
+--no_ragas           RAGAS 평가 건너뛰기 (레이턴시만 측정)
+--reindex            기존 인덱스 삭제 후 재인덱싱 (기본: 기존 인덱스 재사용)
+--contextual_base N  Contextual Retrieval 기반 조합 ID (기본: 3=BGE-M3)
 ```
 
 ## 새 전략 추가하기
@@ -251,12 +246,11 @@ class MyStrategy(BaseRAGStrategy):
 - `qdrant-client`, `pandas`, `python-dotenv`
 
 **전략별:**
-- 조합 1, 6: `konlpy` (OKt 형태소 분석)
-- 조합 2, 5: `transformers` (SPLADE)
+- 조합 1: `konlpy` (OKt 형태소 분석)
+- 조합 2: `transformers` (SPLADE)
 - 조합 3, 4: `fastembed`
-- 조합 5: `langchain-openai`
-- 조합 6: `langchain-upstage`
 - ColBERT: `pylate`, `sentence-transformers`
+- FlashRank: `flashrank` (ONNX 기반)
 - GraphRAG: `lightrag-hku`, `nest-asyncio`
 
 **평가:**

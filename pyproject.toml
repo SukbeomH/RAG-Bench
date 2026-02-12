@@ -33,8 +33,5 @@ dependencies = [
     "matplotlib>=3.10.8",
 ]
 
-# AutoRAG는 langchain-core 버전 충돌로 별도 venv에서 실행.
-# /tmp/autorag-env/ 또는 scripts/run_autorag_isolated.py 참조.
-
 [tool.hatch.build.targets.wheel]
 packages = ["rag_bench"]

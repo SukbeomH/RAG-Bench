@@ -29,12 +29,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. 의존성 설치
 uv sync
-
-# 3. (선택) AutoRAG 크로스 프레임워크 벤치마크용
-uv pip install -e '.[autorag]'
 ```
-
-> **참고**: `autorag`는 LangChain 구버전을 강제하여 충돌 위험이 있으므로 optional dependency로 분리되어 있습니다. AutoRAG 벤치마크(`run_autorag.py`)를 사용할 때만 설치하세요.
 
 ## 환경 변수 설정 (Environment Variables)
 
@@ -87,6 +82,6 @@ uv pip install -e '.[autorag]'
 # 환경 설정 및 Ragas 평가 파이프라인 검증 (Mock 데이터 사용)
 uv run python scripts/verify_ragas_eval.py
 
-# 벤치마크 실행 (Dense 검색)
-uv run python scripts/run_benchmark.py
+# 전체 벤치마크 실행
+python -m rag_bench.scripts.run_all_combos
 ```

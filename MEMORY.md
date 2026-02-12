@@ -13,8 +13,7 @@
 
 ### 해결된 이슈
 1. **LangChain 버전 호환성**
-   - `autorag` 패키지가 구버전 `langchain-core`를 강제하여 충돌 발생.
-   - `pyproject.toml`에서 `autorag` 의존성을 제거하고 `langchain>=1.0` 등을 명시하여 해결.
+   - `langchain>=1.0`, `langchain-core>=0.3` 등을 명시하여 해결.
 
 2. **SSL 인증서 및 모델 다운로드**
    - 보안 네트워크 환경에서 HuggingFace Hub의 SSL 검증 실패.
@@ -214,7 +213,7 @@ rag_bench/
 2. **GraphRAG 벤치마크 통합**: `run_all_combos.py`에 GraphRAG 전략 추가
 3. **Contextual Retrieval**: Anthropic 방식 인덱싱 보강 구현
 
-## 2026-02-12: QA 확충 + GraphRAG 벤치마크 통합 + 인덱스 재사용 + AutoRAG 리서치
+## 2026-02-12: QA 확충 + GraphRAG 벤치마크 통합 + 인덱스 재사용
 
 ### 주요 활동
 - **QA 데이터셋 확충**: 2개 → 20개로 확대. `generate_qa.py`의 `_sample_parents()` 에서 `max_size=5000` 제한 제거 (대부분 parent가 5000자 이상이어서 필터링됨).
@@ -223,7 +222,6 @@ rag_bench/
 - **인덱스 재사용 기능 구현**: `--reindex` 옵션 추가. 기본값은 기존 인덱스 재사용 (DenseSparse: Qdrant 연결 + BM25 fit, GraphRAG: LightRAG 초기화만). 인덱스 없으면 자동 폴백.
 - **진행률 표시 추가**: `[1/10] ▶ 생성 중: ...` + `[기존 로드]`/`[재인덱싱]` 단계별 출력.
 - **bench_visualize.ipynb GraphRAG 호환**: shorten/classify/TYPE_COLORS에 GraphRAG 추가 (#54A24B 초록).
-- **AutoRAG 통합 리서치**: AutoRAG 프레임워크 분석, rag_bench와의 매핑 가능성 및 병행 운영 전략 도출. `docs/research/autorag_benchmark_integration_research.md` 작성.
 
 ### 10종 벤치마크 결과 (20 QA, --skip_paid)
 
@@ -262,55 +260,8 @@ TBD — 이 세션에서 커밋 예정
 ```
 
 ### 다음 작업
-1. ~~AutoRAG 벤치마크 스크립트 제작~~ → **완료** (아래 세션 참조)
-2. Contextual Retrieval 구현
-
-## 2026-02-12: AutoRAG 크로스 프레임워크 벤치마크 스크립트 제작
-
-### 주요 활동
-- **AutoRAG 벤치마크 스크립트 신규 작성**: `rag_bench/scripts/run_autorag.py` (~240 LOC).
-  - rag_bench의 QA 20개 + child_chunks를 AutoRAG parquet 포맷으로 변환하여 동일 데이터 기반 크로스 프레임워크 비교 가능.
-  - 기존 `autorag_benchmark/data/` (100 QA, 별도 데이터)는 보존. 새 데이터는 `data_ragbench/`에 저장.
-
-- **의존성 추가**: `pyproject.toml`에 `[project.optional-dependencies]` 섹션 추가. `autorag>=0.3.21` optional dependency.
-
-### CLI
-```
-python -m rag_bench.scripts.run_autorag [--config dense|hybrid|PATH] [--skip_convert] [--compare]
-```
-
-### 5단계 실행 흐름
-1. **Prerequisites 확인**: AutoRAG import, OPENAI_API_KEY, Qdrant Docker(6333), 설정 파일 확인
-2. **데이터 변환**: `qa_dataset.json` + `child_chunks` → `corpus.parquet` + `qa.parquet` (해시 캐싱)
-3. **AutoRAG 벤치마크**: `Evaluator(qa, corpus, project_dir).start_trial(config)` 호출
-4. **결과 분석**: `summary.csv` + `semantic_retrieval/summary.csv` 파싱 출력
-5. **(선택) rag_bench 비교**: `all_combos_ragas.csv` 로드하여 크로스 프레임워크 비교
-
-### 데이터 변환 핵심
-- **corpus.parquet**: `doc_id`=`ragbench_{i:06d}`, `contents`=page_content, `metadata`에 `last_modified_datetime` 추가
-- **qa.parquet**: `retrieval_gt`는 `parent_id` → 동일 parent_id를 가진 child doc_ids 매핑 → `[[ids]]` 중첩 리스트
-- 해시 기반 캐싱: `docs_hash + num_qa → .conversion_hash`
-
-### 설계 결정
-- **optional dependency**: AutoRAG가 LangChain 구버전을 강제하므로 `[project.optional-dependencies]`로 분리.
-- **기존 data/ 보존**: `autorag_benchmark/data/` (100 QA)는 기존 수동 실행 결과. `data_ragbench/`에 별도 저장.
-- **config preset**: `dense` → `benchmark_config.yaml`, `hybrid` → `hybrid_benchmark_config.yaml`.
-- **Qdrant**: AutoRAG YAML은 `client_type: docker` (6333). rag_bench는 로컬 파일 Qdrant → 충돌 없음.
-
-### 디렉토리 구조
-```
-rag_bench/scripts/
-├── generate_qa.py         # QA 데이터셋 자동 생성
-├── run_bench.py           # 3종 통합 벤치마크
-├── run_all_combos.py      # 전체 조합 비교
-├── run_autorag.py         # AutoRAG 크로스 프레임워크 벤치마크 (신규)
-└── bench_visualize.ipynb  # 시각화 노트북
-```
-
-### 다음 작업
-1. AutoRAG 실제 실행 검증 (`uv pip install -e '.[autorag]'` → `--config dense`)
-2. Contextual Retrieval 구현
-3. 추가 평가 메트릭 확장
+1. Contextual Retrieval 구현
+2. 추가 평가 메트릭 확장
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
@@ -327,7 +278,7 @@ rag_bench/scripts/
 
 ### 프로젝트 제작 의도 및 구현 방향 정립
 - **목적**: 엔터프라이즈 레벨에서 사용할 RAG 아키텍처/구성을 테스트하고 성능을 비교.
-- **방법론**: `rag_bench/` 패키지에 모델별/구성별 RAG 전략을 Strategy Pattern으로 추가하고, AutoRAG + ragas로 정량 비교.
+- **방법론**: `rag_bench/` 패키지에 모델별/구성별 RAG 전략을 Strategy Pattern으로 추가하고, RAGAS로 정량 비교.
 - **현재 구현 상태**:
   - 구현 완료: `DenseSparseStrategy` (6가지 임베딩 조합), `RAGEvaluator`, `BenchmarkRunner`, LangGraph Agent, PDF→Markdown→Parent-Child 청킹.
   - 스텁(TODO): `ColBERTStrategy` (RAGatouille), `GraphRAGStrategy` (NodeRAG/LightRAG).
