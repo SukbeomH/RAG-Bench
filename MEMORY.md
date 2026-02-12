@@ -306,10 +306,50 @@ f547dfa refactor: AutoRAG 의존성 및 관련 파일 전면 제거
 | `GraphRAGStrategy` | **완료** | LightRAG 기반, gpt-4.1-nano |
 
 ### 다음 작업 (별도 세션에서 진행)
-1. **DenseSparseStrategy 분해**: combo_id → (dense_model, sparse_type, retrieval_mode) 독립 파라미터화
-2. **RAGAS E2E 파이프라인**: 134 유효 조합 자동 열거 + 2-Pass 실행 + 레이어별 기여도 분석
+1. ~~**DenseSparseStrategy 분해**~~ → **완료** (아래 세션 참조)
+2. ~~**RAGAS E2E 파이프라인**~~ → **완료** (아래 세션 참조)
 3. **evaluation 서브패키지**: RAGAS v0.4 API 마이그레이션 + Extended 메트릭 + per-sample 점수
-4. **QA 데이터셋 개선**: `feature/qa-dataset-improvement` 워크트리에서 난이도 태깅 작업 완료 후 머지
+4. ~~**QA 데이터셋 개선**~~ → **폐기** (아래 세션에서 worktree/브랜치 제거)
+
+## 2026-02-12: 3-Layer 조합 벤치마크 + 프로젝트 레거시 정리
+
+### 주요 활동
+- **3-Layer 조합 벤치마크 파이프라인 구현** (`feat/ragas-e2e-pipeline` 브랜치):
+  - DenseSparseStrategy 분해: combo_id → (dense_model, sparse_type, retrieval_mode) 독립 파라미터화.
+  - 72개 교차 조합 자동 열거 + 2-Pass 실행 (레이턴시 → 선별 RAGAS 평가).
+  - `rag_bench/evaluation/` 서브패키지 신설: evaluator.py, metrics.py, legacy.py 분리.
+
+- **프로젝트 루트 레거시 전면 정리**:
+  - **파일 삭제**: `embedding_combinations_lab.ipynb` (git rm), `markdown/`, `autorag_benchmark_analysis_executed.ipynb`, `parent_store/`, `qdrant_db_combo1/`, `.mypy_cache/` (~725MB 디스크 절감).
+  - **`.gitignore` 정리**: AutoRAG 패턴 제거 (autorag_benchmark/*), `markdown/` 추가.
+  - **research 문서 현행화**: 4개 문서에서 "현재 AutoRAG 구현" → "rag_bench" 참조 변경.
+    - `ragatouille_research.md`: ColBERTStrategy 구현 완료 반영, 연동 방안 → 결과 요약으로 교체.
+    - `noderag_research.md`: AutoRAG → rag_bench 용어 통일.
+    - `rag_dataset_creation_methodology.md`: 현행 generate_qa.py 방식 반영, 현황 참고 추가.
+    - `raghub_ecosystem_research.md`: 프로젝트 관계를 "AutoRAG 활용" → "자체 프레임워크 전환"으로 현행화.
+  - **README.md**: 프로젝트 구조에서 삭제된 노트북 참조 제거.
+
+- **브랜치/워크트리 정리**:
+  - `feat/ragas-e2e-pipeline` → main Fast-forward 머지 후 삭제.
+  - `refactor/remove-autorag` → 삭제 (이미 main에 머지됨).
+  - `feature/qa-dataset-improvement` + worktree (`autorag-qa-improvement`) → 강제 제거 (main 이전 시점의 레거시 코드, 독자 작업 없음).
+
+### 커밋 히스토리
+```
+3850eba feat: 3-Layer 조합 벤치마크 파이프라인 구현 (72개 교차 조합 + 2-Pass 실행)
+f587073 chore: 레거시 정리 — AutoRAG 잔존 참조 현행화 + 불필요 파일 제거
+```
+
+### 현재 프로젝트 상태
+- **브랜치**: main만 존재 (모든 작업 브랜치 정리 완료)
+- **전략 구현**: 6종 완료 (DenseSparse, ColBERT, ColBERTRerank, FlashRankRerank, ContextualRetrieval, GraphRAG)
+- **벤치마크**: 72개 교차 조합 지원 (3-Layer: Dense × Sparse × Reranker)
+- **evaluation**: 서브패키지 구조 전환 (evaluator.py + metrics.py + legacy.py)
+
+### 다음 작업
+1. **72개 조합 벤치마크 실행**: 2-Pass (레이턴시 전수 → 상위 RAGAS 평가)
+2. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
+3. **벤치마크 시각화 갱신**: bench_visualize.ipynb를 72개 조합 결과에 맞게 업데이트
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
