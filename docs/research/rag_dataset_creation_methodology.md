@@ -1,6 +1,8 @@
-# RAG 데이터셋 제작 방법론 비교: Ragas vs AutoRAG
+# RAG 데이터셋 제작 방법론 비교: Ragas vs AutoRAG (Marker-Inc-Korea)
 
 본 문서는 RAG 시스템 평가 및 최적화를 위한 데이터셋 제작 기능을 제공하는 두 주요 프레임워크, **Ragas**와 **AutoRAG (Marker-Inc-Korea)**의 방법론을 분석하고 비교합니다.
+
+> **현황 참고**: rag_bench 프로젝트는 초기에 AutoRAG(Marker-Inc-Korea)를 활용했으나, langchain-core 버전 충돌 등 호환성 문제로 제거하고 자체 `generate_qa.py` 스크립트로 전환했습니다. 아래 분석은 방법론 비교를 위한 리서치 기록입니다.
 
 ## 1. Ragas: 진화적 합성 데이터 생성 (Evolutionary Generation)
 
@@ -64,6 +66,6 @@ AutoRAG는 **RAG 파이프라인의 최적화(Optimization)**를 위해, 원본 
 
 ### 결론: 벤치마크 적용 제안
 
-본 `rag_bench` 프로젝트는 **RAG 전략 간의 성능 차이를 비교(Benchmarking)**하는 것이 목표이므로, 데이터 구조와 평가 프로세스가 최적화 실험에 맞춰진 **AutoRAG의 데이터셋 포맷(Corpus/QA 분리)**을 따르는 것이 유리합니다.
+본 `rag_bench` 프로젝트는 **RAG 전략 간의 성능 차이를 비교(Benchmarking)**하는 것이 목표입니다. 현재는 자체 `generate_qa.py` 스크립트로 Parent-Child 청킹 기반 QA 데이터셋을 생성하며, GPT-4o-mini를 사용한 LLM 기반 QA 자동 생성 + 해시 캐싱 방식을 채택하고 있습니다.
 
-다만, 질문의 **난이도와 다양성**을 확보하기 위해, QA 생성 단계에서 **Ragas의 진화적 생성 프롬프트 전략**을 차용하여 AutoRAG의 파이프라인에 통합하는 하이브리드 방식을 추천합니다.
+향후 질문의 **난이도와 다양성**을 확보하기 위해, **Ragas의 진화적 생성 프롬프트 전략**을 차용하여 현재 파이프라인에 통합하는 방안을 검토 중입니다.

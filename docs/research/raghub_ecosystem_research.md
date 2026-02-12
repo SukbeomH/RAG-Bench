@@ -44,9 +44,9 @@ LLM 애플리케이션 전체 파이프라인을 관리하는 프레임워크.
 | **Langroid** | 멀티에이전트 아키텍처, 타입 안전성 | Python | 활발 |
 | **langflow** | 시각적 빌더 UI, 드래그앤드롭 워크플로우 | Python | 활발 |
 
-#### 우리 프로젝트(AutoRAG 벤치마크)와의 관계
+#### 우리 프로젝트(rag_bench)와의 관계
 
-- **LangChain/LlamaIndex**: 우리가 이미 활용 중인 핵심 프레임워크
+- **LangChain**: 우리가 이미 활용 중인 핵심 프레임워크 (LangChain + LangGraph 기반 Strategy Pattern)
 - **DSPy**: 프롬프트 최적화에 활용 가능 — 벤치마크에서 DSPy 기반 최적화 vs 수동 프롬프트 비교 가능
 - **langflow**: 비개발자 대상 데모에 유용하나 벤치마크 목적에는 부적합
 
@@ -133,7 +133,7 @@ AutoRAG (Marker-Inc-Korea)
 ```
 
 - **GitHub**: [Marker-Inc-Korea/AutoRAG](https://github.com/Marker-Inc-Korea/AutoRAG)
-- **관계**: 우리 프로젝트는 이 AutoRAG를 활용한 **한국어 RAG 벤치마크** 수행 프로젝트
+- **관계**: 우리 프로젝트(rag_bench)는 초기에 AutoRAG를 활용했으나, langchain-core 버전 충돌 등 호환성 문제로 **자체 벤치마크 프레임워크(rag_bench)**로 전환함
 
 ---
 
@@ -291,7 +291,7 @@ Agentic RAG (에이전트 기반 적응적 검색)
 
 ---
 
-## 8. 우리 프로젝트(한국어 RAG 벤치마크)에 대한 시사점
+## 8. 우리 프로젝트(rag_bench)에 대한 시사점
 
 ### 8.1 벤치마크에 포함할 도구 후보
 
@@ -321,16 +321,16 @@ RAGHub 분석을 통해 도출한, 벤치마크에 포함할 도구 후보 목�
 | **Trulens** | 보조 평가 | 커스텀 한국어 메트릭 |
 | **Vectara HHEM** | 환각 전용 | 한국어 지원 확인 필요 |
 
-### 8.2 경쟁 분석: AutoRAG (Marker-Inc-Korea)
+### 8.2 비교 분석: AutoRAG (Marker-Inc-Korea) vs rag_bench
 
-RAGHub에 등록된 AutoRAG는 우리 프로젝트와 **동일한 이름**을 사용하며, 한국 팀이 개발한 E2E RAG 최적화 도구이다.
+RAGHub에 등록된 AutoRAG는 한국 팀이 개발한 E2E RAG 최적화 도구이다. 우리 프로젝트(rag_bench)는 초기에 AutoRAG를 활용했으나 호환성 문제로 자체 프레임워크로 전환했다.
 
-| 관점 | AutoRAG (Marker-Inc-Korea) | 우리 프로젝트 |
-|------|---------------------------|--------------|
-| **목적** | RAG 파이프라인 자동 최적화 | 한국어 RAG 벤치마크 수행 |
-| **접근** | 다양한 조합 자동 탐색 | 특정 조합 수동/반자동 비교 |
-| **산출물** | 최적 파이프라인 설정 | 벤치마크 결과 및 분석 |
-| **관계** | 도구(tool) | 도구를 활용한 실험 |
+| 관점 | AutoRAG (Marker-Inc-Korea) | rag_bench (우리 프로젝트) |
+|------|---------------------------|--------------------------|
+| **목적** | RAG 파이프라인 자동 최적화 | 한국어 RAG 전략 벤치마크 |
+| **접근** | 다양한 조합 자동 탐색 | Strategy Pattern 기반 모듈형 비교 |
+| **산출물** | 최적 파이프라인 설정 | RAGAS 기반 정량 벤치마크 결과 |
+| **관계** | 참고 도구 (현재 미사용) | LangChain 기반 자체 구현 |
 
 ### 8.3 향후 리서치 제안
 
@@ -353,7 +353,7 @@ RAGHub은 90개 이상의 RAG 관련 도구/프로젝트를 체계적으로 정�
 1. **RAG 생태계는 프레임워크 → 엔진 → 서비스로 계층화**되며, 각 레이어마다 다수의 경쟁 도구가 존재
 2. **평가/최적화 도구가 별도 카테고리로 독립**할 만큼 성숙 — ragas, AutoRAG 등이 산업 표준으로 자리잡는 중
 3. **GraphRAG, 멀티모달 RAG, DB-Native RAG**가 2025년 주요 기술 트렌드
-4. **한국어 RAG 생태계**는 AutoRAG(Marker-Inc-Korea)를 중심으로 성장 중이며, 우리 프로젝트가 벤치마크를 통해 기여할 수 있는 여지가 큼
+4. **한국어 RAG 생태계**는 AutoRAG(Marker-Inc-Korea) 등을 중심으로 성장 중이며, rag_bench 프로젝트가 벤치마크를 통해 기여할 수 있는 여지가 큼
 5. RAGHub에 등록된 도구 중 **검색(RAGatouille), 리랭킹(Flash-Rank), 청킹(Chonkie/zchunk), 평가(Trulens)**가 우리 벤치마크에 추가할 핵심 후보
 
 ---

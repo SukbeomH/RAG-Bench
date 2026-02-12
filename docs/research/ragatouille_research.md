@@ -1,6 +1,6 @@
 # RAGatouille & ColBERT 리서치
 
-> ColBERT 기반 Late Interaction 검색 방식 — 현재 AutoRAG 구현과의 비교 분석
+> ColBERT 기반 Late Interaction 검색 방식 — rag_bench 구현과의 비교 분석
 
 ---
 
@@ -116,13 +116,13 @@ $$\text{Score}(Q, D) = \sum_{i=1}^{|Q|} \max_{j=1}^{|D|} \text{sim}(q_i, d_j)$$
 
 ---
 
-## 4. 현재 AutoRAG 구현과의 차이점
+## 4. 현재 rag_bench 구현과의 차이점
 
-현재 `hybrid_benchmark_config.yaml` 기준의 파이프라인과 ColBERT 방식을 비교한다.
+현재 `rag_bench` 패키지의 DenseSparse 파이프라인과 ColBERT 방식을 비교한다.
 
 ### 파이프라인 구조 비교
 
-| 구분 | 현재 AutoRAG 파이프라인 | ColBERT 기반 파이프라인 |
+| 구분 | 현재 rag_bench 파이프라인 | ColBERT 기반 파이프라인 |
 |------|----------------------|----------------------|
 | **1차 검색** | Dense (E5, BGE-M3 등) + BM25 | ColBERT 단독 또는 +BM25 |
 | **Fusion** | HybridRRF / HybridCC 결합 | 불필요 (ColBERT가 Dense+Sparse 효과) |
@@ -218,7 +218,7 @@ results = RAG.search(query="RAG 파이프라인이란?", k=5)
 |---|------|------|
 | 1 | **인덱스 크기** | 토큰별 벡터 저장으로 Dense 대비 10~50배 큰 인덱스 |
 | 2 | **한국어 모델 한정** | 영어 ColBERTv2 대비 한국어 특화 모델이 적음 |
-| 3 | **AutoRAG 미통합** | AutoRAG의 벤치마크 모듈로 직접 지원되지 않음 |
+| 3 | **~~구현 완료~~** | `rag_bench`의 `ColBERTStrategy` 및 `ColBERTRerankStrategy`로 구현됨 |
 | 4 | **GPU 의존성** | 인덱싱 시 GPU 필요 (CPU에서도 가능하나 느림) |
 | 5 | **스케일 한계** | Bi-Encoder 대비 수억 문서 규모에서 비용 증가 |
 
@@ -248,28 +248,18 @@ results = RAG.search(query="RAG 파이프라인이란?", k=5)
 - **장점**: 파이프라인 대폭 단순화, 레이턴시 감소
 - **단점**: 인덱스 크기 증가, 한국어 성능 검증 필요
 
-### AutoRAG 벤치마크 연동 방안
+### rag_bench 벤치마크 연동 현황
 
-AutoRAG에서 ColBERT를 직접 지원하지 않으므로 **커스텀 모듈**로 추가해야 한다:
+> **구현 완료**: `rag_bench/strategies/colbert.py` (ColBERTStrategy) 및 `rag_bench/strategies/colbert_rerank.py` (ColBERTRerankStrategy)로 PyLate 기반 구현 완료.
 
-```python
-# 커스텀 ColBERT 리트리버 모듈 예시 (향후 구현)
-class ColBERTRetriever:
-    def __init__(self, model_name="jinaai/jina-colbert-v2"):
-        self.RAG = RAGPretrainedModel.from_pretrained(model_name)
+- ColBERTStrategy: Jina-ColBERT-v2 기반 brute-force + Voyager 인덱스 모드 지원
+- ColBERTRerankStrategy: 임의 1차 전략 위에 ColBERT MaxSim 리랭킹
 
-    def retrieve(self, query: str, top_k: int = 10):
-        results = self.RAG.search(query=query, k=top_k)
-        return results
-```
+### 벤치마크 결과 요약 (20 QA 기준)
 
-### 핵심 체크리스트
-
-- [ ] Jina-ColBERT-v2 한국어 성능 벤치마크 (현재 데이터셋으로 테스트)
-- [ ] 인덱스 크기 비교 (E5 vs ColBERT, 동일 코퍼스)
-- [ ] 검색 레이턴시 측정 (단일 ColBERT vs 4단계 파이프라인)
-- [ ] AutoRAG 커스텀 모듈 개발 가능성 조사
-- [ ] BM25 + ColBERT 하이브리드 조합 테스트
+- ColBERT 단독: 품질 최상위권 (context_recall 1.0), 레이턴시 ~670ms
+- ColBERTRerank + BGE-M3: 종합 최고 품질 (context_recall 1.0, precision 0.95)
+- 상세 결과: `rag_bench/scripts/bench_visualize.ipynb` 참조
 
 ---
 

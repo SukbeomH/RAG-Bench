@@ -19,11 +19,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# AutoRAG 결과 (재현 시 새로 생성)
-autorag_benchmark/results/
-autorag_benchmark/parse_project/
-autorag_benchmark/chunk_project/
-
 # uv lock (공유 시 포함해도 됨, 필요시 주석 해제)
 # uv.lock
 
@@ -45,6 +40,9 @@ rag_bench/_benchdata/
 
 # 자동 생성 리포트
 VERIFICATION_*.md
+
+# 변환된 마크다운 (rag_bench/docs/에 정본 존재)
+markdown/
 
 # 기타
 .mypy_cache/

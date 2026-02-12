@@ -90,11 +90,10 @@ uv run jupyter notebook rag_bench/scripts/bench_visualize.ipynb
 │   │   ├── run_bench.py               # 3종 통합 벤치마크
 │   │   └── run_all_combos.py          # 전체 15종 조합 비교
 │   └── ...                            # 평가, 설정, 그래프 모듈
-├── scripts/                           # 유틸리티 스크립트
-│   ├── verify_rag_bench.py            # 환경 검증
-│   ├── verify_ragas_eval.py           # RAGAS 평가 검증
-│   └── verify_graphrag.py            # GraphRAG 검증
-└── embedding_combinations_lab.ipynb   # 임베딩 조합 실험 노트북
+└── scripts/                           # 유틸리티 스크립트
+    ├── verify_rag_bench.py            # 환경 검증
+    ├── verify_ragas_eval.py           # RAGAS 평가 검증
+    └── verify_graphrag.py            # GraphRAG 검증
 ```
 
 ## 벤치마크 설정
