@@ -4,6 +4,7 @@ BenchmarkRunner — 전략 비교 벤치마크 실행기.
 여러 RAG 전략을 동일한 쿼리 세트로 실행하고 결과를 비교한다.
 """
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
@@ -37,11 +38,13 @@ class BenchmarkRunner:
         queries: List[str],
         k: int = 3,
         evaluator: Optional["RAGEvaluator"] = None,
+        parallel_queries: int = 0,
     ):
         self.strategies = strategies
         self.queries = queries
         self.k = k
         self.evaluator = evaluator
+        self.parallel_queries = parallel_queries or int(os.environ.get("RAG_BENCH_PARALLEL", "0"))
         self._results: Dict[str, List[dict]] = {}
         self._generator = None  # lazy 초기화
 
@@ -63,6 +66,8 @@ class BenchmarkRunner:
         """
         모든 전략에 대해 쿼리를 실행하고 결과를 수집한다.
 
+        parallel_queries > 0이면 전략 내 쿼리를 병렬 실행한다.
+
         Returns:
             전략 이름 → 쿼리별 결과 목록.
         """
@@ -75,14 +80,30 @@ class BenchmarkRunner:
             print(f"설명: {strategy.description}")
             print(f"{'=' * 60}")
 
-            query_results = []
-            for query in self.queries:
-                result = self._run_single(strategy, query)
-                query_results.append(result)
+            if self.parallel_queries > 1:
+                query_results = self._run_parallel(strategy)
+            else:
+                query_results = []
+                for query in self.queries:
+                    result = self._run_single(strategy, query)
+                    query_results.append(result)
 
             self._results[strategy_name] = query_results
 
         return self._results
+
+    def _run_parallel(self, strategy: BaseRAGStrategy) -> List[dict]:
+        """전략 내 쿼리들을 ThreadPool으로 병렬 실행."""
+        results = [None] * len(self.queries)
+        with ThreadPoolExecutor(max_workers=self.parallel_queries) as executor:
+            futures = {
+                executor.submit(self._run_single, strategy, query): i
+                for i, query in enumerate(self.queries)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                results[idx] = future.result()
+        return results
 
     def inject_results(self, results: Dict[str, List[dict]]) -> None:
         """외부에서 수집된 검색 결과를 주입하여 재검색을 방지한다."""

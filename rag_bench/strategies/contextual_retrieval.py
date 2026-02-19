@@ -232,7 +232,7 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
             )
             enriched.append(enriched_doc)
 
-            # 진행 상황 출력 (10개 단위)
+            # 진행 상황 출력 + 중간 캐시 저장 (10개 단위)
             if (i + 1) % 10 == 0 or i == total - 1:
                 print(
                     f"    진행: {i + 1}/{total} "
@@ -240,8 +240,10 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
                     f"생성: {self._stats['generated']}, "
                     f"실패: {self._stats['failed']})"
                 )
+                if self._stats["generated"] > 0:
+                    self._save_cache(cache)
 
-        # 캐시 저장
+        # 최종 캐시 저장
         self._save_cache(cache)
         print(
             f"  [Contextual Retrieval] 완료 — "
