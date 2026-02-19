@@ -10,10 +10,8 @@ run_all_combos.py의 2-Pass 벤치마크를 Colab 환경에 맞게 래핑:
 - MetricPreset / ScoringProfile 지원
 """
 
-import gc
 import json
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,7 +22,6 @@ from rag_bench_colab.colab_config import (
     DRIVE_CHECKPOINTS_DIR,
     DRIVE_RESULTS_DIR,
     get_cache_config,
-    get_qdrant_path,
     release_memory,
 )
 
@@ -264,7 +261,6 @@ class ColabBenchmarkRunner:
         from rag_bench.runner import BenchmarkRunner
         from rag_bench.scripts.run_all_combos import (
             IndexCacheManager,
-            build_strategy_from_spec,
         )
 
         tqdm = self._get_tqdm()
@@ -282,7 +278,7 @@ class ColabBenchmarkRunner:
             if data:
                 all_latency_rows.extend(data)
 
-        print(f"\n[Pass 1] 레이턴시 벤치마크 시작")
+        print("\n[Pass 1] 레이턴시 벤치마크 시작")
         print(f"  조합: {len(combos)}개, 쿼리: {len(queries)}개")
         print(f"  이미 완료: {len(completed_labels)}개")
 
@@ -388,10 +384,7 @@ class ColabBenchmarkRunner:
         else:
             top_strategies = latency_df["strategy"].head(self.top_n).tolist()
 
-        # 전략명 → ComboSpec 매핑
-        spec_map = {spec.label: spec for spec in combos}
-
-        print(f"\n[Pass 2] RAGAS 평가 시작")
+        print("\n[Pass 2] RAGAS 평가 시작")
         print(f"  메트릭 프리셋: {self.metric_preset}")
         print(f"  스코어링 프로파일: {self.scoring_profile}")
         print(f"  상위 {len(top_strategies)}개 전략:")
@@ -541,7 +534,7 @@ class ColabBenchmarkRunner:
         from rag_bench.runner import BenchmarkRunner
         from rag_bench.strategies.graph_rag import GraphRAGStrategy
 
-        print(f"\n[GraphRAG] LightRAG 실행 시작")
+        print("\n[GraphRAG] LightRAG 실행 시작")
 
         working_dir = str(BENCH_DATA_DIR / "lightrag_graphrag")
         strategy = GraphRAGStrategy(
@@ -587,7 +580,7 @@ class ColabBenchmarkRunner:
                 result["ragas"] = {"strategy": name, **report.aggregate_dict}
 
             self.checkpoint.save("graphrag", result)
-            print(f"[GraphRAG] 완료")
+            print("[GraphRAG] 완료")
             return result
 
         except Exception as e:
@@ -647,7 +640,6 @@ class ColabBenchmarkRunner:
                 print(f"  per-sample 결과: {per_sample_dir}/ ({saved}개)")
 
         # RunTracker 수행 이력 저장
-        run_record = None
         if self._tracker:
             try:
                 tracker_path = self._tracker.finalize()
@@ -655,7 +647,6 @@ class ColabBenchmarkRunner:
                 import shutil
                 dest = output_dir / tracker_path.name
                 shutil.copy2(tracker_path, dest)
-                run_record = json.loads(dest.read_text(encoding="utf-8"))
                 print(f"  수행 이력: {dest}")
             except Exception as e:
                 print(f"  [Warning] RunTracker 저장 실패: {e}")
@@ -690,7 +681,6 @@ class ColabBenchmarkRunner:
     def _build_strategy(self, spec, child_chunks, parent_pairs):
         """ComboSpec에서 전략 인스턴스 생성 (Qdrant 경로 오버라이드)."""
         from rag_bench.scripts.run_all_combos import (
-            IndexCacheManager,
             build_strategy_from_spec,
         )
 
@@ -709,11 +699,30 @@ class ColabBenchmarkRunner:
             return None
 
     def _strategy_name_from_spec(self, spec) -> str:
-        """ComboSpec에서 전략 이름 추론."""
-        dense_short = spec.dense
-        if "/" in dense_short:
-            dense_short = dense_short.split("/")[-1]
-        return f"DS({dense_short}+{spec.sparse})"
+        """ComboSpec에서 전략 이름 추론.
+
+        DenseSparseStrategy.name 형식: 'DS({dense_short}+{sparse})'
+        dense_short = 실제 HF 모델 경로의 마지막 세그먼트 (예: 'all-MiniLM-L6-v2').
+        """
+        from rag_bench.strategies.dense_sparse import DENSE_MODELS
+
+        # 키("minilm") → 실제 모델명("sentence-transformers/all-MiniLM-L6-v2") → 단축명
+        dense_model = DENSE_MODELS.get(spec.dense, spec.dense)
+        dense_short = dense_model.split("/")[-1]
+        base_name = f"DS({dense_short}+{spec.sparse})"
+
+        # 리랭커 래퍼 prefix 적용
+        if spec.reranker == "flashrank":
+            reranked_name = f"FlashRank Rerank ({base_name})"
+        elif spec.reranker == "colbert":
+            reranked_name = f"ColBERT Rerank ({base_name})"
+        else:
+            reranked_name = base_name
+
+        # LLM 지원 (contextual) 래퍼
+        if spec.llm_support == "contextual":
+            return f"Contextual Retrieval ({reranked_name})"
+        return reranked_name
 
     def _generate_answers(self, questions: list, contexts: list) -> list:
         """LLM으로 답변 생성."""

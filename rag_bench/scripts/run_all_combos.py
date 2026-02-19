@@ -148,8 +148,8 @@ def generate_valid_combinations(
     for d in config["dense_models"]:
         for s in config["sparse_models"]:
             for r in config["rerankers"]:
-                for l in config["llm_support"]:
-                    combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=l))
+                for llm_sup in config["llm_support"]:
+                    combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=llm_sup))
     if include_graphrag:
         combos.append(ComboSpec.for_graphrag())
     return combos
@@ -358,24 +358,24 @@ def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str, rei
     strategy = DenseSparseStrategy(combo_id=combo_id, qdrant_path=qdrant_path)
 
     if reindex:
-        print(f"  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
+        print("  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
         strategy.index(child_chunks)
     else:
         qdrant_dir = Path(qdrant_path)
         if not qdrant_dir.exists() or not any(qdrant_dir.iterdir()):
-            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
             strategy.index(child_chunks)
         else:
-            print(f"  [기존 로드] 임베딩 모델 로드 중...")
+            print("  [기존 로드] 임베딩 모델 로드 중...")
             strategy._ensure_initialized()
-            print(f"  [기존 로드] Qdrant 컬렉션 연결 완료")
+            print("  [기존 로드] Qdrant 컬렉션 연결 완료")
             from rag_bench.strategies.dense_sparse import KoreanBM25Encoder
             if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
-                print(f"  [기존 로드] BM25 어휘 구축 중...")
+                print("  [기존 로드] BM25 어휘 구축 중...")
                 texts = [doc.page_content for doc in child_chunks]
                 strategy._sparse_embeddings.fit(texts)
             strategy._is_ready = True
-            print(f"  [기존 로드] 준비 완료")
+            print("  [기존 로드] 준비 완료")
     return strategy, None
 
 
@@ -447,18 +447,18 @@ def _try_build_graphrag(parent_docs, reindex=True):
     )
 
     if reindex:
-        print(f"  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
+        print("  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
         strategy.index(parent_docs)
     else:
         wd = Path(working_dir)
         if not wd.exists() or not any(wd.iterdir()):
-            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
             strategy.index(parent_docs)
         else:
-            print(f"  [기존 로드] LightRAG 그래프 로드 중...")
+            print("  [기존 로드] LightRAG 그래프 로드 중...")
             strategy._ensure_initialized()
             strategy._is_ready = True
-            print(f"  [기존 로드] 그래프 로드 완료")
+            print("  [기존 로드] 그래프 로드 완료")
     return strategy, None
 
 
@@ -885,7 +885,6 @@ def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
 
 def _build_latency_summary(latency_df):
     """쿼리별 raw DataFrame → 전략별 요약 DataFrame (avg_latency 등)."""
-    import pandas as pd
 
     valid = latency_df[latency_df["error"].isna()].copy()
     if valid.empty:
@@ -1001,8 +1000,8 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
         pf = rec.platform_info
         lines.append("## 실행 환경")
         lines.append("")
-        lines.append(f"| 항목 | 값 |")
-        lines.append(f"|------|-----|")
+        lines.append("| 항목 | 값 |")
+        lines.append("|------|-----|")
         lines.append(f"| Run ID | {rec.run_id} |")
         lines.append(f"| Preset | {rec.preset} |")
         lines.append(f"| Platform | {pf.get('os', '')} {pf.get('os_release', '')} |")
@@ -1034,8 +1033,8 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
         if tt.total_tokens > 0:
             lines.append("## 토큰 사용량")
             lines.append("")
-            lines.append(f"| 항목 | 값 |")
-            lines.append(f"|------|-----|")
+            lines.append("| 항목 | 값 |")
+            lines.append("|------|-----|")
             lines.append(f"| Total Tokens | {tt.total_tokens:,} |")
             lines.append(f"| Prompt | {tt.prompt_tokens:,} |")
             lines.append(f"| Completion | {tt.completion_tokens:,} |")
