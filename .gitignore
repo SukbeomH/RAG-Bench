@@ -49,5 +49,7 @@ markdown/
 
 # 기타
 .mypy_cache/
+.ruff_cache/
 .sessions/
 .gsd/
+
