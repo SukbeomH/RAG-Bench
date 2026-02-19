@@ -98,6 +98,7 @@ class ColabBenchmarkRunner:
         reindex: bool = False,
         metric_preset: str = "core_only",
         scoring_profile: str = "balanced",
+        include_graphrag: bool = False,
     ):
         self.preset = preset
         self.k = k
@@ -107,6 +108,7 @@ class ColabBenchmarkRunner:
         self.reindex = reindex
         self.metric_preset = metric_preset
         self.scoring_profile = scoring_profile
+        self.include_graphrag = include_graphrag
 
         if device is None:
             from rag_bench_colab.colab_config import get_device
@@ -125,6 +127,7 @@ class ColabBenchmarkRunner:
             "device": device,
             "metric_preset": metric_preset,
             "scoring_profile": scoring_profile,
+            "include_graphrag": include_graphrag,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
@@ -226,15 +229,20 @@ class ColabBenchmarkRunner:
     # ------------------------------------------------------------------
 
     def generate_combos(self) -> list:
-        """프리셋 기반 ComboSpec 목록 생성."""
+        """프리셋 기반 ComboSpec 목록 생성.
+
+        include_graphrag=True 이면 마지막에 GraphRAG ComboSpec이 추가된다.
+        """
         from rag_bench.scripts.run_all_combos import PRESETS, generate_valid_combinations
 
         if self.preset not in PRESETS:
             raise ValueError(f"알 수 없는 프리셋: {self.preset}. 사용 가능: {list(PRESETS.keys())}")
 
         config = PRESETS[self.preset]
-        combos = generate_valid_combinations(config)
-        print(f"[Combos] 프리셋 '{self.preset}': {len(combos)}개 조합 생성")
+        combos = generate_valid_combinations(config, include_graphrag=self.include_graphrag)
+        base_count = len(combos) - (1 if self.include_graphrag else 0)
+        print(f"[Combos] 프리셋 '{self.preset}': {base_count}개 조합"
+              + (f" + GraphRAG 1개 = 총 {len(combos)}개" if self.include_graphrag else ""))
         return combos
 
     # ------------------------------------------------------------------

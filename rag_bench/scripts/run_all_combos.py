@@ -58,15 +58,27 @@ ALL_COMBO_IDS = [1, 2, 3, 4]
 
 @dataclass
 class ComboSpec:
-    """3-Layer 조합 명세."""
+    """3-Layer 조합 명세.
 
-    dense: str                        # DENSE_MODELS 키 (예: "kosimcse")
-    sparse: str                       # SPARSE_TYPES 값 (예: "splade")
+    graphrag=True 이면 dense/sparse/reranker/llm_support 는 무시되고
+    GraphRAGStrategy가 단독으로 사용된다.
+    """
+
+    dense: str = ""                   # DENSE_MODELS 키 (예: "kosimcse")
+    sparse: str = ""                  # SPARSE_TYPES 값 (예: "splade")
     reranker: Optional[str] = None    # None | "colbert" | "flashrank"
     llm_support: Optional[str] = None # None | "contextual"
+    graphrag: bool = False            # True → GraphRAGStrategy 사용
+
+    @classmethod
+    def for_graphrag(cls) -> "ComboSpec":
+        """GraphRAG 전용 ComboSpec 생성 헬퍼."""
+        return cls(graphrag=True)
 
     @property
     def label(self) -> str:
+        if self.graphrag:
+            return "graphrag"
         parts = [self.dense, self.sparse]
         if self.reranker:
             parts.append(self.reranker)
@@ -76,6 +88,8 @@ class ComboSpec:
 
     @property
     def retrieval_mode(self) -> str:
+        if self.graphrag:
+            return "graph"
         mode = "hybrid"
         suffixes = []
         if self.reranker:
@@ -89,6 +103,8 @@ class ComboSpec:
     @property
     def index_key(self) -> str:
         """인덱스 캐싱 키. (dense, sparse) 쌍으로 결정."""
+        if self.graphrag:
+            return "graphrag"
         return f"{self.dense}:{self.sparse}"
 
 
@@ -118,14 +134,24 @@ PRESETS: Dict[str, Dict[str, list]] = {
 }
 
 
-def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
-    """3-Layer 카테시안 곱으로 유효 조합 생성."""
+def generate_valid_combinations(
+    config: Dict[str, list],
+    include_graphrag: bool = False,
+) -> List[ComboSpec]:
+    """3-Layer 카테시안 곱으로 유효 조합 생성.
+
+    Args:
+        config: PRESETS 딕셔너리 항목.
+        include_graphrag: True 이면 마지막에 GraphRAG ComboSpec 추가.
+    """
     combos = []
     for d in config["dense_models"]:
         for s in config["sparse_models"]:
             for r in config["rerankers"]:
                 for l in config["llm_support"]:
                     combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=l))
+    if include_graphrag:
+        combos.append(ComboSpec.for_graphrag())
     return combos
 
 
@@ -258,6 +284,20 @@ def build_strategy_from_spec(
     reindex: bool = False,
 ):
     """ComboSpec에서 전략 인스턴스 생성."""
+    # GraphRAG 분기: DenseSparse 파이프라인과 독립적으로 처리
+    if spec.graphrag:
+        from rag_bench.strategies.graph_rag import GraphRAGStrategy
+
+        strategy = GraphRAGStrategy(
+            mode="hybrid",
+            working_dir=str(BENCH_DATA_DIR / "lightrag_graphrag"),
+            llm_model="gpt-4.1-nano",
+            top_k=60,
+        )
+        parent_docs = [doc for _, doc in parent_pairs]
+        strategy.index(parent_docs)
+        return strategy
+
     # 1. Base: DenseSparse (인덱스 캐시 활용)
     base = index_cache.get_or_build(spec, child_chunks, reindex=reindex)
 
