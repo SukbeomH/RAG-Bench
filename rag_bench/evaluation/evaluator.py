@@ -31,6 +31,15 @@ SCORING_PROFILES: Dict[str, Dict[str, float]] = {
         "answer_relevancy": 0.5,
         "faithfulness": 0.5,
     },
+    "comprehensive": {
+        "faithfulness": 0.15,
+        "answer_relevancy": 0.15,
+        "context_precision": 0.15,
+        "llm_context_recall": 0.15,
+        "factual_correctness": 0.15,
+        "context_entity_recall": 0.10,
+        "response_relevancy": 0.15,
+    },
 }
 
 

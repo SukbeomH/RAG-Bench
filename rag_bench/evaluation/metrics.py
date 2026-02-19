@@ -18,6 +18,7 @@ class MetricPreset(Enum):
     CORE_ONLY = "core_only"
     FULL = "full"
     REFERENCE_FREE = "reference_free"
+    COMPREHENSIVE = "comprehensive"  # Core + 핵심 Extended
 
 
 METRIC_REGISTRY: Dict[str, Dict[str, Any]] = {
@@ -65,7 +66,38 @@ METRIC_REGISTRY: Dict[str, Dict[str, Any]] = {
         "requires_reference": True,
         "requires_llm": True,
     },
+    # Extended 추가 (RAGAS v0.4+)
+    "context_entity_recall": {
+        "cls": "ContextEntityRecall",
+        "tier": MetricTier.EXTENDED,
+        "requires_reference": True,
+        "requires_llm": True,
+    },
+    "response_relevancy": {
+        "cls": "ResponseRelevancy",
+        "tier": MetricTier.EXTENDED,
+        "requires_reference": False,
+        "requires_llm": True,
+    },
     # Lightweight (LLM 불필요)
+    "string_presence": {
+        "cls": "StringPresence",
+        "tier": MetricTier.LIGHTWEIGHT,
+        "requires_reference": True,
+        "requires_llm": False,
+    },
+    "exact_match": {
+        "cls": "ExactMatch",
+        "tier": MetricTier.LIGHTWEIGHT,
+        "requires_reference": True,
+        "requires_llm": False,
+    },
+    "non_llm_string_similarity": {
+        "cls": "NonLLMStringSimilarity",
+        "tier": MetricTier.LIGHTWEIGHT,
+        "requires_reference": True,
+        "requires_llm": False,
+    },
     "semantic_similarity": {
         "cls": "SemanticSimilarity",
         "tier": MetricTier.LIGHTWEIGHT,
@@ -95,6 +127,11 @@ def _get_metrics_for_preset(preset: MetricPreset) -> List[str]:
         return list(METRIC_REGISTRY.keys())
     elif preset == MetricPreset.REFERENCE_FREE:
         return [k for k, v in METRIC_REGISTRY.items() if not v["requires_reference"]]
+    elif preset == MetricPreset.COMPREHENSIVE:
+        # Core 4 + 핵심 Extended (noise_sensitivity 제외 — 비용 대비 효과 낮음)
+        core = [k for k, v in METRIC_REGISTRY.items() if v["tier"] == MetricTier.CORE]
+        extended_keys = ["factual_correctness", "context_entity_recall", "response_relevancy"]
+        return core + [k for k in extended_keys if k in METRIC_REGISTRY]
     return []
 
 
