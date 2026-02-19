@@ -382,7 +382,312 @@ def display_styled_table(df: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8. 통합 대시보드
+# 8. 수행 이력 — 플랫폼 정보 카드
+# ---------------------------------------------------------------------------
+
+
+def plot_run_info(run_record: dict) -> None:
+    """수행 이력의 플랫폼 정보와 설정을 요약 카드로 표시.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+    """
+    import matplotlib.pyplot as plt
+
+    pf = run_record.get("platform_info", {})
+    chip = pf.get("apple_chip", pf.get("processor", "N/A"))
+    gpu = pf.get("gpu") or "None"
+    ram = f"{pf.get('ram_total_gb', '?')} GB"
+    cpu_cores = pf.get("cpu_count_logical", "?")
+
+    rows = [
+        ("Run ID", run_record.get("run_id", "")),
+        ("Preset", run_record.get("preset", "")),
+        ("Duration", f"{run_record.get('duration_s', 0):.1f}s"),
+        ("Combos", str(run_record.get("num_combos", 0))),
+        ("Queries", str(run_record.get("num_queries", 0))),
+        ("Docs (chunks)", str(run_record.get("num_docs", 0))),
+        ("Platform", f"{pf.get('os', '')} {pf.get('os_release', '')}"),
+        ("Chip / CPU", f"{chip} ({cpu_cores} cores)"),
+        ("RAM", ram),
+        ("GPU", gpu),
+        ("Python", pf.get("python_version", "")),
+        ("Git Commit", pf.get("git_commit", "")),
+    ]
+
+    # 단계별 소요 시간 비중
+    phases = run_record.get("phase_times", [])
+    total_s = run_record.get("duration_s", 0) or 1
+    if phases:
+        rows.append(("", ""))  # 구분선
+        rows.append(("Phase Breakdown", "시간 / 비중"))
+        for p in phases:
+            dur = p.get("duration_s", 0)
+            if dur <= 0:
+                continue
+            pct = dur / total_s * 100
+            label = _PHASE_LABELS.get(p["phase"], p["phase"])
+            tok_str = ""
+            t = p.get("tokens")
+            if t and t.get("total_tokens", 0) > 0:
+                tok_str = f"  [{t['total_tokens']:,} tok]"
+            rows.append((f"  {label}", f"{dur:.1f}s ({pct:.1f}%){tok_str}"))
+
+    token = run_record.get("token_usage_total", {})
+    if token.get("total_tokens", 0) > 0:
+        rows.append(("", ""))  # 구분선
+        rows.append(("Total Tokens", f"{token['total_tokens']:,}"))
+        rows.append(("  prompt / completion",
+                      f"{token.get('prompt_tokens', 0):,} / {token.get('completion_tokens', 0):,}"))
+        rows.append(("  API Cost", f"${token.get('total_cost_usd', 0):.4f}"))
+        rows.append(("  LLM Calls", str(token.get("num_calls", 0))))
+
+    fig, ax = plt.subplots(figsize=(8, max(3, len(rows) * 0.3)))
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=[[k, v] for k, v in rows],
+        colLabels=["항목", "값"],
+        cellLoc="left",
+        loc="center",
+        colWidths=[0.35, 0.65],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.4)
+
+    # 헤더 스타일
+    for j in range(2):
+        table[0, j].set_facecolor("#4C78A8")
+        table[0, j].set_text_props(color="white", weight="bold")
+
+    # 행 스타일링
+    for i, (k, _) in enumerate(rows, 1):
+        if "Token" in k or "Cost" in k or "LLM Calls" in k:
+            for j in range(2):
+                table[i, j].set_facecolor("#FFF3CD")
+        elif k == "Phase Breakdown":
+            for j in range(2):
+                table[i, j].set_facecolor("#D6EAF8")
+                table[i, j].set_text_props(weight="bold")
+        elif k.startswith("  ") and "%" in str(rows[i - 1][1] if i > 0 else ""):
+            # phase 하위 행 — 연한 파랑
+            for j in range(2):
+                table[i, j].set_facecolor("#EBF5FB")
+
+    ax.set_title("Benchmark Run Summary", fontsize=14, weight="bold", pad=20)
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# 9. 수행 이력 — 단계별 소요 시간 (가로 막대)
+# ---------------------------------------------------------------------------
+
+_PHASE_LABELS = {
+    "qa_dataset_load": "QA 로드",
+    "chunking": "문서 청킹",
+    "qa_chunking": "QA 청킹",
+    "qa_generation": "QA 생성 (LLM)",
+    "strategy_build_and_indexing": "전략 빌드 & 인덱싱",
+    "pass1_latency": "Pass 1: 레이턴시",
+    "pass2_ragas": "Pass 2: RAGAS 평가",
+    "ragas_evaluation_tokens": "RAGAS 토큰",
+}
+
+
+def plot_phase_timeline(run_record: dict) -> None:
+    """단계별 소요 시간 가로 누적 막대.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+    """
+    import matplotlib.pyplot as plt
+
+    phases = run_record.get("phase_times", [])
+    if not phases:
+        print("단계별 시간 데이터가 없습니다.")
+        return
+
+    # 0초인 메타 단계 제외
+    phases = [p for p in phases if p.get("duration_s", 0) > 0]
+    if not phases:
+        return
+
+    labels = [_PHASE_LABELS.get(p["phase"], p["phase"]) for p in phases]
+    durations = [p["duration_s"] for p in phases]
+    total = sum(durations)
+
+    # 토큰 정보 수집
+    token_labels = []
+    for p in phases:
+        t = p.get("tokens")
+        if t and t.get("total_tokens", 0) > 0:
+            token_labels.append(f"{t['total_tokens']:,} tok")
+        else:
+            token_labels.append("")
+
+    fig, ax = plt.subplots(figsize=(12, max(2.5, len(phases) * 0.5)))
+    colors = plt.cm.Set2(np.linspace(0, 0.8, len(phases)))
+    bars = ax.barh(labels, durations, color=colors, edgecolor="white", linewidth=0.5)
+
+    for bar, dur, tok in zip(bars, durations, token_labels):
+        pct = dur / total * 100 if total > 0 else 0
+        text = f"{dur:.1f}s ({pct:.0f}%)"
+        if tok:
+            text += f"  [{tok}]"
+        ax.text(bar.get_width() + total * 0.01, bar.get_y() + bar.get_height() / 2,
+                text, va="center", fontsize=9)
+
+    ax.set_xlabel("소요 시간 (s)")
+    ax.set_title(f"Phase Timeline (total: {total:.1f}s)", fontsize=13)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# 10. 수행 이력 — 전략별 빌드(인덱싱) 시간 + 토큰
+# ---------------------------------------------------------------------------
+
+
+def plot_build_times(run_record: dict, top_n: int = 30) -> None:
+    """전략별 빌드(인덱싱) 시간 수평 막대. LLM 토큰 사용 전략을 강조.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+        top_n: 표시할 전략 수.
+    """
+    import matplotlib.pyplot as plt
+
+    timings = run_record.get("strategy_timings", [])
+    if not timings:
+        print("전략 타이밍 데이터가 없습니다.")
+        return
+
+    # 성공한 전략만, 빌드 시간 내림차순
+    success = [t for t in timings if t.get("build_success", True)]
+    success.sort(key=lambda t: t.get("build_time_s", 0), reverse=True)
+    success = success[:top_n]
+
+    labels = [t["label"] for t in success]
+    build_times = [t.get("build_time_s", 0) for t in success]
+
+    # LLM 토큰 사용 여부로 색상 분류
+    colors = []
+    for t in success:
+        idx_tok = t.get("indexing_tokens")
+        if idx_tok and idx_tok.get("total_tokens", 0) > 0:
+            colors.append("#E45756")  # 빨강: LLM 사용
+        else:
+            colors.append("#4C78A8")  # 파랑: LLM 미사용
+
+    total_duration = run_record.get("duration_s", 0) or 1
+    total_build = sum(build_times) or 1
+
+    fig, ax = plt.subplots(figsize=(10, max(4, len(success) * 0.35)))
+    bars = ax.barh(labels, build_times, color=colors, edgecolor="white", linewidth=0.5)
+
+    for bar, t in zip(bars, success):
+        bt = t.get("build_time_s", 0)
+        pct_build = bt / total_build * 100
+        pct_total = bt / total_duration * 100
+        text = f"{bt:.1f}s ({pct_build:.0f}% build, {pct_total:.1f}% total)"
+        idx_tok = t.get("indexing_tokens")
+        if idx_tok and idx_tok.get("total_tokens", 0) > 0:
+            text += f"  [{idx_tok['total_tokens']:,} tok, ${idx_tok.get('total_cost_usd', 0):.4f}]"
+        ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height() / 2,
+                text, va="center", fontsize=8)
+
+    ax.set_xlabel("빌드 시간 (s)")
+    ax.set_title(f"Strategy Build Time (Top {top_n})", fontsize=13)
+    ax.invert_yaxis()
+
+    # 범례
+    from matplotlib.patches import Patch
+    legend_handles = [
+        Patch(color="#4C78A8", label="Embedding Only"),
+        Patch(color="#E45756", label="+ LLM (Contextual)"),
+    ]
+    ax.legend(handles=legend_handles, loc="lower right")
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# 11. 수행 이력 — 토큰 사용량 파이 차트 (단계별)
+# ---------------------------------------------------------------------------
+
+
+def plot_token_usage(run_record: dict) -> None:
+    """단계별 LLM 토큰 사용량 파이 + prompt/completion 비율 막대.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+    """
+    import matplotlib.pyplot as plt
+
+    total_tok = run_record.get("token_usage_total", {})
+    if total_tok.get("total_tokens", 0) == 0:
+        print("토큰 사용량 데이터가 없습니다.")
+        return
+
+    # 단계별 토큰 집계
+    phase_tokens = {}
+    for p in run_record.get("phase_times", []):
+        t = p.get("tokens")
+        if t and t.get("total_tokens", 0) > 0:
+            phase_tokens[_PHASE_LABELS.get(p["phase"], p["phase"])] = t["total_tokens"]
+
+    # 전략별 인덱싱 토큰 합산
+    indexing_total = 0
+    for st in run_record.get("strategy_timings", []):
+        idx_tok = st.get("indexing_tokens")
+        if idx_tok and idx_tok.get("total_tokens", 0) > 0:
+            indexing_total += idx_tok["total_tokens"]
+    if indexing_total > 0:
+        phase_tokens["인덱싱 (Contextual)"] = indexing_total
+
+    if not phase_tokens:
+        # 총량만 표시
+        phase_tokens = {"전체": total_tok["total_tokens"]}
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # 좌: 단계별 토큰 파이
+    ax1 = axes[0]
+    labels = list(phase_tokens.keys())
+    values = list(phase_tokens.values())
+    colors = plt.cm.Set3(np.linspace(0, 0.8, len(labels)))
+    wedges, texts, autotexts = ax1.pie(
+        values, labels=labels, autopct="%1.1f%%",
+        colors=colors, startangle=90, textprops={"fontsize": 9},
+    )
+    ax1.set_title(f"Token Usage by Phase\n(Total: {total_tok['total_tokens']:,} tokens)")
+
+    # 우: prompt vs completion 막대
+    ax2 = axes[1]
+    prompt = total_tok.get("prompt_tokens", 0)
+    completion = total_tok.get("completion_tokens", 0)
+    bars = ax2.bar(
+        ["Prompt", "Completion"],
+        [prompt, completion],
+        color=["#4C78A8", "#E45756"],
+        width=0.5,
+    )
+    for bar, val in zip(bars, [prompt, completion]):
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(prompt, completion) * 0.02,
+                 f"{val:,}", ha="center", fontsize=11)
+    ax2.set_ylabel("Tokens")
+    ax2.set_title(f"Prompt vs Completion\n(Cost: ${total_tok.get('total_cost_usd', 0):.4f})")
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# 12. 통합 대시보드
 # ---------------------------------------------------------------------------
 
 
@@ -391,6 +696,7 @@ def display_dashboard(
     ragas_df: Optional[pd.DataFrame] = None,
     combos: Optional[list] = None,
     cost_data: Optional[Dict[str, float]] = None,
+    run_record: Optional[dict] = None,
 ) -> None:
     """전체 시각화 대시보드 (위 함수들 통합 호출).
 
@@ -399,10 +705,25 @@ def display_dashboard(
         ragas_df: RAGAS DataFrame.
         combos: ComboSpec 목록.
         cost_data: 비용 데이터.
+        run_record: 수행 이력 JSON dict (run_history/*.json).
     """
     print("=" * 60)
     print(" RAG Benchmark Dashboard")
     print("=" * 60)
+
+    # 0. 수행 이력 요약
+    if run_record:
+        print("\n--- Run Summary ---")
+        plot_run_info(run_record)
+
+        print("\n--- Phase Timeline ---")
+        plot_phase_timeline(run_record)
+
+        print("\n--- Build Times ---")
+        plot_build_times(run_record)
+
+        print("\n--- Token Usage ---")
+        plot_token_usage(run_record)
 
     # 1. 레이턴시 차트
     if lat_df is not None and not lat_df.empty:

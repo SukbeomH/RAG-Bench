@@ -443,6 +443,50 @@ bf321b6 perf: 벤치마크 실행 최적화 — FlashRank 싱글톤 + Pass 결�
 3. **72개 조합 풀 벤치마크 재실행** (로컬)
 4. **QA 데이터셋 고도화**: RAGAS v2 방식 구현
 
+## 2026-02-19: 벤치마크 수행 이력 추적 시스템 + 시각화 통합
+
+### 주요 활동
+
+#### 1. RunTracker 모듈 신규 구현 (`rag_bench/run_tracker.py`)
+- **플랫폼 정보 수집**: OS, CPU, RAM, GPU(CUDA/MPS), Apple Silicon 칩, Git 커밋 해시 자동 감지.
+- **TokenUsage 데이터 구조**: prompt/completion/total 토큰, 비용, LLM 호출 수 추적.
+- **track_openai_tokens()**: LangChain `get_openai_callback()` 기반 토큰 사용량 컨텍스트 매니저.
+- **StrategyTiming**: 전략별 빌드 시간, 쿼리 레이턴시 통계 (avg/min/max/p50/p95), RAGAS 점수, 인덱싱 토큰.
+- **PhaseTime**: 단계별 소요 시간 + 토큰 사용량.
+- **BenchmarkRunRecord**: 전체 실행 기록 (run_id, 설정, 플랫폼, 전략 타이밍, 단계 시간, 토큰 총계).
+- **RunTracker 클래스**: `phase()` 컨텍스트 매니저, `start_build()`/`end_build()`, `record_query_stats()`, `record_ragas()`, `finalize()` (JSON 저장 + latest.json 심링크 + 콘솔 비중% 요약).
+
+#### 2. 벤치마크 스크립트 통합
+- **`run_all_combos.py`**: RunTracker 통합 — QA 로드, 청킹, 전략 빌드/인덱싱, Pass 1(레이턴시), Pass 2(RAGAS) 각 단계를 `tracker.phase()`로 래핑. 토큰 추적 포함.
+- **`generate_qa.py`**: QA 생성 시 RunTracker + track_openai_tokens() 통합.
+- **e2e_report.md**: 실행 환경, 단계별 시간(비중%), 토큰 사용량 테이블 자동 생성.
+
+#### 3. 시각화 통합 (`colab_visualizer.py` + `bench_visualize.ipynb`)
+- **plot_run_info()**: 플랫폼/설정/단계별 비중/토큰 요약 테이블 카드.
+- **plot_phase_timeline()**: 단계별 가로 막대 + `{dur}s ({pct}%) [{tok} tok]` 레이블.
+- **plot_build_times()**: 전략별 빌드 시간, LLM 사용 여부 색상 구분, 비중% 표시.
+- **plot_token_usage()**: 단계별 토큰 파이차트 + prompt/completion 비율 막대.
+- **bench_visualize.ipynb**: 섹션 10 "수행 이력 (Run History)" 추가 — `latest.json` 자동 로드 + 4개 차트.
+- **display_dashboard()**: `run_record` 파라미터 추가, 있으면 수행 이력 차트 최상단 렌더링.
+
+#### 4. 비중(%) 표시 전면 추가
+- 모든 출력 지점 (plot_run_info, plot_build_times, e2e_report.md, RunTracker.finalize() 콘솔)에 전체 소요시간 대비 각 요소의 비중 표시.
+
+### 파일 변경 목록
+| 파일 | 변경 | 내용 |
+|------|------|------|
+| `rag_bench/run_tracker.py` | **NEW** | 수행 이력 추적 모듈 (448줄) |
+| `rag_bench/scripts/run_all_combos.py` | MODIFIED | RunTracker 통합, 단계별 phase/토큰 추적 |
+| `rag_bench/scripts/generate_qa.py` | MODIFIED | RunTracker + 토큰 추적 통합 |
+| `rag_bench_colab/colab_visualizer.py` | MODIFIED | 시각화 함수 4종 + display_dashboard 확장 |
+| `rag_bench/scripts/bench_visualize.ipynb` | MODIFIED | 섹션 10 수행 이력 추가 |
+| `README.md` | MODIFIED | 수행 이력 추적 기능 설명 추가 |
+
+### 다음 작업
+1. **72개 조합 풀 벤치마크 실행** (백그라운드 진행 중)
+2. **QA 데이터셋 고도화**: RAGAS v2 방식 구현
+3. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동

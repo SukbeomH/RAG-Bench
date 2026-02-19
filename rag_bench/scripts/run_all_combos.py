@@ -44,6 +44,7 @@ from rag_bench.config import (
     setup_ssl_bypass,
 )
 from rag_bench.indexing.chunker import create_parent_child_chunks
+from rag_bench.run_tracker import RunTracker, track_openai_tokens
 from rag_bench.runner import BenchmarkRunner
 from rag_bench.strategies.dense_sparse import DENSE_MODELS, SPARSE_TYPES
 
@@ -382,17 +383,39 @@ def _try_build_graphrag(parent_docs, reindex=True):
 
 
 def _safe_build(
-    label: str, build_fn, *args, progress: str = ""
+    label: str, build_fn, *args, progress: str = "",
+    tracker: Optional["RunTracker"] = None,
+    spec: Optional["ComboSpec"] = None,
 ) -> Tuple[Optional[object], Optional[str]]:
     print(f"\n{'─' * 60}")
     prefix = f"{progress} " if progress else ""
     print(f"{prefix}▶ 생성 중: {label}")
     print(f"{'─' * 60}")
+
+    timing = None
+    if tracker and spec:
+        timing = tracker.start_build(
+            label=label,
+            dense=spec.dense,
+            sparse=spec.sparse,
+            reranker=spec.reranker,
+            llm_support=spec.llm_support,
+            retrieval_mode=spec.retrieval_mode,
+        )
+    elif tracker:
+        timing = tracker.start_build(label=label)
+
     t0 = time.time()
     try:
-        strategy, _ = build_fn(*args)
+        with track_openai_tokens() as token_usage:
+            strategy, _ = build_fn(*args)
         elapsed = time.time() - t0
-        print(f"  ✓ 성공 ({elapsed:.1f}s)")
+        token_info = ""
+        if token_usage.total_tokens > 0:
+            token_info = f", tokens: {token_usage.total_tokens:,}"
+        print(f"  ✓ 성공 ({elapsed:.1f}s{token_info})")
+        if tracker and timing:
+            tracker.end_build(timing, success=True, tokens=token_usage)
         _release_memory()
         return strategy, None
     except Exception as e:
@@ -400,6 +423,8 @@ def _safe_build(
         err = f"{type(e).__name__}: {e}"
         print(f"  ✗ 실패 ({elapsed:.1f}s): {err}")
         traceback.print_exc()
+        if tracker and timing:
+            tracker.end_build(timing, success=False, error=err)
         _release_memory()
         return None, err
 
@@ -493,27 +518,44 @@ def _run_preset_mode(args):
         _print_layer_analysis_preview(combos, config)
         return
 
+    # ── RunTracker 초기화 ──
+    tracker = RunTracker(output_dir=BENCH_DATA_DIR)
+
     # ── Step 1: QA 로드 ──
     print(f"\n{'=' * 60}")
     print("Step 1: QA 데이터셋 로드")
     print(f"{'=' * 60}")
-    dataset = _load_qa_dataset()
-    qa_pairs = dataset["qa_pairs"]
-    queries = [qa["question"] for qa in qa_pairs]
-    ground_truths = [qa["ground_truth"] for qa in qa_pairs]
+    with tracker.phase("qa_dataset_load"):
+        dataset = _load_qa_dataset()
+        qa_pairs = dataset["qa_pairs"]
+        queries = [qa["question"] for qa in qa_pairs]
+        ground_truths = [qa["ground_truth"] for qa in qa_pairs]
 
     # ── Step 2: 문서 청킹 ──
     print(f"\n{'=' * 60}")
     print("Step 2: 문서 청킹")
     print(f"{'=' * 60}")
-    parent_store_path = BENCH_DATA_DIR / "parent_store"
-    parent_pairs, child_chunks = create_parent_child_chunks(
-        markdown_dir=str(BENCH_DOCS_DIR),
-        parent_store_path=str(parent_store_path),
+    with tracker.phase("chunking"):
+        parent_store_path = BENCH_DATA_DIR / "parent_store"
+        parent_pairs, child_chunks = create_parent_child_chunks(
+            markdown_dir=str(BENCH_DOCS_DIR),
+            parent_store_path=str(parent_store_path),
+        )
+        if not child_chunks:
+            print("Error: Child 청크가 생성되지 않았습니다.")
+            sys.exit(1)
+
+    # 트래커에 설정 기록
+    tracker.set_config(
+        preset=preset_name,
+        k=args.k,
+        top_n=args.top_n,
+        pass1_only=args.pass1_only,
+        layers=args.layers,
+        num_combos=len(combos),
+        num_queries=len(queries),
+        num_docs=len(child_chunks),
     )
-    if not child_chunks:
-        print("Error: Child 청크가 생성되지 않았습니다.")
-        sys.exit(1)
 
     # ── Step 3: 전략 생성 (인덱스 캐싱) ──
     print(f"\n{'=' * 60}")
@@ -526,22 +568,25 @@ def _run_preset_mode(args):
 
     reindex = args.reindex
 
-    for i, spec in enumerate(combos, 1):
-        progress = f"[{i}/{len(combos)}]"
-        label = spec.label
+    with tracker.phase("strategy_build_and_indexing"):
+        for i, spec in enumerate(combos, 1):
+            progress = f"[{i}/{len(combos)}]"
+            label = spec.label
 
-        strategy, err = _safe_build(
-            label,
-            lambda s=spec: (
-                build_strategy_from_spec(s, index_cache, child_chunks, parent_pairs, reindex),
-                None,
-            ),
-            progress=progress,
-        )
-        build_results.append((label, strategy, err))
-        if strategy is not None:
-            strategies.append((spec, strategy))
-        _release_memory()
+            strategy, err = _safe_build(
+                label,
+                lambda s=spec: (
+                    build_strategy_from_spec(s, index_cache, child_chunks, parent_pairs, reindex),
+                    None,
+                ),
+                progress=progress,
+                tracker=tracker,
+                spec=spec,
+            )
+            build_results.append((label, strategy, err))
+            if strategy is not None:
+                strategies.append((spec, strategy))
+            _release_memory()
 
     _print_init_summary(build_results)
 
@@ -564,7 +609,8 @@ def _run_preset_mode(args):
         k=args.k,
         evaluator=None,
     )
-    runner.run()
+    with tracker.phase("pass1_latency"):
+        runner.run()
     runner.compare()
 
     # 레이턴시 결과 저장
@@ -573,6 +619,19 @@ def _run_preset_mode(args):
         latency_path = BENCH_DATA_DIR / "all_combos_latency.csv"
         latency_df.to_csv(latency_path, index=False, encoding="utf-8-sig")
         print(f"  레이턴시 결과: {latency_path}")
+
+        # 트래커에 쿼리 레이턴시 통계 기록
+        for spec, strat in strategies:
+            timing = tracker.find_timing(spec.label)
+            if timing is None:
+                continue
+            mask = latency_df["strategy"] == strat.name
+            strat_rows = latency_df[mask]
+            if strat_rows.empty:
+                continue
+            valid_lats = strat_rows.loc[strat_rows["error"].isna(), "latency_ms"].tolist()
+            error_count = int(strat_rows["error"].notna().sum())
+            tracker.record_query_stats(timing, valid_lats, error_count)
 
     # 레이어별 기여도 분석 (레이턴시 기반)
     if args.layers and latency_df is not None:
@@ -583,6 +642,7 @@ def _run_preset_mode(args):
         print(f"\n{'═' * 60}")
         print(f" Pass 1 완료 — {len(active_strategies)}개 전략 레이턴시 측정")
         print(f"{'═' * 60}")
+        tracker.finalize()
         _cleanup_strategies(active_strategies)
         return
 
@@ -631,7 +691,11 @@ def _run_preset_mode(args):
         )
         # Pass 1 결과 재사용 (재검색 방지)
         eval_runner.inject_results(runner._results)
-        scores_df = eval_runner.evaluate(ground_truths=ground_truths)
+        with tracker.phase("pass2_ragas"):
+            with track_openai_tokens() as ragas_tokens:
+                scores_df = eval_runner.evaluate(ground_truths=ground_truths)
+        if ragas_tokens.total_tokens > 0:
+            tracker.record_ragas_tokens(ragas_tokens)
         _print_ragas_table(scores_df)
 
         if scores_df is not None:
@@ -639,13 +703,33 @@ def _run_preset_mode(args):
             scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
             print(f"  RAGAS 점수: {scores_path}")
 
+            # 트래커에 RAGAS 점수 기록
+            for _, row in scores_df.iterrows():
+                strat_name = row["strategy"]
+                # eval_strategies에서 매칭되는 spec 찾기
+                for spec, strat in eval_strategies:
+                    if strat.name == strat_name:
+                        timing = tracker.find_timing(spec.label)
+                        if timing:
+                            metric_cols = [c for c in scores_df.columns if c != "strategy"]
+                            scores = {
+                                c: round(float(row[c]), 4)
+                                for c in metric_cols
+                                if isinstance(row[c], (int, float))
+                            }
+                            tracker.record_ragas(timing, scores)
+                        break
+
         # 레이어별 기여도 (RAGAS 기반)
         if args.layers and scores_df is not None:
             _print_layer_contribution_ragas(eval_strategies, scores_df)
 
     # ── Step 6: 리포트 생성 ──
     if latency_df is not None:
-        _generate_report(latency_df, scores_df if evaluator else None, combos, BENCH_DATA_DIR)
+        _generate_report(latency_df, scores_df if evaluator else None, combos, BENCH_DATA_DIR, tracker=tracker)
+
+    # ── 수행 이력 저장 ──
+    tracker.finalize()
 
     # ── Cleanup ──
     _cleanup_strategies(active_strategies)
@@ -762,7 +846,7 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
 # ===========================================================================
 
 
-def _generate_report(latency_df, ragas_df, combo_specs, output_dir):
+def _generate_report(latency_df, ragas_df, combo_specs, output_dir, tracker=None):
     """Markdown 리포트 생성."""
     report_path = output_dir / "e2e_report.md"
 
@@ -772,11 +856,62 @@ def _generate_report(latency_df, ragas_df, combo_specs, output_dir):
         f"**조합 수**: {len(combo_specs)}개",
         f"**생성 시각**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "",
+    ]
+
+    # 수행 이력 요약 (플랫폼, 시간, 토큰)
+    if tracker and hasattr(tracker, '_record'):
+        rec = tracker._record
+        pf = rec.platform_info
+        lines.append("## 실행 환경")
+        lines.append("")
+        lines.append(f"| 항목 | 값 |")
+        lines.append(f"|------|-----|")
+        lines.append(f"| Run ID | {rec.run_id} |")
+        lines.append(f"| Preset | {rec.preset} |")
+        lines.append(f"| Platform | {pf.get('os', '')} {pf.get('os_release', '')} |")
+        chip = pf.get("apple_chip", pf.get("processor", "N/A"))
+        lines.append(f"| Chip / CPU | {chip} ({pf.get('cpu_count_logical', '?')} cores) |")
+        lines.append(f"| RAM | {pf.get('ram_total_gb', '?')} GB |")
+        lines.append(f"| GPU | {pf.get('gpu') or 'None'} |")
+        lines.append(f"| Python | {pf.get('python_version', '')} |")
+        lines.append(f"| Git Commit | {pf.get('git_commit', '')} |")
+        lines.append("")
+
+        if tracker._phases:
+            total_s = rec.duration_s or 1
+            lines.append("## 단계별 소요 시간")
+            lines.append("")
+            lines.append("| 단계 | 소요 시간 | 비중 | 토큰 |")
+            lines.append("|------|----------|:----:|------|")
+            for p in tracker._phases:
+                if p.duration_s <= 0:
+                    continue
+                pct = p.duration_s / total_s * 100
+                tok_str = ""
+                if p.tokens and p.tokens.get("total_tokens", 0) > 0:
+                    tok_str = f"{p.tokens['total_tokens']:,}"
+                lines.append(f"| {p.phase} | {p.duration_s:.1f}s | {pct:.1f}% | {tok_str} |")
+            lines.append("")
+
+        tt = tracker._token_total
+        if tt.total_tokens > 0:
+            lines.append("## 토큰 사용량")
+            lines.append("")
+            lines.append(f"| 항목 | 값 |")
+            lines.append(f"|------|-----|")
+            lines.append(f"| Total Tokens | {tt.total_tokens:,} |")
+            lines.append(f"| Prompt | {tt.prompt_tokens:,} |")
+            lines.append(f"| Completion | {tt.completion_tokens:,} |")
+            lines.append(f"| API Cost | ${tt.total_cost_usd:.4f} |")
+            lines.append(f"| LLM Calls | {tt.num_calls} |")
+            lines.append("")
+
+    lines.extend([
         "---",
         "",
         "## 레이턴시 결과 (Top 10)",
         "",
-    ]
+    ])
 
     if latency_df is not None and "strategy" in latency_df.columns:
         if "avg_latency" in latency_df.columns:

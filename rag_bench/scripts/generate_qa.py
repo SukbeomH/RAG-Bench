@@ -13,6 +13,7 @@ import hashlib
 import json
 import random
 import sys
+import time
 from pathlib import Path
 from typing import List
 
@@ -22,6 +23,7 @@ from rag_bench.config import (
     setup_ssl_bypass,
 )
 from rag_bench.indexing.chunker import create_parent_child_chunks
+from rag_bench.run_tracker import RunTracker, track_openai_tokens
 
 
 def _compute_docs_hash(docs_dir: Path) -> str:
@@ -156,13 +158,17 @@ def main():
             print("  재생성하려면 --force 옵션을 사용하세요.")
             return
 
+    # RunTracker 초기화
+    tracker = RunTracker(output_dir=BENCH_DATA_DIR)
+
     # 1. Parent-Child 청킹
     print("\n=== Step 1: Parent-Child 청킹 ===")
-    parent_store_path = BENCH_DATA_DIR / "parent_store"
-    parent_pairs, child_chunks = create_parent_child_chunks(
-        markdown_dir=str(BENCH_DOCS_DIR),
-        parent_store_path=str(parent_store_path),
-    )
+    with tracker.phase("qa_chunking"):
+        parent_store_path = BENCH_DATA_DIR / "parent_store"
+        parent_pairs, child_chunks = create_parent_child_chunks(
+            markdown_dir=str(BENCH_DOCS_DIR),
+            parent_store_path=str(parent_store_path),
+        )
 
     if not parent_pairs:
         print("Error: Parent 청크가 생성되지 않았습니다.")
@@ -173,9 +179,18 @@ def main():
     sampled = _sample_parents(parent_pairs, args.num_qa)
     print(f"  샘플링된 Parent 청크: {len(sampled)}개")
 
-    # 3. QA 생성
+    # 3. QA 생성 (토큰 추적)
     print(f"\n=== Step 3: GPT-4o-mini QA 생성 ===")
-    qa_pairs = _generate_qa_pairs(sampled, args.num_qa)
+    with tracker.phase("qa_generation"):
+        with track_openai_tokens() as qa_tokens:
+            qa_pairs = _generate_qa_pairs(sampled, args.num_qa)
+    if qa_tokens.total_tokens > 0:
+        qa_tokens.llm_model = "gpt-4o-mini"
+        tracker.add_tokens(qa_tokens, phase="qa_generation")
+        print(f"  토큰 사용: {qa_tokens.total_tokens:,} "
+              f"(prompt: {qa_tokens.prompt_tokens:,}, "
+              f"completion: {qa_tokens.completion_tokens:,}, "
+              f"cost: ${qa_tokens.total_cost_usd:.4f})")
 
     # 4. 저장
     dataset = {
@@ -185,6 +200,19 @@ def main():
     }
     qa_path.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n=== 완료: {len(qa_pairs)}개 QA 저장 → {qa_path} ===")
+
+    # 수행 이력 저장
+    tracker.set_config(
+        preset="qa_generation",
+        k=0,
+        top_n=None,
+        pass1_only=False,
+        layers=False,
+        num_combos=0,
+        num_queries=args.num_qa,
+        num_docs=len(child_chunks),
+    )
+    tracker.finalize()
 
 
 if __name__ == "__main__":
