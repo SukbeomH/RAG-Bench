@@ -75,6 +75,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         self._batch_size = batch_size
 
         self._model: Any = shared_model
+        self._is_shared_model = shared_model is not None
         self._is_ready = False
 
     @property
@@ -195,6 +196,6 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
     def cleanup(self) -> None:
         """base_strategy 리소스 정리 (공유 모델은 유지)."""
         self._base_strategy.cleanup()
-        # shared_model로 전달받은 경우 다른 전략이 공유하므로 삭제하지 않음
-        self._model = None
+        if not self._is_shared_model:
+            self._model = None
         self._is_ready = False

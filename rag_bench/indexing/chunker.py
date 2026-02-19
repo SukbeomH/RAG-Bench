@@ -140,19 +140,18 @@ def create_parent_child_chunks(
             children = child_splitter.split_documents([p_chunk])
             all_child_chunks.extend(children)
 
-    # Parent 청크를 JSON으로 저장
+    # Parent 청크를 단일 JSON으로 저장
     parent_store = Path(parent_store_path)
     parent_store.mkdir(parents=True, exist_ok=True)
 
-    # 기존 파일 정리
-    for item in os.listdir(parent_store):
-        os.remove(os.path.join(parent_store, item))
-
-    for parent_id, doc in all_parent_pairs:
-        doc_dict = {"page_content": doc.page_content, "metadata": doc.metadata}
-        filepath = os.path.join(parent_store, f"{parent_id}.json")
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(doc_dict, f, ensure_ascii=False, indent=2)
+    store_file = parent_store / "parents.json"
+    store_data = {
+        pid: {"page_content": doc.page_content, "metadata": doc.metadata}
+        for pid, doc in all_parent_pairs
+    }
+    store_file.write_text(
+        json.dumps(store_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     print(
         f"Chunking complete: {len(all_parent_pairs)} parents, "

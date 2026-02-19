@@ -208,6 +208,13 @@ DENSE_MODELS: Dict[str, str] = {
     "minilm": "sentence-transformers/all-MiniLM-L6-v2",
 }
 
+DENSE_DIMS: Dict[str, int] = {
+    "BM-K/KoSimCSE-roberta-multitask": 768,
+    "intfloat/multilingual-e5-large": 1024,
+    "BAAI/bge-m3": 1024,
+    "sentence-transformers/all-MiniLM-L6-v2": 384,
+}
+
 SPARSE_TYPES: List[str] = ["korean_bm25", "splade", "fastembed_bm25"]
 
 # ---------------------------------------------------------------------------
@@ -332,9 +339,12 @@ class DenseSparseStrategy(BaseRAGStrategy):
             encode_kwargs={"normalize_embeddings": True},
         )
 
-        # 차원 확인
-        test_vec = self._dense_embeddings.embed_query("test")
-        self._embedding_dim = len(test_vec)
+        # 정적 테이블에서 차원 조회, 미등록 모델만 런타임 확인
+        if model_spec in DENSE_DIMS:
+            self._embedding_dim = DENSE_DIMS[model_spec]
+        else:
+            test_vec = self._dense_embeddings.embed_query("test")
+            self._embedding_dim = len(test_vec)
         print(f"  Dense: {model_spec} ({self._embedding_dim}d)")
 
     def _init_sparse(self):
@@ -428,8 +438,12 @@ class DenseSparseStrategy(BaseRAGStrategy):
         self._ensure_initialized()
         return self._vector_store.as_retriever(search_kwargs={"k": k})
 
-    def cleanup(self) -> None:
-        """Qdrant 리소스 정리."""
-        if self._client and self._client.collection_exists(self._collection_name):
+    def cleanup(self, delete_index: bool = False) -> None:
+        """Qdrant 리소스 정리. 인덱스는 기본적으로 보존하여 재실행 시 재사용."""
+        if delete_index and self._client and self._client.collection_exists(self._collection_name):
             self._client.delete_collection(self._collection_name)
-            print(f"  Cleaned up collection: {self._collection_name}")
+            print(f"  Deleted collection: {self._collection_name}")
+        if self._client:
+            self._client.close()
+            self._client = None
+            print(f"  Closed Qdrant client (collection preserved: {self._collection_name})")
