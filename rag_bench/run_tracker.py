@@ -36,7 +36,7 @@ def collect_platform_info() -> Dict[str, Any]:
     # CPU 코어 수
     info["cpu_count_logical"] = os.cpu_count()
     try:
-        info["cpu_count_physical"] = len(os.sched_getaffinity(0))
+        info["cpu_count_physical"] = len(os.sched_getaffinity(0))  # type: ignore[attr-defined]
     except AttributeError:
         info["cpu_count_physical"] = info["cpu_count_logical"]
 
@@ -310,9 +310,9 @@ class RunTracker:
     # 전략 빌드 타이밍
     # ------------------------------------------------------------------
 
-    def start_build(self, label: str, dense: str = None, sparse: str = None,
-                    reranker: str = None, llm_support: str = None,
-                    retrieval_mode: str = None) -> StrategyTiming:
+    def start_build(self, label: str, dense: Optional[str] = None, sparse: Optional[str] = None,
+                    reranker: Optional[str] = None, llm_support: Optional[str] = None,
+                    retrieval_mode: Optional[str] = None) -> StrategyTiming:
         """전략 빌드 시작을 기록한다."""
         timing = StrategyTiming(
             label=label,
@@ -326,7 +326,7 @@ class RunTracker:
         self._timings.append(timing)
         return timing
 
-    def end_build(self, timing: StrategyTiming, success: bool, error: str = None,
+    def end_build(self, timing: StrategyTiming, success: bool, error: Optional[str] = None,
                   tokens: Optional[TokenUsage] = None):
         """전략 빌드 완료를 기록한다."""
         if self._current_build_start is not None:

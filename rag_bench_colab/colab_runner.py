@@ -128,10 +128,10 @@ class ColabBenchmarkRunner:
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
-        self._index_cache = None
-        self._tqdm = None
-        self._pass1_results = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
-        self._tracker = None       # RunTracker 인스턴스
+        self._index_cache: Optional[Any] = None   # IndexCacheManager, lazy init
+        self._tqdm: Optional[Any] = None
+        self._pass1_results: Dict[str, List[dict]] = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
+        self._tracker: Optional[Any] = None       # RunTracker 인스턴스
         self._reports: Dict[str, Any] = {}  # EvaluationReport 저장
 
     def _get_tqdm(self):
@@ -481,7 +481,7 @@ class ColabBenchmarkRunner:
                         if timing:
                             self._tracker.record_ragas(timing, report.aggregate_dict)
 
-                    score_dict = {"strategy": name}
+                    score_dict: Dict[str, Any] = {"strategy": name}
                     score_dict.update(report.aggregate_dict)
 
                     # weighted_score 추가

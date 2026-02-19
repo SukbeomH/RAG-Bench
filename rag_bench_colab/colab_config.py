@@ -294,7 +294,7 @@ def patch_dense_device(device: str = "cuda") -> None:
             self._embedding_dim = len(test_vec)
         print(f"  Dense: {model_spec} ({self._embedding_dim}d, device={device})")
 
-    DenseSparseStrategy._init_dense = _patched_init_dense
+    DenseSparseStrategy._init_dense = _patched_init_dense  # type: ignore[method-assign]
     print(f"[Patch] DenseSparseStrategy._init_dense → device='{device}', trust_remote_code=True")
 
 
@@ -345,7 +345,7 @@ def patch_qdrant_memory_mode() -> None:
         else:
             original_init_qdrant(self)
 
-    DenseSparseStrategy._init_qdrant = _patched_init_qdrant
+    DenseSparseStrategy._init_qdrant = _patched_init_qdrant  # type: ignore[method-assign]
     print("[Patch] DenseSparseStrategy._init_qdrant → ':memory:' 모드 지원")
 
 

@@ -5,7 +5,7 @@ matplotlib, plotly, seaborn으로 차트를 생성한다.
 Colab 노트북에서 inline 렌더링을 기본으로 한다.
 """
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -276,7 +276,7 @@ def plot_layer_contribution(
     fig, axes = plt.subplots(1, len(layers), figsize=(16, 5))
 
     for ax, (layer_name, get_val) in zip(axes, layers.items()):
-        groups = {}
+        groups: Dict[str, List[float]] = {}
         for spec in specs:
             val = get_val(spec)
             strategy_name = spec.label
@@ -360,6 +360,7 @@ def create_summary_table(
     elif ragas_df is not None:
         merged = ragas_df.copy()
     else:
+        assert lat_df is not None
         merged = lat_df.copy()
 
     return merged

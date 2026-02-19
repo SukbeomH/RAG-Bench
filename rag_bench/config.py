@@ -40,7 +40,7 @@ REQUIRED_HF_MODELS = [
 ]
 
 # .env 파일 로드
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -57,7 +57,7 @@ def setup_ssl_bypass() -> None:
 
     ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore[assignment]
 
-    import requests
+    import requests  # type: ignore[import-untyped]
 
     _original_request = requests.Session.request
 

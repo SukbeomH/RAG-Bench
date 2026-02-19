@@ -7,7 +7,10 @@ BenchmarkRunner — 전략 비교 벤치마크 실행기.
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from rag_bench.evaluation.evaluator import ExtendedRAGEvaluator
 
 from rag_bench.base import BaseRAGStrategy
 from rag_bench.evaluation.evaluator import EvaluationReport
@@ -91,7 +94,7 @@ class BenchmarkRunner:
 
     def _run_parallel(self, strategy: BaseRAGStrategy) -> List[dict]:
         """전략 내 쿼리들을 ThreadPool으로 병렬 실행."""
-        results = [None] * len(self.queries)
+        results: List[Optional[dict]] = [None] * len(self.queries)
         with ThreadPoolExecutor(max_workers=self.parallel_queries) as executor:
             futures = {
                 executor.submit(self._run_single, strategy, query): i
@@ -100,7 +103,7 @@ class BenchmarkRunner:
             for future in as_completed(futures):
                 idx = futures[future]
                 results[idx] = future.result()
-        return results
+        return results  # type: ignore[return-value]
 
     def inject_results(self, results: Dict[str, List[dict]]) -> None:
         """외부에서 수집된 검색 결과를 주입하여 재검색을 방지한다."""
@@ -171,8 +174,8 @@ class BenchmarkRunner:
 
             # Generate answers if not present (병렬 LLM 호출)
             self._ensure_generator()
-            answers = [None] * len(query_results)
-            pending = []  # (index, prompt) 튜플
+            answers: List[Optional[str]] = [None] * len(query_results)
+            pending: List[tuple] = []  # (index, prompt) 튜플
 
             for i, r in enumerate(query_results):
                 if "answer" in r:
@@ -212,12 +215,12 @@ class BenchmarkRunner:
                 result = self.evaluator.evaluate(
                     questions=questions,
                     contexts=contexts,
-                    answers=answers,
-                    ground_truths=gts,
+                    answers=answers,  # type: ignore[arg-type]
+                    ground_truths=gts,  # type: ignore[arg-type]
                 )
 
                 result.strategy_name = name
-                scores_dict = {
+                scores_dict: Dict[str, Any] = {
                     k: round(v, 4) for k, v in result.aggregate_dict.items()
                     if isinstance(v, (int, float))
                 }
