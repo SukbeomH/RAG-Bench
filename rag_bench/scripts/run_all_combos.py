@@ -29,6 +29,7 @@ Usage:
 """
 
 import argparse
+import gc
 import json
 import sys
 import time
@@ -138,6 +139,21 @@ class IndexCacheManager:
 
     cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
     ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
+    _colbert_model: Any = field(default=None, repr=False)     # ColBERT 싱글톤
+
+    def get_colbert_model(self):
+        """ColBERT 모델을 1회만 로드하고 이후 공유."""
+        if self._colbert_model is not None:
+            return self._colbert_model
+        from pylate import models
+        print("[ColBERT 캐시] 모델 최초 로드 중 (이후 공유)...")
+        self._colbert_model = models.ColBERT(
+            model_name_or_path="jinaai/jina-colbert-v2",
+            device="cpu",
+            trust_remote_code=True,
+        )
+        print("[ColBERT 캐시] 모델 로드 완료.")
+        return self._colbert_model
 
     def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
         """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드."""
@@ -207,8 +223,11 @@ def build_strategy_from_spec(
     if spec.reranker == "colbert":
         from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
 
-        strategy = ColBERTRerankStrategy(base_strategy=base, rerank_n=20)
-        strategy._ensure_initialized()
+        shared = index_cache.get_colbert_model()
+        strategy = ColBERTRerankStrategy(
+            base_strategy=base, rerank_n=20, shared_model=shared
+        )
+        strategy._device = "cpu"
         strategy._is_ready = True
         return strategy
     elif spec.reranker == "flashrank":
@@ -361,12 +380,14 @@ def _safe_build(
         strategy, _ = build_fn(*args)
         elapsed = time.time() - t0
         print(f"  ✓ 성공 ({elapsed:.1f}s)")
+        _release_memory()
         return strategy, None
     except Exception as e:
         elapsed = time.time() - t0
         err = f"{type(e).__name__}: {e}"
         print(f"  ✗ 실패 ({elapsed:.1f}s): {err}")
         traceback.print_exc()
+        _release_memory()
         return None, err
 
 
@@ -507,6 +528,7 @@ def _run_preset_mode(args):
         build_results.append((label, strategy, err))
         if strategy is not None:
             strategies.append((spec, strategy))
+        _release_memory()
 
     _print_init_summary(build_results)
 
@@ -776,6 +798,19 @@ def _generate_report(latency_df, ragas_df, combo_specs, output_dir):
 # ===========================================================================
 
 
+def _release_memory():
+    """PyTorch 캐시 + 가비지 컬렉션 강제 해제."""
+    gc.collect()
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def _cleanup_strategies(strategies):
     """전략 클린업."""
     print(f"\n{'=' * 60}")
@@ -787,6 +822,8 @@ def _cleanup_strategies(strategies):
             print(f"  ✓ {strategy.name}")
         except Exception as e:
             print(f"  ✗ {strategy.name}: {e}")
+    _release_memory()
+    print("  ✓ 메모리 캐시 해제 완료")
 
 
 # ===========================================================================

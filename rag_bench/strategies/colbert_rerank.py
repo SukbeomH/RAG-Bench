@@ -66,6 +66,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         rerank_n: int = 20,
         device: Optional[str] = None,
         batch_size: int = 32,
+        shared_model: Any = None,
     ):
         self._base_strategy = base_strategy
         self._model_name = model_name
@@ -73,7 +74,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         self._device = device
         self._batch_size = batch_size
 
-        self._model: Any = None
+        self._model: Any = shared_model
         self._is_ready = False
 
     @property
@@ -93,13 +94,11 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         return self._is_ready
 
     def _detect_device(self) -> str:
-        """CUDA → MPS → CPU 자동 감지."""
+        """CUDA → CPU 자동 감지 (MPS는 OOM 위험으로 사용하지 않음)."""
         import torch
 
         if torch.cuda.is_available():
             return "cuda"
-        if torch.backends.mps.is_available():
-            return "mps"
         return "cpu"
 
     def _ensure_initialized(self) -> None:
@@ -194,7 +193,8 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         return ColBERTRerankRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
-        """base_strategy 및 ColBERT 모델 리소스 정리."""
+        """base_strategy 리소스 정리 (공유 모델은 유지)."""
         self._base_strategy.cleanup()
+        # shared_model로 전달받은 경우 다른 전략이 공유하므로 삭제하지 않음
         self._model = None
         self._is_ready = False

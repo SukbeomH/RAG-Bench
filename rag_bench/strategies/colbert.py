@@ -92,13 +92,11 @@ class ColBERTStrategy(BaseRAGStrategy):
         return self._is_ready
 
     def _detect_device(self) -> str:
-        """CUDA → MPS → CPU 자동 감지."""
+        """CUDA → CPU 자동 감지 (MPS는 OOM 위험으로 사용하지 않음)."""
         import torch
 
         if torch.cuda.is_available():
             return "cuda"
-        if torch.backends.mps.is_available():
-            return "mps"
         return "cpu"
 
     def _ensure_initialized(self) -> None:

@@ -4,6 +4,7 @@
 프로젝트 디렉토리, LLM, SSL 등 전역 설정을 관리한다.
 """
 
+import gc
 import os
 import ssl
 import warnings
@@ -54,6 +55,18 @@ def setup_ssl_bypass() -> None:
     requests.Session.request = _patched_request  # type: ignore[method-assign]
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    # MPS OOM 방지: CPU 강제 사용
+    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.set_default_device("cpu")
+            # 기존 MPS 캐시 해제
+            torch.mps.empty_cache()
+            gc.collect()
+    except Exception:
+        pass
     # os.environ["CURL_CA_BUNDLE"] = ""
     # os.environ["REQUESTS_CA_BUNDLE"] = ""
     os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
