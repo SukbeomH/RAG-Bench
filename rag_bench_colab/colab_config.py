@@ -216,6 +216,21 @@ def get_qdrant_path(
 
 
 # ---------------------------------------------------------------------------
+# 한글 폰트 설정
+# ---------------------------------------------------------------------------
+
+
+def _setup_korean_font() -> None:
+    """matplotlib 한글 폰트 설정 (koreanize-matplotlib 사용)."""
+    try:
+        import koreanize_matplotlib  # noqa: F401
+
+        print("[Font] 한글 폰트 설정 완료 (NanumGothic)")
+    except ImportError:
+        print("[Warning] koreanize-matplotlib 미설치 — 한글 그래프가 깨질 수 있습니다.")
+
+
+# ---------------------------------------------------------------------------
 # Dense 모델 디바이스 패치
 # ---------------------------------------------------------------------------
 
@@ -400,6 +415,9 @@ def init_colab(
     # 인메모리 모드 패치
     if qdrant_mode == "memory":
         patch_qdrant_memory_mode()
+
+    # 한글 폰트 설정
+    _setup_korean_font()
 
     info["qdrant_mode"] = qdrant_mode
     info["patched"] = True

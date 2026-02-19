@@ -43,3 +43,4 @@ matplotlib>=3.10
 plotly>=5.18
 seaborn>=0.13
 kaleido>=0.2
+koreanize-matplotlib>=0.1

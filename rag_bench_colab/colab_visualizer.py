@@ -88,6 +88,7 @@ def plot_ragas_radar(df: pd.DataFrame, top_n: int = 5) -> None:
         showlegend=True,
         title=f"RAGAS Metrics Radar (Top {top_n})",
         height=500,
+        font=dict(family="NanumGothic, sans-serif"),
     )
     fig.show()
 
@@ -209,6 +210,7 @@ def plot_latency_vs_quality(
         yaxis_title=quality_metric,
         title=f"Latency vs {quality_metric} (Pareto Frontier)",
         height=500,
+        font=dict(family="NanumGothic, sans-serif"),
     )
     fig.show()
 
