@@ -10,16 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 from rag_bench.base import BaseRAGStrategy
-
-try:
-    from rag_bench.evaluation import RAGEvaluator
-except ImportError:
-    RAGEvaluator = None
-
-try:
-    from rag_bench.evaluation.evaluator import EvaluationReport
-except ImportError:
-    EvaluationReport = None
+from rag_bench.evaluation.evaluator import EvaluationReport
 
 
 class BenchmarkRunner:
@@ -225,20 +216,12 @@ class BenchmarkRunner:
                     ground_truths=gts,
                 )
 
-                # 양방향 호환: dict(레거시) 또는 EvaluationReport(확장)
-                if EvaluationReport is not None and isinstance(result, EvaluationReport):
-                    result.strategy_name = name
-                    scores_dict = {
-                        k: round(v, 4) for k, v in result.aggregate_dict.items()
-                        if isinstance(v, (int, float))
-                    }
-                    self._reports[name] = result
-                else:
-                    scores_dict = {
-                        k: round(v, 4)
-                        for k, v in result.items()
-                        if isinstance(v, (int, float))
-                    }
+                result.strategy_name = name
+                scores_dict = {
+                    k: round(v, 4) for k, v in result.aggregate_dict.items()
+                    if isinstance(v, (int, float))
+                }
+                self._reports[name] = result
 
                 scores_dict["strategy"] = name
                 all_scores.append(scores_dict)

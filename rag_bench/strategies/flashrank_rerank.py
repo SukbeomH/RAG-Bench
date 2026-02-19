@@ -85,7 +85,7 @@ class FlashRankRerankStrategy(BaseRAGStrategy):
 
         self._ranker: Any = shared_ranker
         self._is_shared_ranker = shared_ranker is not None
-        self._is_ready = False
+        self._is_ready = shared_ranker is not None
 
     @property
     def name(self) -> str:

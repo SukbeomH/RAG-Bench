@@ -76,7 +76,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
 
         self._model: Any = shared_model
         self._is_shared_model = shared_model is not None
-        self._is_ready = False
+        self._is_ready = shared_model is not None
 
     @property
     def name(self) -> str:

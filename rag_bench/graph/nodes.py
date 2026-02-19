@@ -64,6 +64,19 @@ def create_tools(strategy, parent_store_path: str):
         except Exception as e:
             return f"RETRIEVAL_ERROR: {str(e)}"
 
+    # parents.json을 한 번만 로드하고 캐싱
+    _parents_cache: dict = {}
+
+    def _load_parents_store() -> dict:
+        if _parents_cache:
+            return _parents_cache
+        store_file = os.path.join(parent_store_path, "parents.json")
+        if not os.path.exists(store_file):
+            return _parents_cache
+        with open(store_file, "r", encoding="utf-8") as f:
+            _parents_cache.update(json.load(f))
+        return _parents_cache
+
     @tool
     def retrieve_parent_chunks(parent_id: str) -> str:
         """Retrieve full parent chunks by their IDs.
@@ -71,14 +84,10 @@ def create_tools(strategy, parent_store_path: str):
         Args:
             parent_id: Parent chunk ID to retrieve
         """
-        file_name = (
-            parent_id if parent_id.lower().endswith(".json") else f"{parent_id}.json"
-        )
-        path = os.path.join(parent_store_path, file_name)
-        if not os.path.exists(path):
+        store = _load_parents_store()
+        data = store.get(parent_id)
+        if data is None:
             return "NO_PARENT_DOCUMENT"
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
         return (
             f"Parent ID: {parent_id}\n"
             f"File Name: {data.get('metadata', {}).get('source', 'unknown')}\n"
