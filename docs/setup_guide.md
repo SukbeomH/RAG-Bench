@@ -82,8 +82,11 @@ uv sync
 # 환경 설정 및 Ragas 평가 파이프라인 검증 (Mock 데이터 사용)
 uv run python scripts/verify_ragas_eval.py
 
-# QA 데이터셋 생성
-uv run python -m rag_bench.scripts.generate_qa --num_qa 20
+# QA 데이터셋 생성 (레거시)
+uv run python -m rag_bench.scripts.generate_qa --method legacy --num_qa 20
+
+# QA 데이터셋 생성 (RAGAS KG 기반 — 다양한 QA 유형)
+uv run python -m rag_bench.scripts.generate_qa --method ragas --num_qa 50
 
 # 72개 조합 벤치마크 (2-Pass: 레이턴시 → 상위 10개 RAGAS)
 uv run python -m rag_bench.scripts.run_all_combos --preset full --top_n 10 --k 3 --layers

@@ -123,11 +123,11 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 | **전략** | GraphRAG (LightRAG) | 완료 |
 | **파이프라인** | PDF → Markdown 변환 | 완료 |
 | **파이프라인** | Parent-Child 청킹 | 완료 |
-| **파이프라인** | QA 데이터셋 자동 생성 (GPT-4o-mini) | 완료 |
+| **파이프라인** | QA 데이터셋 자동 생성 (GPT-4o-mini / RAGAS KG) | 완료 |
 | **벤치마크** | 72개 3-Layer 교차 조합 파이프라인 | 완료 |
 | **벤치마크** | 2-Pass 실행 (레이턴시 → RAGAS) | 완료 |
 | **벤치마크** | 레이어별 기여도 분석 | 완료 |
-| **평가** | RAGAS v0.4+ 통합 (4개 메트릭) | 완료 |
+| **평가** | RAGAS v0.4+ 통합 (Core 4종 + Extended 5종 + Lightweight 2종) | 완료 |
 | **에이전트** | LangGraph Agentic RAG 대화 | 완료 |
 | **인프라** | Google Colab T4 GPU 벤치마크 환경 | 완료 |
 | **인프라** | HuggingFace 모델 로컬 캐시 (심링크) | 완료 |
@@ -189,7 +189,17 @@ echo "OPENAI_API_KEY=sk-your-api-key-here" > .env
 벤치마크 대상 문서(`rag_bench/docs/*.md`)에서 QA 쌍을 자동 생성합니다.
 
 ```bash
-uv run python -m rag_bench.scripts.generate_qa --num_qa 20
+# 레거시 방식 (GPT-4o-mini 기반 단순 QA)
+uv run python -m rag_bench.scripts.generate_qa --method legacy --num_qa 20
+
+# RAGAS KG 방식 (KnowledgeGraph 기반 다양한 QA 유형)
+uv run python -m rag_bench.scripts.generate_qa --method ragas --num_qa 50
+
+# KG만 사전 구축 (QA 생성 없이)
+uv run python -m rag_bench.scripts.generate_qa --method ragas --build-kg-only
+
+# 기존 KG 재사용하여 QA 생성
+uv run python -m rag_bench.scripts.generate_qa --method ragas --num_qa 50 --reuse-kg
 ```
 
 생성 결과: `rag_bench/_benchdata/qa_dataset.json`
@@ -404,12 +414,32 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 ## 평가 메트릭
 
+### Core 메트릭 (4종)
+
 | 메트릭 | 분류 | 설명 |
 |--------|------|------|
 | **Context Precision** | Retrieval | 검색된 문서 중 관련 문서 비율 |
 | **Context Recall** | Retrieval | 필요한 정보가 검색 결과에 포함된 정도 |
 | **Faithfulness** | Generation | 답변이 검색 문서 내용에 충실한 정도 |
 | **Answer Relevancy** | Generation | 답변이 질문에 적합한 정도 |
+
+### Extended 메트릭 (5종, COMPREHENSIVE 프리셋)
+
+| 메트릭 | 분류 | 설명 |
+|--------|------|------|
+| **Context Entity Recall** | Retrieval | 검색 문서의 엔터티 재현율 |
+| **Response Relevancy** | Generation | 응답의 질문 관련성 (LLM 기반) |
+| **String Presence** | Lightweight | 정답 문자열 포함 여부 |
+| **Exact Match** | Lightweight | 정답과 정확 일치 여부 |
+| **Non-LLM String Similarity** | Lightweight | 문자열 유사도 (LLM 불필요) |
+
+### Scoring Profiles
+
+| 프로파일 | 메트릭 | 용도 |
+|----------|--------|------|
+| `default` | Core 4종 | 기본 벤치마크 |
+| `comprehensive` | Core + Extended 핵심 5종 | 상세 평가 |
+| `lightweight` | Lightweight 2종 | 빠른 검증 (LLM 불필요) |
 
 ## 성능 최적화
 

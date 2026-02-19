@@ -224,9 +224,9 @@ rag_bench/
 │   └── chunker.py           # Parent-Child 청킹 (Parent: 2000-10000자, Child: 300-500자)
 │
 ├── evaluation/              # RAGAS 평가 모듈
-│   ├── __init__.py          # RAGEvaluator export
-│   ├── evaluator.py         # ExtendedRAGEvaluator — 샘플별 평가 + 비용 추적
-│   ├── metrics.py           # MetricRegistry (Core 4종, Extended 3종, Lightweight 2종)
+│   ├── __init__.py          # RAGEvaluator, SCORING_PROFILES, MetricPreset export
+│   ├── evaluator.py         # ExtendedRAGEvaluator — 샘플별 평가 + 비용 추적 + comprehensive 프로파일
+│   ├── metrics.py           # MetricRegistry (Core 4종, Extended 5종, Lightweight 2종) + COMPREHENSIVE 프리셋
 │   └── legacy.py            # 레거시 평가 코드
 │
 ├── graph/                   # LangGraph Agentic RAG
@@ -238,7 +238,7 @@ rag_bench/
 │
 ├── scripts/                 # 벤치마크 실행 스크립트
 │   ├── __init__.py
-│   ├── generate_qa.py       # QA 데이터셋 자동 생성 (GPT-4o-mini)
+│   ├── generate_qa.py       # QA 데이터셋 자동 생성 (GPT-4o-mini / RAGAS KG)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
 │   ├── run_all_combos.py    # ★ 72개 3-Layer 교차 조합 벤치마크 (2-Pass)
 │   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
@@ -355,7 +355,9 @@ Parent-Child 전략: 검색은 작은 Child 청크로 정밀하게, 답변 생�
 
 ### 8. RAGAS 평가 (evaluation/)
 
-RAGAS v0.4+ 기반 4개 핵심 메트릭:
+RAGAS v0.4+ 기반 메트릭 체계:
+
+**Core 4종 (LLM 필요):**
 
 | 메트릭 | 분류 | 평가 대상 |
 |--------|------|----------|
@@ -363,6 +365,18 @@ RAGAS v0.4+ 기반 4개 핵심 메트릭:
 | Context Recall | Retrieval | 검색 결과의 재현율 |
 | Faithfulness | Generation | 답변의 사실 충실도 |
 | Answer Relevancy | Generation | 답변의 질문 적합도 |
+
+**Extended 5종 (COMPREHENSIVE 프리셋):**
+
+| 메트릭 | 분류 | 평가 대상 |
+|--------|------|----------|
+| Context Entity Recall | Retrieval | 엔터티 재현율 |
+| Response Relevancy | Generation | 응답 관련성 |
+| String Presence | Lightweight | 정답 문자열 포함 |
+| Exact Match | Lightweight | 정확 일치 |
+| Non-LLM String Similarity | Lightweight | 문자열 유사도 |
+
+**Scoring Profiles:** `default` (Core 4종), `comprehensive` (Core + Extended), `lightweight` (LLM 불필요)
 
 `ExtendedRAGEvaluator`는 샘플별 평가 + API 토큰 사용량/비용 추적을 지원합니다.
 
@@ -574,8 +588,11 @@ Reranker:
 ### generate_qa.py
 
 ```
+  --method METHOD      QA 생성 방식: legacy (GPT-4o-mini) | ragas (KG 기반) (기본: legacy)
   --num_qa N           생성할 QA 쌍 수 (기본: 10)
-  --sample_ratio F     청크 샘플링 비율 (기본: 0.3)
+  --sample_ratio F     청크 샘플링 비율 (기본: 0.3, legacy만)
+  --build-kg-only      KG만 사전 구축 (QA 생성 안 함, ragas만)
+  --reuse-kg           기존 KG 재사용하여 QA 생성 (ragas만)
 ```
 
 ### run_bench.py

@@ -487,6 +487,69 @@ bf321b6 perf: 벤치마크 실행 최적화 — FlashRank 싱글톤 + Pass 결�
 2. **QA 데이터셋 고도화**: RAGAS v2 방식 구현
 3. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
 
+## 2026-02-19: 버그 수정 + 최적화 + 기능 확장 + 문서 최신화
+
+### 주요 활동
+
+#### 1. 레이어별 기여도 분석 빈 출력 버그 수정
+- **원인**: `runner.to_dataframe()`이 쿼리별 raw 행(`latency_ms`)을 반환하는데, `_print_layer_contribution()`/리포트/Pass2 선별에서 전략별 요약(`avg_latency` 컬럼)을 기대.
+- **수정**: `_build_latency_summary()` 헬퍼 추가 — 쿼리별 raw DataFrame → 전략별 요약 DataFrame (avg/min/max/p50 레이턴시, ms→s 변환).
+- 모든 참조를 `summary_df`로 교체 (`_print_layer_contribution()`, Pass 2 선별, `_generate_report()`).
+
+#### 2. Contextual Retrieval 중복 초기화 최적화
+- **원인**: `get_or_build_contextual()`이 새 DenseSparseStrategy를 생성하여 Dense/Sparse 모델 재로드 + 재인덱싱 발생.
+- **수정**:
+  - `IndexCacheManager.get_or_build_contextual()`: 캐시된 base 전략의 `_dense_embeddings`/`_sparse_embeddings` 객체를 ctx_base에 주입.
+  - `DenseSparseStrategy._ensure_initialized()`: `elif self._client is None` 분기 추가 — 모델 주입 시 Qdrant만 초기화.
+  - `ContextualRetrievalStrategy._enrich_chunks()`: 캐시 100% 히트 시 진행 로그 억제, 불필요 캐시 저장 스킵.
+
+#### 3. RAGAS KG 기반 QA 생성 (`generate_qa.py`)
+- `--method ragas` 옵션 추가: RAGAS KnowledgeGraph 기반 다양한 QA 유형 생성 (~302줄 추가).
+- `--build-kg-only`, `--reuse-kg` 옵션으로 KG 사전 구축 및 재사용 지원.
+- Query Types: SingleHop-Specific, SingleHop-Keyphrases, MultiHop-Specific, MultiHop-Abstract.
+
+#### 4. EvaluationReport 통합 (`runner.py`)
+- `EvaluationReport` 클래스: per-sample 리포트 + `aggregate_dict` 양방향 호환.
+- `BenchmarkRunner._reports` dict + `reports` property 추가.
+
+#### 5. Evaluation 메트릭 확장
+- `metrics.py`: `COMPREHENSIVE` 프리셋, Extended 5종 추가 (context_entity_recall, response_relevancy, string_presence, exact_match, non_llm_string_similarity).
+- `evaluator.py`: `comprehensive` scoring profile 추가.
+- `__init__.py`: `SCORING_PROFILES`, `MetricPreset`, `create_metrics` export 추가.
+
+#### 6. Colab 경로 수정
+- `colab_config.py`, `rag_benchmark.ipynb`: 프로젝트 경로 `autorag` → `RAG-Bench` 통일.
+
+### 커밋 히스토리
+```
+70e5689 fix: Colab 경로 autorag → RAG-Bench 수정
+df07626 feat: evaluation 메트릭 확장 — COMPREHENSIVE 프리셋 + Extended 5종
+d2759e5 feat: RAGAS KG 기반 QA 생성 + EvaluationReport 통합
+216d7e4 perf: Contextual Retrieval 중복 초기화 최적화
+ba25dcf fix: 레이어별 기여도 분석 빈 출력 버그 수정
+5b9daf2 docs: README 및 문서 최신화 — RunTracker 수행 이력 추적 기능 반영
+bccd25b feat: 벤치마크 수행 이력 추적 시스템 구현 — RunTracker + 토큰 추적 + 시각화 통합
+```
+
+### 파일 변경 목록
+| 파일 | 변경 | 내용 |
+|------|------|------|
+| `rag_bench/scripts/run_all_combos.py` | MODIFIED | `_build_latency_summary()` 추가, Contextual 모델 공유, 레이어 분석 버그 수정 |
+| `rag_bench/strategies/dense_sparse.py` | MODIFIED | `_ensure_initialized()` 조건부 초기화 분기 |
+| `rag_bench/strategies/contextual_retrieval.py` | MODIFIED | 캐시 100% 히트 로그 억제 |
+| `rag_bench/scripts/generate_qa.py` | MODIFIED | RAGAS KG QA 생성 (~302줄 추가) |
+| `rag_bench/runner.py` | MODIFIED | EvaluationReport 통합 |
+| `rag_bench/evaluation/metrics.py` | MODIFIED | COMPREHENSIVE 프리셋 + Extended 5종 |
+| `rag_bench/evaluation/evaluator.py` | MODIFIED | comprehensive scoring profile |
+| `rag_bench/evaluation/__init__.py` | MODIFIED | 추가 exports |
+| `rag_bench_colab/colab_config.py` | MODIFIED | 경로 autorag → RAG-Bench |
+| `rag_bench_colab/rag_benchmark.ipynb` | MODIFIED | 경로 autorag → RAG-Bench |
+
+### 다음 작업
+1. **72개 조합 풀 벤치마크 실행** (백그라운드 진행 중)
+2. **Colab T4 GPU 실제 테스트**
+3. **벤치마크 시각화 갱신**: 72개 조합 결과에 맞게 bench_visualize.ipynb 업데이트
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동
