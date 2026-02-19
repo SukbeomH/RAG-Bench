@@ -187,9 +187,17 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
         enriched: List[Document] = []
         total = len(child_chunks)
 
-        print(f"  [Contextual Retrieval] {total}개 청크에 문맥 요약 부착 중...")
-        print(f"  LLM: {self._llm_model}")
-        print(f"  기존 캐시: {len(cache)}개")
+        # 캐시 히트율 사전 추정: 모든 청크가 캐시에 있으면 간략 출력
+        all_cached = all(
+            self._chunk_hash(c.page_content) in cache for c in child_chunks
+        )
+
+        if all_cached:
+            print(f"  [Contextual Retrieval] {total}개 청크 — 전체 캐시 히트 (LLM 호출 없음)")
+        else:
+            print(f"  [Contextual Retrieval] {total}개 청크에 문맥 요약 부착 중...")
+            print(f"  LLM: {self._llm_model}")
+            print(f"  기존 캐시: {len(cache)}개")
 
         for i, chunk in enumerate(child_chunks):
             chunk_key = self._chunk_hash(chunk.page_content)
@@ -232,8 +240,8 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
             )
             enriched.append(enriched_doc)
 
-            # 진행 상황 출력 + 중간 캐시 저장 (10개 단위)
-            if (i + 1) % 10 == 0 or i == total - 1:
+            # 진행 상황 출력 + 중간 캐시 저장 (LLM 생성 시에만)
+            if not all_cached and ((i + 1) % 10 == 0 or i == total - 1):
                 print(
                     f"    진행: {i + 1}/{total} "
                     f"(캐시: {self._stats['cached']}, "
@@ -243,8 +251,9 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
                 if self._stats["generated"] > 0:
                     self._save_cache(cache)
 
-        # 최종 캐시 저장
-        self._save_cache(cache)
+        # 최종 캐시 저장 (신규 생성분이 있을 때만)
+        if self._stats["generated"] > 0:
+            self._save_cache(cache)
         print(
             f"  [Contextual Retrieval] 완료 — "
             f"캐시 {self._stats['cached']}건, "

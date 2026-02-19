@@ -201,6 +201,18 @@ class IndexCacheManager:
         ctx_base = DenseSparseStrategy(
             dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=ctx_qdrant_path
         )
+
+        # 이미 캐시된 base 전략에서 Dense/Sparse 모델 객체 공유 (재로드 방지)
+        base_key = spec.index_key
+        if base_key in self.cache:
+            cached_base, _ = self.cache[base_key]
+            if cached_base._dense_embeddings is not None:
+                ctx_base._dense_embeddings = cached_base._dense_embeddings
+                ctx_base._embedding_dim = cached_base._embedding_dim
+            if cached_base._sparse_embeddings is not None:
+                ctx_base._sparse_embeddings = cached_base._sparse_embeddings
+                ctx_base._use_langchain_sparse = cached_base._use_langchain_sparse
+
         strategy = ContextualRetrievalStrategy(
             base_strategy=ctx_base,
             parent_pairs=parent_pairs,

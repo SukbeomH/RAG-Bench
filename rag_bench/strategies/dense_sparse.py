@@ -407,6 +407,10 @@ class DenseSparseStrategy(BaseRAGStrategy):
             self._init_dense()
             self._init_sparse()
             self._init_qdrant()
+        elif self._client is None:
+            # 모델은 외부 주입됨, Qdrant만 초기화
+            print(f"\n[{self.name}] Qdrant 초기화 중 (모델 공유)...")
+            self._init_qdrant()
 
     def index(self, documents: List[Document]) -> None:
         """문서 인덱싱."""
