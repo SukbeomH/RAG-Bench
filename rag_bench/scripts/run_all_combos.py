@@ -429,23 +429,38 @@ def _safe_build(
         return None, err
 
 
-def _print_ragas_table(scores_df):
+def _print_ragas_table(scores_df, scoring_profile="balanced"):
     if scores_df is None or scores_df.empty:
         print("RAGAS 평가 결과가 없습니다.")
         return
 
-    print(f"\n{'═' * 90}")
-    print(" RAGAS 평가 결과 비교")
-    print(f"{'═' * 90}")
+    from rag_bench.evaluation.evaluator import SCORING_PROFILES
+
+    print(f"\n{'═' * 100}")
+    print(f" RAGAS 평가 결과 비교 (scoring: {scoring_profile})")
+    print(f"{'═' * 100}")
 
     metric_cols = [c for c in scores_df.columns if c != "strategy"]
+
+    # 가중 점수 계산
+    weights = SCORING_PROFILES.get(scoring_profile, SCORING_PROFILES["balanced"])
+    weighted_scores = []
+    for _, row in scores_df.iterrows():
+        ws = 0.0
+        for metric, weight in weights.items():
+            val = row.get(metric, 0.0)
+            if isinstance(val, (int, float)):
+                ws += val * weight
+        weighted_scores.append(round(ws, 4))
+
+    display_cols = metric_cols + ["weighted"]
     header = f"  {'전략':<45}"
-    for col in metric_cols:
+    for col in display_cols:
         header += f" {col:>14}"
     print(header)
-    print(f"  {'─' * 45} " + " ".join("─" * 14 for _ in metric_cols))
+    print(f"  {'─' * 45} " + " ".join("─" * 14 for _ in display_cols))
 
-    for _, row in scores_df.iterrows():
+    for i, (_, row) in enumerate(scores_df.iterrows()):
         line = f"  {row['strategy']:<45}"
         for col in metric_cols:
             val = row.get(col, "N/A")
@@ -453,6 +468,7 @@ def _print_ragas_table(scores_df):
                 line += f" {val:>14.4f}"
             else:
                 line += f" {str(val):>14}"
+        line += f" {weighted_scores[i]:>14.4f}"
         print(line)
 
 
@@ -615,10 +631,13 @@ def _run_preset_mode(args):
 
     # 레이턴시 결과 저장
     latency_df = runner.to_dataframe()
+    summary_df = None
     if latency_df is not None:
         latency_path = BENCH_DATA_DIR / "all_combos_latency.csv"
         latency_df.to_csv(latency_path, index=False, encoding="utf-8-sig")
         print(f"  레이턴시 결과: {latency_path}")
+        # 전략별 요약 DataFrame (avg_latency 등)
+        summary_df = _build_latency_summary(latency_df)
 
         # 트래커에 쿼리 레이턴시 통계 기록
         for spec, strat in strategies:
@@ -634,8 +653,8 @@ def _run_preset_mode(args):
             tracker.record_query_stats(timing, valid_lats, error_count)
 
     # 레이어별 기여도 분석 (레이턴시 기반)
-    if args.layers and latency_df is not None:
-        _print_layer_contribution(strategies, latency_df)
+    if args.layers and summary_df is not None:
+        _print_layer_contribution(strategies, summary_df)
 
     # --pass1-only: 여기서 종료
     if args.pass1_only:
@@ -655,12 +674,12 @@ def _run_preset_mode(args):
         print(f"{'=' * 60}")
 
         # 평균 레이턴시로 정렬
-        if latency_df is not None and "avg_latency" in latency_df.columns:
+        if summary_df is not None and "avg_latency" in summary_df.columns:
             strategy_latencies = []
             for spec, strat in strategies:
-                mask = latency_df["strategy"] == strat.name
+                mask = summary_df["strategy"] == strat.name
                 if mask.any():
-                    avg_lat = latency_df.loc[mask, "avg_latency"].values[0]
+                    avg_lat = summary_df.loc[mask, "avg_latency"].values[0]
                 else:
                     avg_lat = float("inf")
                 strategy_latencies.append((spec, strat, avg_lat))
@@ -676,11 +695,21 @@ def _run_preset_mode(args):
 
     evaluator = None
     if not args.no_ragas:
-        from rag_bench.evaluation import RAGEvaluator
-        try:
-            evaluator = RAGEvaluator()
-        except Exception as e:
-            print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        if args.legacy_evaluator:
+            from rag_bench.evaluation import RAGEvaluator
+            try:
+                evaluator = RAGEvaluator()
+            except Exception as e:
+                print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        else:
+            from rag_bench.evaluation import ExtendedRAGEvaluator
+            from rag_bench.evaluation.metrics import MetricPreset
+            try:
+                preset_enum = MetricPreset(args.metric_preset)
+                evaluator = ExtendedRAGEvaluator(preset=preset_enum)
+                print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
+            except Exception as e:
+                print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
     if evaluator is not None:
         eval_runner = BenchmarkRunner(
@@ -696,7 +725,18 @@ def _run_preset_mode(args):
                 scores_df = eval_runner.evaluate(ground_truths=ground_truths)
         if ragas_tokens.total_tokens > 0:
             tracker.record_ragas_tokens(ragas_tokens)
-        _print_ragas_table(scores_df)
+        _print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
+
+        # per-sample CSV 저장 (ExtendedRAGEvaluator 사용 시)
+        if eval_runner.reports:
+            per_sample_dir = BENCH_DATA_DIR / "per_sample"
+            per_sample_dir.mkdir(parents=True, exist_ok=True)
+            for strat_name, report in eval_runner.reports.items():
+                if not report.per_sample_df.empty:
+                    safe_name = strat_name.replace("/", "_").replace(" ", "_")
+                    csv_path = per_sample_dir / f"{safe_name}.csv"
+                    report.per_sample_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+            print(f"  per-sample 결과: {per_sample_dir}/")
 
         if scores_df is not None:
             scores_path = BENCH_DATA_DIR / "all_combos_ragas.csv"
@@ -725,8 +765,8 @@ def _run_preset_mode(args):
             _print_layer_contribution_ragas(eval_strategies, scores_df)
 
     # ── Step 6: 리포트 생성 ──
-    if latency_df is not None:
-        _generate_report(latency_df, scores_df if evaluator else None, combos, BENCH_DATA_DIR, tracker=tracker)
+    if summary_df is not None:
+        _generate_report(summary_df, scores_df if evaluator else None, combos, BENCH_DATA_DIR, tracker=tracker)
 
     # ── 수행 이력 저장 ──
     tracker.finalize()
@@ -770,17 +810,41 @@ def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
             print(f"    {str(val) or 'None':<20} → {count}개 조합")
 
 
-def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], latency_df):
+def _build_latency_summary(latency_df):
+    """쿼리별 raw DataFrame → 전략별 요약 DataFrame (avg_latency 등)."""
+    import pandas as pd
+
+    valid = latency_df[latency_df["error"].isna()].copy()
+    if valid.empty:
+        return None
+    summary = (
+        valid.groupby("strategy")["latency_ms"]
+        .agg(avg_latency="mean", min_latency="min", max_latency="max",
+             p50_latency="median", query_count="count")
+        .reset_index()
+    )
+    # ms → s 변환 (avg_latency)
+    summary["avg_latency"] = summary["avg_latency"] / 1000.0
+    summary["min_latency"] = summary["min_latency"] / 1000.0
+    summary["max_latency"] = summary["max_latency"] / 1000.0
+    summary["p50_latency"] = summary["p50_latency"] / 1000.0
+    return summary
+
+
+def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_df):
     """레이턴시 기반 레이어 기여도 출력."""
     print(f"\n{'═' * 60}")
     print(" 레이어별 평균 레이턴시 기여도")
     print(f"{'═' * 60}")
 
-    # 전략명 → 레이턴시 매핑
+    if summary_df is None or summary_df.empty:
+        print("  (레이턴시 데이터 없음)")
+        return
+
+    # 전략명 → 평균 레이턴시(s) 매핑
     lat_map = {}
-    if "strategy" in latency_df.columns and "avg_latency" in latency_df.columns:
-        for _, row in latency_df.iterrows():
-            lat_map[row["strategy"]] = row["avg_latency"]
+    for _, row in summary_df.iterrows():
+        lat_map[row["strategy"]] = row["avg_latency"]
 
     # 레이어별 분석
     for layer_name, get_val in [
@@ -846,8 +910,8 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
 # ===========================================================================
 
 
-def _generate_report(latency_df, ragas_df, combo_specs, output_dir, tracker=None):
-    """Markdown 리포트 생성."""
+def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, tracker=None):
+    """Markdown 리포트 생성. latency_summary_df는 전략별 요약 DataFrame."""
     report_path = output_dir / "e2e_report.md"
 
     lines = [
@@ -913,9 +977,9 @@ def _generate_report(latency_df, ragas_df, combo_specs, output_dir, tracker=None
         "",
     ])
 
-    if latency_df is not None and "strategy" in latency_df.columns:
-        if "avg_latency" in latency_df.columns:
-            sorted_df = latency_df.sort_values("avg_latency")
+    if latency_summary_df is not None and "strategy" in latency_summary_df.columns:
+        if "avg_latency" in latency_summary_df.columns:
+            sorted_df = latency_summary_df.sort_values("avg_latency")
             lines.append("| # | 전략 | 평균 레이턴시 |")
             lines.append("|---|------|:----------:|")
             for i, (_, row) in enumerate(sorted_df.head(10).iterrows(), 1):
@@ -936,6 +1000,28 @@ def _generate_report(latency_df, ragas_df, combo_specs, output_dir, tracker=None
                 for c in metric_cols
             )
             lines.append(f"| {row['strategy']} | {vals} |")
+        lines.append("")
+
+        # 가중 점수 테이블 (모든 프로파일)
+        from rag_bench.evaluation.evaluator import SCORING_PROFILES
+        lines.append("## 가중 점수 (Scoring Profiles)")
+        lines.append("")
+        profile_names = list(SCORING_PROFILES.keys())
+        header = "| 전략 | " + " | ".join(profile_names) + " |"
+        sep = "|------|" + "|".join(":---:" for _ in profile_names) + "|"
+        lines.append(header)
+        lines.append(sep)
+        for _, row in ragas_df.iterrows():
+            vals = []
+            for pname in profile_names:
+                weights = SCORING_PROFILES[pname]
+                ws = 0.0
+                for metric, weight in weights.items():
+                    val = row.get(metric, 0.0)
+                    if isinstance(val, (int, float)):
+                        ws += val * weight
+                vals.append(f"{ws:.4f}")
+            lines.append(f"| {row['strategy']} | " + " | ".join(vals) + " |")
         lines.append("")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
@@ -1153,11 +1239,21 @@ def _run_legacy_mode(args):
 
     evaluator = None
     if not args.no_ragas:
-        from rag_bench.evaluation import RAGEvaluator
-        try:
-            evaluator = RAGEvaluator()
-        except Exception as e:
-            print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        if args.legacy_evaluator:
+            from rag_bench.evaluation import RAGEvaluator
+            try:
+                evaluator = RAGEvaluator()
+            except Exception as e:
+                print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        else:
+            from rag_bench.evaluation import ExtendedRAGEvaluator
+            from rag_bench.evaluation.metrics import MetricPreset
+            try:
+                preset_enum = MetricPreset(args.metric_preset)
+                evaluator = ExtendedRAGEvaluator(preset=preset_enum)
+                print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
+            except Exception as e:
+                print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
     runner = BenchmarkRunner(
         strategies=active_strategies,
@@ -1175,7 +1271,7 @@ def _run_legacy_mode(args):
         print("Step 5: RAGAS 평가")
         print(f"{'=' * 60}")
         scores_df = runner.evaluate(ground_truths=ground_truths)
-        _print_ragas_table(scores_df)
+        _print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
 
     # ── Step 6: 결과 저장 ──
     print(f"\n{'=' * 60}")
@@ -1227,6 +1323,14 @@ def main():
                         help="조합 목록만 출력 (실행 안 함)")
     parser.add_argument("--layers", action="store_true",
                         help="레이어별 기여도 분석 출력")
+    parser.add_argument("--metric-preset", type=str, default="core_only",
+                        choices=["core_only", "full", "reference_free", "comprehensive"],
+                        help="메트릭 프리셋 (기본: core_only)")
+    parser.add_argument("--scoring-profile", type=str, default="balanced",
+                        choices=["balanced", "precision_critical", "speed_critical", "comprehensive"],
+                        help="스코어링 프로파일 (기본: balanced)")
+    parser.add_argument("--legacy-evaluator", action="store_true",
+                        help="레거시 RAGEvaluator 강제 사용")
 
     # 레거시 모드 옵션
     parser.add_argument("--combos", type=str, default=None,
