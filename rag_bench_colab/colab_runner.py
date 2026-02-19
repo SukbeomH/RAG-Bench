@@ -403,6 +403,8 @@ class ColabBenchmarkRunner:
             llm_model="gpt-4o-mini",
             preset=preset_enum,
         )
+
+        self._ensure_tracker()
         completed_labels = set(self.checkpoint.list_completed("pass2_"))
         all_scores = []
 
@@ -451,7 +453,8 @@ class ColabBenchmarkRunner:
                 else:
                     runner.run()  # 폴백: Pass 1 결과 없으면 재검색
 
-                # 검색 결과에서 RAGAS 평가
+                # 검색 결과에서 RAGAS 평가 (토큰 추적 포함)
+                from rag_bench.run_tracker import track_openai_tokens
                 results = runner._results
                 for name, query_results in results.items():
                     questions = [r["query"] for r in query_results]
@@ -460,13 +463,22 @@ class ColabBenchmarkRunner:
                     # Answer 생성은 evaluator 내부에서 처리하지 않으므로 별도 생성
                     answers = self._generate_answers(questions, contexts)
 
-                    report = evaluator.evaluate_strategy(
-                        strategy_name=name,
-                        questions=questions,
-                        contexts=contexts,
-                        answers=answers,
-                        ground_truths=ground_truths,
-                    )
+                    with track_openai_tokens() as ragas_tokens:
+                        report = evaluator.evaluate_strategy(
+                            strategy_name=name,
+                            questions=questions,
+                            contexts=contexts,
+                            answers=answers,
+                            ground_truths=ground_truths,
+                        )
+
+                    # RunTracker: RAGAS 토큰 + 점수 기록
+                    if self._tracker:
+                        if ragas_tokens.total_tokens > 0:
+                            self._tracker.record_ragas_tokens(ragas_tokens)
+                        timing = self._tracker.find_timing(spec.label)
+                        if timing:
+                            self._tracker.record_ragas(timing, report.aggregate_dict)
 
                     score_dict = {"strategy": name}
                     score_dict.update(report.aggregate_dict)
@@ -485,6 +497,8 @@ class ColabBenchmarkRunner:
                     print(f"  [{name}] {report.aggregate_dict}")
                     if ws:
                         print(f"    weighted({self.scoring_profile}): {ws.get(self.scoring_profile, 0.0):.4f}")
+                    if ragas_tokens.total_tokens > 0:
+                        print(f"    tokens: {ragas_tokens.total_tokens:,} (cost: ${ragas_tokens.total_cost_usd:.4f})")
 
             except Exception as e:
                 print(f"  [Error] {strategy_name}: {e}")
@@ -610,6 +624,20 @@ class ColabBenchmarkRunner:
             )
             print(f"  GraphRAG: {grag_path}")
 
+        # per-sample CSV 저장 (EvaluationReport.per_sample_df)
+        if self._reports:
+            per_sample_dir = output_dir / "per_sample"
+            per_sample_dir.mkdir(parents=True, exist_ok=True)
+            saved = 0
+            for strat_name, report in self._reports.items():
+                if hasattr(report, "per_sample_df") and not report.per_sample_df.empty:
+                    safe_name = strat_name.replace("/", "_").replace(" ", "_")
+                    csv_path = per_sample_dir / f"{safe_name}.csv"
+                    report.per_sample_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    saved += 1
+            if saved > 0:
+                print(f"  per-sample 결과: {per_sample_dir}/ ({saved}개)")
+
         # RunTracker 수행 이력 저장
         run_record = None
         if self._tracker:
@@ -724,6 +752,8 @@ class ColabBenchmarkRunner:
         graphrag_result: Optional[Dict],
     ) -> str:
         """Markdown 리포트 생성."""
+        run_record = self.get_run_record()
+
         lines = [
             f"# RAG Benchmark Report — {self.session_id}",
             "",
@@ -738,6 +768,59 @@ class ColabBenchmarkRunner:
             "---",
             "",
         ]
+
+        # 플랫폼 정보 (RunTracker 연동)
+        if run_record and run_record.get("platform_info"):
+            pi = run_record["platform_info"]
+            lines += [
+                "## 실행 환경",
+                "",
+                "| 항목 | 값 |",
+                "|------|-----|",
+                f"| OS | {pi.get('os', 'N/A')} {pi.get('os_release', '')} |",
+                f"| Python | {pi.get('python_version', 'N/A')} |",
+                f"| CPU | {pi.get('processor', 'N/A')} ({pi.get('cpu_count_logical', '?')} cores) |",
+                f"| RAM | {pi.get('ram_total_gb', 'N/A')} GB |",
+                f"| GPU | {pi.get('gpu', 'N/A')} |",
+                f"| Git | {pi.get('git_commit', 'N/A')} |",
+                "",
+            ]
+
+        # 단계별 소요 시간
+        if run_record and run_record.get("phase_times"):
+            phases = [p for p in run_record["phase_times"] if p.get("duration_s", 0) > 0]
+            if phases:
+                total_s = run_record.get("duration_s", 1) or 1
+                lines += [
+                    "## 단계별 소요 시간",
+                    "",
+                    "| 단계 | 소요 시간 | 비중 | 토큰 |",
+                    "|------|:--------:|:----:|:----:|",
+                ]
+                for p in phases:
+                    pct = p["duration_s"] / total_s * 100
+                    tok = ""
+                    if p.get("tokens") and p["tokens"].get("total_tokens", 0) > 0:
+                        tok = f"{p['tokens']['total_tokens']:,}"
+                    lines.append(f"| {p['phase']} | {p['duration_s']}s | {pct:.1f}% | {tok} |")
+                lines.append("")
+
+        # 토큰 사용량 총계
+        if run_record and run_record.get("token_usage_total"):
+            tu = run_record["token_usage_total"]
+            if tu.get("total_tokens", 0) > 0:
+                lines += [
+                    "## API 토큰 사용량",
+                    "",
+                    "| 항목 | 값 |",
+                    "|------|-----|",
+                    f"| 총 토큰 | {tu['total_tokens']:,} |",
+                    f"| Prompt | {tu['prompt_tokens']:,} |",
+                    f"| Completion | {tu['completion_tokens']:,} |",
+                    f"| API 호출 수 | {tu['num_calls']:,} |",
+                    f"| 예상 비용 | ${tu['total_cost_usd']:.4f} |",
+                    "",
+                ]
 
         if latency_df is not None and not latency_df.empty:
             lines.append("## Pass 1: 레이턴시 결과")
