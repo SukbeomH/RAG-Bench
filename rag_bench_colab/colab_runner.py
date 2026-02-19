@@ -91,11 +91,15 @@ class ColabBenchmarkRunner:
         qdrant_mode: str = "ephemeral",
         device: Optional[str] = None,
         session_id: Optional[str] = None,
+        parallel_queries: int = 0,
+        reindex: bool = False,
     ):
         self.preset = preset
         self.k = k
         self.top_n = top_n
         self.qdrant_mode = qdrant_mode
+        self.parallel_queries = parallel_queries
+        self.reindex = reindex
 
         if device is None:
             from rag_bench_colab.colab_config import get_device
@@ -117,6 +121,7 @@ class ColabBenchmarkRunner:
 
         self._index_cache = None
         self._tqdm = None
+        self._pass1_results = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
 
     def _get_tqdm(self):
         """노트북 tqdm 또는 표준 tqdm 반환."""
@@ -234,6 +239,7 @@ class ColabBenchmarkRunner:
             if ckpt_key in completed_labels:
                 continue
 
+            strategy = None
             try:
                 # Qdrant 경로 오버라이드
                 strategy = self._build_strategy(
@@ -249,8 +255,13 @@ class ColabBenchmarkRunner:
                     queries=queries,
                     k=self.k,
                     evaluator=None,
+                    parallel_queries=self.parallel_queries,
                 )
                 runner.run()
+
+                # Pass 1 결과 저장 (Pass 2 재사용용)
+                self._pass1_results.update(runner._results)
+
                 df = runner.to_dataframe()
 
                 if df is not None:
@@ -264,6 +275,13 @@ class ColabBenchmarkRunner:
 
             except Exception as e:
                 print(f"\n  [Error] {spec.label}: {e}")
+
+            # Reranker 래핑 전략만 cleanup (base strategy는 캐시에 보존)
+            if strategy is not None and hasattr(strategy, '_base_strategy'):
+                try:
+                    strategy.cleanup()
+                except Exception:
+                    pass
 
             release_memory()
 
@@ -363,8 +381,15 @@ class ColabBenchmarkRunner:
                     queries=queries,
                     k=self.k,
                     evaluator=None,
+                    parallel_queries=self.parallel_queries,
                 )
-                runner.run()
+
+                # Pass 1 결과 재사용 (재검색 방지)
+                strategy_name_candidate = strategy.name
+                if self._pass1_results and strategy_name_candidate in self._pass1_results:
+                    runner.inject_results({strategy_name_candidate: self._pass1_results[strategy_name_candidate]})
+                else:
+                    runner.run()  # 폴백: Pass 1 결과 없으면 재검색
 
                 # 검색 결과에서 RAGAS 평가
                 results = runner._results
@@ -538,7 +563,7 @@ class ColabBenchmarkRunner:
 
         try:
             strategy = build_strategy_from_spec(
-                spec, self._index_cache, child_chunks, parent_pairs, reindex=False
+                spec, self._index_cache, child_chunks, parent_pairs, reindex=self.reindex
             )
             return strategy
         except Exception as e:

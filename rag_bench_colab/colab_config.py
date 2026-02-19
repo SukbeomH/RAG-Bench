@@ -163,6 +163,14 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
         # MPS 관련 로직은 Colab에서 불필요 (CUDA 환경)
     cfg.setup_ssl_bypass = _colab_ssl_bypass
 
+    # run_all_combos 모듈의 값 복사된 변수도 패치 (import 시 값이 복사되므로)
+    try:
+        import rag_bench.scripts.run_all_combos as rac
+        rac.BENCH_DATA_DIR = DRIVE_BENCHDATA_DIR
+        rac.BENCH_DOCS_DIR = COLAB_DOCS_DIR
+    except ImportError:
+        pass  # 아직 로드되지 않았으면 무시 (이후 import 시 cfg 값 사용)
+
     print(f"[Patch] rag_bench.config 패치 완료:")
     print(f"  BENCH_DOCS_DIR → {cfg.BENCH_DOCS_DIR}")
     print(f"  BENCH_DATA_DIR → {cfg.BENCH_DATA_DIR}")
@@ -212,6 +220,7 @@ def patch_dense_device(device: str = "cuda") -> None:
 
     def _patched_init_dense(self):
         from langchain_huggingface import HuggingFaceEmbeddings
+        from rag_bench.strategies.dense_sparse import DENSE_DIMS
 
         model_spec = self._dense_model
         self._dense_embeddings = HuggingFaceEmbeddings(
@@ -219,8 +228,12 @@ def patch_dense_device(device: str = "cuda") -> None:
             model_kwargs={"device": device},
             encode_kwargs={"normalize_embeddings": True},
         )
-        test_vec = self._dense_embeddings.embed_query("test")
-        self._embedding_dim = len(test_vec)
+        # 알려진 모델은 룩업 테이블 사용, 아니면 test inference
+        if model_spec in DENSE_DIMS:
+            self._embedding_dim = DENSE_DIMS[model_spec]
+        else:
+            test_vec = self._dense_embeddings.embed_query("test")
+            self._embedding_dim = len(test_vec)
         print(f"  Dense: {model_spec} ({self._embedding_dim}d, device={device})")
 
     DenseSparseStrategy._init_dense = _patched_init_dense
@@ -302,6 +315,19 @@ def patch_colbert_device(device: str = "cuda") -> None:
 
     IndexCacheManager.get_colbert_model = _patched_get
     print(f"[Patch] IndexCacheManager.get_colbert_model → device='{device}'")
+
+    # build_strategy_from_spec에서 ColBERT strategy._device = "cpu" 하드코딩 오버라이드
+    from rag_bench.scripts.run_all_combos import build_strategy_from_spec as _original_build
+
+    def _patched_build(spec, index_cache, child_chunks, parent_pairs, reindex=False):
+        strategy = _original_build(spec, index_cache, child_chunks, parent_pairs, reindex)
+        if hasattr(strategy, '_device') and device == "cuda":
+            strategy._device = device
+        return strategy
+
+    import rag_bench.scripts.run_all_combos as rac
+    rac.build_strategy_from_spec = _patched_build
+    print(f"[Patch] build_strategy_from_spec → ColBERT _device='{device}'")
 
 
 # ---------------------------------------------------------------------------

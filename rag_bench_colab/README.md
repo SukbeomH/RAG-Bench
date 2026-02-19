@@ -1,6 +1,6 @@
 # RAG Bench Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/<user>/autorag/blob/main/rag_bench_colab/rag_benchmark.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/autorag/blob/main/rag_bench_colab/rag_benchmark.ipynb)
 
 Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 
@@ -18,6 +18,20 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 | `quick` | 4 | ~15분 | ~$0.5 |
 | `standard` | 24 | ~50분 | ~$2 |
 | `full` | 72 | ~3시간 | ~$5 |
+
+## 주요 파라미터
+
+```python
+runner = ColabBenchmarkRunner(
+    preset="quick",           # quick | standard | full
+    k=3,                      # 검색 결과 수
+    top_n=10,                 # Pass 2에서 RAGAS 평가할 상위 전략 수
+    qdrant_mode="ephemeral",  # ephemeral | drive | memory
+    device=None,              # cuda | cpu | None (자동 감지)
+    parallel_queries=0,       # 쿼리 병렬화 (0=비활성, T4에서 4~8 권장)
+    reindex=False,            # True: 기존 인덱스 삭제 후 재구축
+)
+```
 
 ## 디렉토리 구조
 
@@ -48,3 +62,17 @@ rag_bench_colab/
 | `ephemeral` | `/content/qdrant_workspace` (로컬) | 세션 종료 시 삭제 |
 | `drive` | Google Drive 저장 | 영속 |
 | `memory` | 인메모리 (`:memory:`) | 세션 종료 시 삭제 |
+
+## rag_bench 최적화 적용 내역
+
+`rag_bench/scripts/run_all_combos.py`의 최적화를 Colab 환경에 맞게 반영한 사항:
+
+| # | 심각도 | 내용 | 파일 | 효과 |
+|---|--------|------|------|------|
+| 1 | CRITICAL | Qdrant 경로 패치 전파 | `colab_config.py` | `run_all_combos` 모듈의 값 복사된 `BENCH_DATA_DIR`도 패치하여 Colab 경로 불일치 방지 |
+| 2 | CRITICAL | Pass 2 재검색 제거 | `colab_runner.py` | Pass 1 결과를 `inject_results()`로 재사용, Pass 2 실행 시간 ~50% 단축 |
+| 3 | IMPORTANT | 전략 cleanup 호출 | `colab_runner.py` | Reranker 래핑 전략의 Qdrant 파일 잠금/메모리 누수 방지 |
+| 4 | MODERATE | `parallel_queries` 연결 | `colab_runner.py` | T4 GPU 쿼리 병렬화 활용 가능 |
+| 5 | MODERATE | `reindex` 파라미터 노출 | `colab_runner.py` | 사용자가 인덱스 재구축 가능 (`reindex=True`) |
+| 6 | LOW | ColBERT `_device` 일관성 | `colab_config.py` | `build_strategy_from_spec` 래핑으로 CUDA 디바이스 자동 적용 |
+| 7 | LOW | `DENSE_DIMS` 룩업 활용 | `colab_config.py` | 알려진 Dense 모델은 test inference 생략하여 초기화 가속 |
