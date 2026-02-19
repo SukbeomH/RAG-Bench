@@ -347,9 +347,65 @@ f587073 chore: 레거시 정리 — AutoRAG 잔존 참조 현행화 + 불필요 
 - **evaluation**: 서브패키지 구조 전환 (evaluator.py + metrics.py + legacy.py)
 
 ### 다음 작업
-1. **72개 조합 벤치마크 실행**: 2-Pass (레이턴시 전수 → 상위 RAGAS 평가)
+1. ~~**72개 조합 벤치마크 실행**~~ → 아래 세션에서 시도, MPS OOM으로 실패 후 수정
 2. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
 3. **벤치마크 시각화 갱신**: bench_visualize.ipynb를 72개 조합 결과에 맞게 업데이트
+
+## 2026-02-19: 72개 벤치마크 실행 + MPS OOM 수정 + 모델 캐시 + RAGAS 리서치
+
+### 주요 활동
+
+#### 1. 72개 조합 벤치마크 실행 시도 → MPS OOM 실패
+- `uv run python -m rag_bench.scripts.run_all_combos --preset full --top_n 10 --layers` 실행.
+- **MPS backend out of memory** (exit code 144): ColBERT 모델이 Apple Silicon GPU (18.13 GiB)에 반복 로드되면서 OOM 발생.
+- 원인: `colbert.py`, `colbert_rerank.py`의 `_detect_device()`가 MPS를 자동 선택 + 72개 전략 각각이 ColBERT 모델을 새로 로드.
+
+#### 2. MPS OOM 수정 (메인 세션 + 별도 세션 협업)
+- **`config.py`**: `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` + `torch.set_default_device("cpu")` + `torch.mps.empty_cache()` 추가.
+- **`colbert.py`** / **`colbert_rerank.py`**: `_detect_device()`에서 MPS 제거, CUDA → CPU만 사용.
+- **`colbert_rerank.py`**: `shared_model` 파라미터 추가 — 외부에서 ColBERT 모델 인스턴스를 주입받아 공유.
+- **`run_all_combos.py`**:
+  - `IndexCacheManager._colbert_model`: ColBERT 싱글톤 캐시 (`get_colbert_model()` 메서드로 1회 로드, 이후 공유).
+  - `_release_memory()`: 전략 빌드/실행 후 `gc.collect()` + `torch.mps.empty_cache()` + `torch.cuda.empty_cache()` 호출.
+  - `_cleanup_strategies()`: 종료 시 메모리 캐시 해제 추가.
+
+#### 3. HuggingFace 모델 로컬 캐시 구현
+- **`config.py`**: `MODELS_DIR`, `REQUIRED_HF_MODELS` (6종), `_hf_cache_dir_name()`, `ensure_model_cache()` 추가.
+  - `~/.cache/huggingface/hub`에 모델 있으면 → `rag_bench/_models/hub/`에 심링크 생성.
+  - 없으면 → `HF_HOME` 설정으로 프로젝트 내부에 다운로드.
+  - `setup_ssl_bypass()` 호출 시 자동 실행.
+- **`scripts/prefetch_models.py`** (신규): `huggingface_hub.snapshot_download()` 기반 프리페치 스크립트.
+  - `--status`: 캐시 상태 출력, `--force`: 강제 로컬 다운로드.
+- **`.gitignore`**: `rag_bench/_models/` 패턴 추가.
+- 검증 결과: 6개 모델 심링크 정상 생성 확인.
+
+#### 4. RAGAS Testset Generation v2 리서치
+- **`docs/research/ragas_testset_generation_v2_research.md`** 신규 작성 (304줄).
+- RAGAS v0.4+ Knowledge Graph 기반 진화적 QA 생성 파이프라인 분석.
+- 현행 `generate_qa.py` (20개, 단일 유형) → RAGAS v2 방식 (100개, 4종 유형) 전환 전략 수립.
+- Query Types: SingleHop-Specific (35%), SingleHop-Keyphrases (15%), MultiHop-Specific (25%), MultiHop-Abstract (25%).
+- 한국어 지원: `adapt_prompts("korean")` 메서드 활용.
+- 예상 비용: ~$0.08 (gpt-4o-mini 기준).
+- CLI: `--method ragas` / `--method legacy` / `--build-kg-only` / `--reuse-kg`.
+
+### 미커밋 변경사항 (8개 파일)
+| 파일 | 변경 유형 | 카테고리 |
+|------|----------|---------|
+| `config.py` | 수정 (모델 캐시 + MPS 수정) | 인프라 |
+| `colbert.py` | 수정 (MPS 제거) | MPS 수정 |
+| `colbert_rerank.py` | 수정 (MPS 제거 + shared_model) | MPS 수정 |
+| `run_all_combos.py` | 수정 (ColBERT 싱글톤 + 메모리 해제) | MPS 수정 |
+| `prefetch_models.py` | 신규 | 인프라 |
+| `.gitignore` | 수정 | 인프라 |
+| `README.md` | 수정 (라이선스 섹션 제거) | 문서 |
+| `ragas_testset_generation_v2_research.md` | 신규 | 리서치 |
+
+### 다음 작업
+1. **미커밋 변경사항 커밋**: 3~4개 논리적 커밋으로 분리
+2. **72개 조합 벤치마크 재실행**: MPS OOM 수정 후 재시도
+3. **QA 데이터셋 고도화 구현**: RAGAS v2 방식 `--method ragas` 구현 (리서치 완료)
+4. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
+5. **벤치마크 시각화 갱신**: bench_visualize.ipynb 업데이트
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 

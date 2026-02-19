@@ -350,7 +350,3 @@ export SSL_CERT_FILE="/path/to/your/ca-bundle.pem"
 ```bash
 rm -rf rag_bench/_benchdata/qdrant_db_*
 ```
-
-## 라이선스
-
-이 프로젝트는 학습 및 연구 목적으로 작성되었습니다.
