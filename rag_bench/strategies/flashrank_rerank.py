@@ -76,13 +76,14 @@ class FlashRankRerankStrategy(BaseRAGStrategy):
         model_name: str = "ms-marco-MultiBERT-L-12",
         rerank_n: int = 20,
         max_length: int = 512,
+        shared_ranker: Any = None,
     ):
         self._base_strategy = base_strategy
         self._model_name = model_name
         self._rerank_n = rerank_n
         self._max_length = max_length
 
-        self._ranker: Any = None
+        self._ranker: Any = shared_ranker
         self._is_ready = False
 
     @property
@@ -172,7 +173,8 @@ class FlashRankRerankStrategy(BaseRAGStrategy):
         return FlashRankRerankRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
-        """base_strategy 및 FlashRank 리소스 정리."""
+        """base_strategy 리소스 정리 (공유 Ranker는 유지)."""
         self._base_strategy.cleanup()
+        # shared_ranker로 전달받은 경우 다른 전략이 공유하므로 삭제하지 않음
         self._ranker = None
         self._is_ready = False

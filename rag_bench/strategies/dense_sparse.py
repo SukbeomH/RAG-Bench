@@ -159,13 +159,42 @@ class SpladeEncoder:
             return SparseVector(indices=[0], values=[0.0])
         return SparseVector(indices=indices, values=values)
 
+    def _compute_vectors_batch(self, texts: List[str]) -> list:
+        """배치 단위로 SPLADE 벡터를 계산한다."""
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            max_length=self.max_length,
+            truncation=True,
+            padding=True,
+        ).to(self.device)
+        with self.torch.no_grad():
+            logits = self.model(**inputs).logits
+        splade = self.torch.log1p(self.torch.relu(logits))
+        mask = inputs["attention_mask"].unsqueeze(-1)
+        splade = splade * mask
+        splade, _ = self.torch.max(splade, dim=1)  # (batch, vocab)
+        return splade
+
     def embed_query(self, text: str) -> SparseVector:
         """langchain_qdrant 호환 sparse embedding (query)."""
         return self._to_sparse_vector(text)
 
-    def embed_documents(self, texts: List[str]) -> List[SparseVector]:
-        """langchain_qdrant 호환 sparse embedding (documents)."""
-        return [self._to_sparse_vector(t) for t in texts]
+    def embed_documents(self, texts: List[str], batch_size: int = 32) -> List[SparseVector]:
+        """langchain_qdrant 호환 sparse embedding (documents) — 배치 처리."""
+        results = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_vecs = self._compute_vectors_batch(batch)
+            for vec in batch_vecs:
+                nonzero = vec > 0
+                indices = self.torch.nonzero(nonzero).squeeze(-1).cpu().tolist()
+                values = vec[nonzero].cpu().tolist()
+                if not indices:
+                    results.append(SparseVector(indices=[0], values=[0.0]))
+                else:
+                    results.append(SparseVector(indices=indices, values=values))
+        return results
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ BenchmarkRunner — 전략 비교 벤치마크 실행기.
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 from rag_bench.base import BaseRAGStrategy
@@ -42,8 +43,12 @@ class BenchmarkRunner:
         self.k = k
         self.evaluator = evaluator
         self._results: Dict[str, List[dict]] = {}
+        self._generator = None  # lazy 초기화
 
-        # Generation model for RAGAS (if needed)
+    def _ensure_generator(self):
+        """LLM 클라이언트를 필요할 때만 초기화."""
+        if self._generator is not None:
+            return
         try:
             import httpx
             from langchain_openai import ChatOpenAI
@@ -78,6 +83,16 @@ class BenchmarkRunner:
             self._results[strategy_name] = query_results
 
         return self._results
+
+    def inject_results(self, results: Dict[str, List[dict]]) -> None:
+        """외부에서 수집된 검색 결과를 주입하여 재검색을 방지한다."""
+        strategy_names = {s.name for s in self.strategies}
+        self._results = {
+            name: qr for name, qr in results.items()
+            if name in strategy_names
+        }
+        injected = len(self._results)
+        print(f"  결과 주입 완료: {injected}개 전략 (재검색 생략)")
 
     def _run_single(self, strategy: BaseRAGStrategy, query: str) -> dict:
         """단일 전략 + 쿼리 실행."""
@@ -136,25 +151,38 @@ class BenchmarkRunner:
             questions = [r["query"] for r in query_results]
             contexts = [[d["content"] for d in r["results"]] for r in query_results]
 
-            # Generate answers if not present
-            answers = []
+            # Generate answers if not present (병렬 LLM 호출)
+            self._ensure_generator()
+            answers = [None] * len(query_results)
+            pending = []  # (index, prompt) 튜플
+
             for i, r in enumerate(query_results):
                 if "answer" in r:
-                    answers.append(r["answer"])
+                    answers[i] = r["answer"]
+                elif self._generator:
+                    context_str = "\n\n".join(contexts[i])
+                    prompt = f"Context:\n{context_str}\n\nQuestion: {questions[i]}\nAnswer:"
+                    pending.append((i, prompt))
                 else:
-                    # Generate simple answer for evaluation
-                    if self._generator:
-                        context_str = "\n\n".join(contexts[i])
-                        prompt = f"Context:\n{context_str}\n\nQuestion: {questions[i]}\nAnswer:"
-                        try:
-                            ans = self._generator.invoke(prompt).content
-                        except Exception:
-                            ans = "Generation failed."
-                        answers.append(ans)
-                        # Store back in results for dataframe
-                        r["answer"] = ans
-                    else:
-                        answers.append("No generator available.")
+                    answers[i] = "No generator available."
+
+            if pending and self._generator:
+                def _invoke(prompt):
+                    try:
+                        return self._generator.invoke(prompt).content
+                    except Exception:
+                        return "Generation failed."
+
+                with ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {
+                        executor.submit(_invoke, prompt): idx
+                        for idx, prompt in pending
+                    }
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        ans = future.result()
+                        answers[idx] = ans
+                        query_results[idx]["answer"] = ans
 
             # Prepare ground truths
             gts = None

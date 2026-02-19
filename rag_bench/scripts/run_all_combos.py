@@ -140,6 +140,7 @@ class IndexCacheManager:
     cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
     ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
     _colbert_model: Any = field(default=None, repr=False)     # ColBERT 싱글톤
+    _flashrank_ranker: Any = field(default=None, repr=False)  # FlashRank 싱글톤
 
     def get_colbert_model(self):
         """ColBERT 모델을 1회만 로드하고 이후 공유."""
@@ -154,6 +155,16 @@ class IndexCacheManager:
         )
         print("[ColBERT 캐시] 모델 로드 완료.")
         return self._colbert_model
+
+    def get_flashrank_ranker(self, model_name: str = "ms-marco-MultiBERT-L-12"):
+        """FlashRank Ranker를 1회만 로드하고 이후 공유."""
+        if self._flashrank_ranker is not None:
+            return self._flashrank_ranker
+        from flashrank import Ranker
+        print("[FlashRank 캐시] Ranker 최초 로드 중 (이후 공유)...")
+        self._flashrank_ranker = Ranker(model_name=model_name, max_length=512)
+        print("[FlashRank 캐시] Ranker 로드 완료.")
+        return self._flashrank_ranker
 
     def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
         """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드."""
@@ -233,8 +244,10 @@ def build_strategy_from_spec(
     elif spec.reranker == "flashrank":
         from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
 
-        strategy = FlashRankRerankStrategy(base_strategy=base, rerank_n=20)
-        strategy._ensure_initialized()
+        shared = index_cache.get_flashrank_ranker()
+        strategy = FlashRankRerankStrategy(
+            base_strategy=base, rerank_n=20, shared_ranker=shared
+        )
         strategy._is_ready = True
         return strategy
 
@@ -616,7 +629,8 @@ def _run_preset_mode(args):
             k=args.k,
             evaluator=evaluator,
         )
-        eval_runner.run()
+        # Pass 1 결과 재사용 (재검색 방지)
+        eval_runner.inject_results(runner._results)
         scores_df = eval_runner.evaluate(ground_truths=ground_truths)
         _print_ragas_table(scores_df)
 
