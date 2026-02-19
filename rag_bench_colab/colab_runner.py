@@ -401,7 +401,7 @@ class ColabBenchmarkRunner:
             preset_enum = MetricPreset.CORE_ONLY
 
         evaluator = ExtendedRAGEvaluator(
-            llm_model="gpt-4o-mini",
+            llm_model="gpt-4o-nano",
             preset=preset_enum,
         )
 
@@ -563,7 +563,7 @@ class ColabBenchmarkRunner:
 
             # RAGAS 평가
             from rag_bench.evaluation import ExtendedRAGEvaluator
-            evaluator = ExtendedRAGEvaluator(llm_model="gpt-4o-mini")
+            evaluator = ExtendedRAGEvaluator(llm_model="gpt-4o-nano")
 
             for name, query_results in runner._results.items():
                 questions = [r["query"] for r in query_results]
@@ -732,7 +732,7 @@ class ColabBenchmarkRunner:
             from langchain_openai import ChatOpenAI
 
             llm = ChatOpenAI(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-nano",
                 http_client=httpx.Client(verify=False),
             )
 
