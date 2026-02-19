@@ -145,7 +145,7 @@ def create_metrics(
 
     Args:
         preset: 메트릭 프리셋
-        evaluator_llm: LangchainLLMWrapper 인스턴스
+        evaluator_llm: RAGAS llm_factory LLM 인스턴스 (InstructorBaseRagasLLM)
         embeddings: LangchainEmbeddingsWrapper 인스턴스
         has_reference: reference(ground_truth)가 있는지 여부
 

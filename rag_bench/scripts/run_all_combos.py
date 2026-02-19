@@ -6,7 +6,7 @@
   Layer 2: Sparse Model  (korean_bm25, splade, fastembed_bm25)
   Layer 3: Retrieval Mode (hybrid × reranker × llm_support = 6종)
 
-총 유효 조합: 4 × 3 × 6 = 72개 + ColBERT(1) + GraphRAG(1) = 74개
+총 유효 조합: 4 × 3 × 6 = 72개 + GraphRAG(1) = 73개
 
 레거시 모드:
   --combos / --skip_* 플래그 사용 시 기존 방식으로 동작.
