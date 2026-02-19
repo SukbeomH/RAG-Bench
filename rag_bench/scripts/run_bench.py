@@ -1,7 +1,7 @@
 """
 통합 벤치마크 실행 + RAGAS 평가 스크립트.
 
-QA 로드 → 청킹 → 3종 전략 인덱싱 → BenchmarkRunner.run() → RAGEvaluator → 비교 테이블
+QA 로드 → 청킹 → 3종 전략 인덱싱 → BenchmarkRunner.run() → ExtendedRAGEvaluator → 비교 테이블
 
 전략 3종:
   1. DenseSparse (combo_id=4, MiniLM + BM25)  → _benchdata/qdrant_db_bench
@@ -21,7 +21,7 @@ from rag_bench.config import (
     BENCH_DOCS_DIR,
     setup_ssl_bypass,
 )
-from rag_bench.evaluation import RAGEvaluator
+from rag_bench.evaluation import ExtendedRAGEvaluator
 from rag_bench.indexing.chunker import create_parent_child_chunks
 from rag_bench.runner import BenchmarkRunner
 
@@ -145,7 +145,7 @@ def main():
 
     # 4. 벤치마크 실행
     print("\n=== Step 4: 벤치마크 실행 ===")
-    evaluator = RAGEvaluator()
+    evaluator = ExtendedRAGEvaluator()
     runner = BenchmarkRunner(
         strategies=strategies,
         queries=queries,

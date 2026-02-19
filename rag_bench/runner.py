@@ -33,7 +33,7 @@ class BenchmarkRunner:
         strategies: List[BaseRAGStrategy],
         queries: List[str],
         k: int = 3,
-        evaluator: Optional["RAGEvaluator"] = None,
+        evaluator: Optional["ExtendedRAGEvaluator"] = None,
         parallel_queries: int = 0,
     ):
         self.strategies = strategies

@@ -14,7 +14,7 @@ from langchain_core.retrievers import BaseRetriever
 
 from rag_bench.base import BaseRAGStrategy
 from rag_bench.runner import BenchmarkRunner
-from rag_bench.evaluation import RAGEvaluator
+from rag_bench.evaluation import ExtendedRAGEvaluator
 
 
 class MockStrategy(BaseRAGStrategy):
@@ -49,10 +49,10 @@ def main():
 
     # 1. Initialize Evaluator
     try:
-        evaluator = RAGEvaluator()
-        print("✅ RAGEvaluator initialized.")
+        evaluator = ExtendedRAGEvaluator()
+        print("✅ ExtendedRAGEvaluator initialized.")
     except Exception as e:
-        print(f"❌ Failed to initialize RAGEvaluator: {e}")
+        print(f"❌ Failed to initialize ExtendedRAGEvaluator: {e}")
         return
 
     # 2. Setup Benchmark
