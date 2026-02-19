@@ -110,7 +110,7 @@ class ExtendedRAGEvaluator:
     """RAGAS v0.4+ 기반 확장 평가기.
 
     기능:
-    - class-based 메트릭 + LangchainLLMWrapper
+    - class-based 메트릭 + llm_factory (RAGAS 네이티브 LLM)
     - per-sample 점수 반환
     - CostTracker 내장
     - reference 유무에 따라 메트릭 자동 필터링
@@ -133,19 +133,20 @@ class ExtendedRAGEvaluator:
         """LLM 및 메트릭 lazy 초기화."""
         if self._evaluator_llm is None:
             try:
+                import os
+
                 import httpx
-                from langchain_openai import ChatOpenAI
-                from ragas.llms import LangchainLLMWrapper
+                from openai import AsyncOpenAI
+                from ragas.llms import llm_factory
 
-                http_client = httpx.Client(verify=False)
-                async_client = httpx.AsyncClient(verify=False)
-
-                llm = ChatOpenAI(
-                    model=self.llm_model,
-                    http_client=http_client,
-                    http_async_client=async_client,
+                openai_client = AsyncOpenAI(
+                    api_key=os.environ.get("OPENAI_API_KEY"),
+                    http_client=httpx.AsyncClient(verify=False),
                 )
-                self._evaluator_llm = LangchainLLMWrapper(llm)
+                self._evaluator_llm = llm_factory(
+                    model=self.llm_model,
+                    client=openai_client,
+                )
             except Exception as e:
                 print(f"Warning: LLM 초기화 실패: {e}")
                 return
