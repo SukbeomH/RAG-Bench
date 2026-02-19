@@ -227,20 +227,47 @@ def get_qdrant_path(
 # ---------------------------------------------------------------------------
 
 
+def _patch_hf_hub_for_colab() -> None:
+    """HuggingFace Hub의 additional_chat_templates 404 에러를 억제한다.
+
+    sentence-transformers 3.x가 구형 모델에 없는 additional_chat_templates를
+    조회하면서 EntryNotFoundError를 발생시키는 문제를 방지한다.
+    """
+    try:
+        import huggingface_hub
+        from huggingface_hub.errors import EntryNotFoundError
+
+        _orig = huggingface_hub.list_repo_tree
+
+        def _safe_list_repo_tree(repo_id, path_in_repo="", **kwargs):
+            try:
+                return _orig(repo_id, path_in_repo, **kwargs)
+            except EntryNotFoundError:
+                if "additional_chat_templates" in str(path_in_repo):
+                    return iter([])
+                raise
+
+        huggingface_hub.list_repo_tree = _safe_list_repo_tree
+        print("[Patch] huggingface_hub.list_repo_tree → additional_chat_templates 404 억제")
+    except Exception as e:
+        print(f"[Warning] HF Hub 패치 실패 (무시): {e}")
+
+
 def patch_dense_device(device: str = "cuda") -> None:
     """DenseSparseStrategy._init_dense()를 패치하여 임베딩 모델 디바이스를 변경한다."""
     from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-    original_init_dense = DenseSparseStrategy._init_dense
 
     def _patched_init_dense(self):
         from langchain_huggingface import HuggingFaceEmbeddings
         from rag_bench.strategies.dense_sparse import DENSE_DIMS
 
         model_spec = self._dense_model
+        # trust_remote_code=True: bge-m3 등 커스텀 코드 모델 필수
+        model_kwargs = {"device": device, "trust_remote_code": True}
+
         self._dense_embeddings = HuggingFaceEmbeddings(
             model_name=model_spec,
-            model_kwargs={"device": device},
+            model_kwargs=model_kwargs,
             encode_kwargs={"normalize_embeddings": True},
         )
         # 알려진 모델은 룩업 테이블 사용, 아니면 test inference
@@ -252,7 +279,7 @@ def patch_dense_device(device: str = "cuda") -> None:
         print(f"  Dense: {model_spec} ({self._embedding_dim}d, device={device})")
 
     DenseSparseStrategy._init_dense = _patched_init_dense
-    print(f"[Patch] DenseSparseStrategy._init_dense → device='{device}'")
+    print(f"[Patch] DenseSparseStrategy._init_dense → device='{device}', trust_remote_code=True")
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +397,9 @@ def init_colab(
         device = info["device"]
 
     patch_rag_bench_config(qdrant_mode=qdrant_mode)
+
+    # HF Hub 패치 (additional_chat_templates 404 억제)
+    _patch_hf_hub_for_colab()
 
     # 디바이스 패치 (Dense 임베딩)
     patch_dense_device(device=device)
