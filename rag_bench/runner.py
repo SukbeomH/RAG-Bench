@@ -16,6 +16,11 @@ try:
 except ImportError:
     RAGEvaluator = None
 
+try:
+    from rag_bench.evaluation.evaluator import EvaluationReport
+except ImportError:
+    EvaluationReport = None
+
 
 class BenchmarkRunner:
     """
@@ -46,6 +51,7 @@ class BenchmarkRunner:
         self.evaluator = evaluator
         self.parallel_queries = parallel_queries or int(os.environ.get("RAG_BENCH_PARALLEL", "0"))
         self._results: Dict[str, List[dict]] = {}
+        self._reports: Dict[str, "EvaluationReport"] = {}
         self._generator = None  # lazy 초기화
 
     def _ensure_generator(self):
@@ -212,19 +218,28 @@ class BenchmarkRunner:
 
             # Evaluate
             try:
-                scores = self.evaluator.evaluate(
+                result = self.evaluator.evaluate(
                     questions=questions,
                     contexts=contexts,
                     answers=answers,
                     ground_truths=gts,
                 )
 
-                # scores is a dict of averages
-                scores_dict = {
-                    k: round(v, 4)
-                    for k, v in scores.items()
-                    if isinstance(v, (int, float))
-                }
+                # 양방향 호환: dict(레거시) 또는 EvaluationReport(확장)
+                if EvaluationReport is not None and isinstance(result, EvaluationReport):
+                    result.strategy_name = name
+                    scores_dict = {
+                        k: round(v, 4) for k, v in result.aggregate_dict.items()
+                        if isinstance(v, (int, float))
+                    }
+                    self._reports[name] = result
+                else:
+                    scores_dict = {
+                        k: round(v, 4)
+                        for k, v in result.items()
+                        if isinstance(v, (int, float))
+                    }
+
                 scores_dict["strategy"] = name
                 all_scores.append(scores_dict)
 
@@ -234,6 +249,11 @@ class BenchmarkRunner:
                 print(f"Evaluation failed for {name}: {e}")
 
         return pd.DataFrame(all_scores)
+
+    @property
+    def reports(self) -> Dict[str, "EvaluationReport"]:
+        """ExtendedRAGEvaluator 사용 시 per-sample 리포트 접근."""
+        return self._reports
 
     def compare(self) -> None:
         """전략 간 성능 비교 요약 출력."""
