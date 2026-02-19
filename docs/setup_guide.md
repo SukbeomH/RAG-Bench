@@ -82,6 +82,28 @@ uv sync
 # 환경 설정 및 Ragas 평가 파이프라인 검증 (Mock 데이터 사용)
 uv run python scripts/verify_ragas_eval.py
 
-# 전체 벤치마크 실행
-python -m rag_bench.scripts.run_all_combos
+# QA 데이터셋 생성
+uv run python -m rag_bench.scripts.generate_qa --num_qa 20
+
+# 72개 조합 벤치마크 (2-Pass: 레이턴시 → 상위 10개 RAGAS)
+uv run python -m rag_bench.scripts.run_all_combos --preset full --top_n 10 --k 3 --layers
+
+# 빠른 검증 (4개 조합, 레이턴시만)
+uv run python -m rag_bench.scripts.run_all_combos --preset quick --pass1-only
+
+# 시각화 노트북 (수행 이력 포함 10섹션)
+uv run jupyter notebook rag_bench/scripts/bench_visualize.ipynb
 ```
+
+## 산출물 (Outputs)
+
+벤치마크 실행 후 `rag_bench/_benchdata/`에 생성:
+
+| 파일 | 설명 |
+|------|------|
+| `qa_dataset.json` | QA 데이터셋 (질문-정답 쌍) |
+| `all_combos_latency.csv` | 72개 전략 레이턴시 결과 |
+| `all_combos_ragas.csv` | 상위 N개 RAGAS 평가 점수 |
+| `e2e_report.md` | 종합 리포트 (실행 환경, 비중%, 토큰) |
+| `run_history/run_*.json` | 수행 이력 (플랫폼, 타이밍, 토큰) |
+| `run_history/latest.json` | 최신 실행 심링크 |

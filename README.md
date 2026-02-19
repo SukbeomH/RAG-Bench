@@ -132,6 +132,7 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 | **인프라** | Google Colab T4 GPU 벤치마크 환경 | 완료 |
 | **인프라** | HuggingFace 모델 로컬 캐시 (심링크) | 완료 |
 | **최적화** | FlashRank 싱글톤 + LLM 병렬화 + SPLADE 배치 | 완료 |
+| **추적** | 수행 이력 추적 (RunTracker — 플랫폼, 타이밍, 토큰, 비중%) | 완료 |
 
 ### 3-Layer 조합 구조
 
@@ -311,7 +312,9 @@ uv run python -m rag_bench.scripts.prefetch_models
 | `qa_dataset.json` | QA 데이터셋 (질문-정답 쌍) |
 | `all_combos_latency.csv` | 72개 전략 레이턴시 측정 결과 |
 | `all_combos_ragas.csv` | 상위 N개 RAGAS 평가 점수 |
-| `e2e_report.md` | 종합 리포트 (레이턴시 Top 10 + RAGAS) |
+| `e2e_report.md` | 종합 리포트 (레이턴시 Top 10 + RAGAS + 실행 환경 + 비중%) |
+| `run_history/run_*.json` | 수행 이력 (플랫폼, 전략별 타이밍, 토큰 사용량) |
+| `run_history/latest.json` | 최신 실행 이력 심링크 |
 
 ## 주요 결과 요약 (10종, 20 QA)
 
@@ -355,6 +358,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   ├── base.py                        # BaseRAGStrategy ABC
 │   ├── config.py                      # 전역 설정 + 모델 캐시 + SSL 우회
 │   ├── runner.py                      # BenchmarkRunner
+│   ├── run_tracker.py                 # 수행 이력 추적 (플랫폼, 타이밍, 토큰)
 │   ├── cli.py                         # RAGChat 대화 인터페이스
 │   ├── strategies/                    # RAG 전략 6종
 │   │   ├── dense_sparse.py            # Dense+Sparse Hybrid (4종 임베딩)
@@ -380,15 +384,16 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   │   ├── run_bench.py               # 3종 벤치마크
 │   │   ├── run_all_combos.py          # 72개 조합 벤치마크
 │   │   ├── prefetch_models.py         # HuggingFace 모델 프리페치
-│   │   └── bench_visualize.ipynb      # 7종 시각화 차트 노트북
+│   │   └── bench_visualize.ipynb      # 시각화 차트 노트북 (10섹션)
 │   ├── docs/                          # 벤치마크 대상 Markdown 문서
 │   ├── _benchdata/                    # 산출물 (.gitignore)
+│   │   └── run_history/               # 수행 이력 JSON + latest.json 심링크
 │   └── _models/                       # HF 모델 로컬 캐시 (.gitignore)
 ├── rag_bench_colab/                   # Google Colab 벤치마크 환경
 │   ├── rag_benchmark.ipynb            # 메인 Colab 노트북 (9 섹션)
 │   ├── colab_config.py                # Colab 환경 설정 + monkey-patch
 │   ├── colab_runner.py                # 체크포인트 지원 벤치마크 러너
-│   ├── colab_visualizer.py            # 8개 시각화 함수
+│   ├── colab_visualizer.py            # 12개 시각화 함수 (수행 이력 4종 포함)
 │   ├── requirements_colab.txt         # Colab 전용 의존성
 │   └── data/                          # QA 데이터셋 + 문서 복사본
 └── scripts/                           # 환경 검증 스크립트
@@ -420,6 +425,21 @@ uv run python -m rag_bench.scripts.prefetch_models
 | **SPLADE 배치 처리** | `batch_size=32` 일괄 인코딩 |
 | **MPS OOM 방지** | Apple Silicon에서 ColBERT CPU 강제 + MPS 캐시 해제 |
 | **HF 모델 로컬 캐시** | `~/.cache/huggingface/hub` → `rag_bench/_models/` 심링크 |
+
+## 수행 이력 추적 (RunTracker)
+
+각 벤치마크 실행의 상세 이력을 자동으로 JSON에 기록합니다.
+
+**기록 항목:**
+- 실행 환경: OS, CPU, RAM, GPU, Apple Silicon 칩, Python 버전, Git 커밋
+- 단계별 소요 시간: QA 로드, 청킹, 인덱싱, Pass 1 레이턴시, Pass 2 RAGAS (비중% 포함)
+- 전략별 빌드 타이밍: 빌드 시간, 쿼리 레이턴시 통계 (avg/p50/p95), RAGAS 점수
+- 토큰 사용량: prompt/completion/total 토큰, API 비용, LLM 호출 수
+
+**저장 위치:** `rag_bench/_benchdata/run_history/run_{YYYYMMDD_HHMMSS}.json`
+**최신 실행:** `run_history/latest.json` 심링크로 바로 접근
+
+**시각화:** `bench_visualize.ipynb` 섹션 10에서 자동 로드하여 4종 차트로 표시 (실행 정보 카드, 단계별 타임라인, 전략별 빌드 시간, 토큰 사용량)
 
 ## 트러블슈팅
 

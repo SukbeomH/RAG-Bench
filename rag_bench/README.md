@@ -206,6 +206,7 @@ rag_bench/
 ├── config.py                # 전역 설정 (경로, LLM 모델, SSL 우회)
 ├── base.py                  # BaseRAGStrategy ABC — Strategy Pattern 핵심
 ├── runner.py                # BenchmarkRunner — 다중 전략 실행기 + 레이턴시 측정
+├── run_tracker.py           # RunTracker — 수행 이력 추적 (플랫폼, 타이밍, 토큰)
 ├── cli.py                   # RAGChat — Agentic RAG 대화 인터페이스
 │
 ├── strategies/              # RAG 전략 구현체 (6종)
@@ -239,7 +240,8 @@ rag_bench/
 │   ├── __init__.py
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성 (GPT-4o-mini)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
-│   └── run_all_combos.py    # ★ 72개 3-Layer 교차 조합 벤치마크 (2-Pass)
+│   ├── run_all_combos.py    # ★ 72개 3-Layer 교차 조합 벤치마크 (2-Pass)
+│   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
 │
 ├── docs/                    # 벤치마크 대상 Markdown 문서
 │   ├── 20250910_AI 현황 보고서.md    # AI 현황 보고서 (502KB)
@@ -250,7 +252,10 @@ rag_bench/
 │   ├── parent_store/        # Parent 청크 JSON 저장소
 │   ├── all_combos_latency.csv   # 레이턴시 결과
 │   ├── all_combos_ragas.csv     # RAGAS 평가 결과
-│   └── e2e_report.md            # 종합 리포트
+│   ├── e2e_report.md            # 종합 리포트 (실행 환경 + 비중% 포함)
+│   └── run_history/             # 수행 이력 JSON (플랫폼, 타이밍, 토큰)
+│       ├── run_*.json           # 실행별 상세 기록
+│       └── latest.json          # 최신 실행 심링크
 │
 ├── pyproject.toml           # 의존성 정의 (독립 실행 가능)
 ├── uv.lock                  # 의존성 잠금
@@ -361,7 +366,41 @@ RAGAS v0.4+ 기반 4개 핵심 메트릭:
 
 `ExtendedRAGEvaluator`는 샘플별 평가 + API 토큰 사용량/비용 추적을 지원합니다.
 
-### 9. LangGraph 에이전트 (graph/)
+### 9. 수행 이력 추적 (run_tracker.py)
+
+벤치마크 실행의 상세 이력을 JSON으로 기록하는 추적 모듈.
+
+**주요 클래스:**
+- `RunTracker`: 벤치마크 수행 이력 추적기. `phase()` 컨텍스트 매니저로 단계별 시간 자동 측정.
+- `TokenUsage`: LLM API 토큰 사용량 (prompt/completion/total/cost).
+- `StrategyTiming`: 전략별 빌드/쿼리 타이밍 + RAGAS 점수.
+- `BenchmarkRunRecord`: 전체 실행 기록 데이터 구조.
+
+**주요 함수:**
+- `collect_platform_info()`: 실행 환경 자동 수집 (OS, CPU, RAM, GPU, Apple Silicon, Git commit).
+- `track_openai_tokens()`: LangChain `get_openai_callback()` 기반 토큰 추적 컨텍스트 매니저.
+
+```python
+from rag_bench.run_tracker import RunTracker, track_openai_tokens
+
+tracker = RunTracker(output_dir=Path("_benchdata"))
+
+with tracker.phase("chunking"):
+    # 청킹 로직 — 소요 시간 자동 측정
+
+with tracker.phase("ragas_evaluation"):
+    with track_openai_tokens() as usage:
+        # LLM 호출 — 토큰 사용량 자동 추적
+    tracker.add_tokens(usage)
+
+filepath = tracker.finalize()  # JSON 저장 + latest.json 심링크
+```
+
+**저장 형식:** `_benchdata/run_history/run_{YYYYMMDD_HHMMSS}.json`
+- 콘솔에 단계별 비중(%) 요약 자동 출력
+- `latest.json` 심링크로 최신 실행에 바로 접근
+
+### 10. LangGraph 에이전트 (graph/)
 
 검색 전략을 LangGraph 기반 대화형 에이전트로 감싸는 모듈.
 
