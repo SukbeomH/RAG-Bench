@@ -130,6 +130,23 @@ def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
 
 
 # ===========================================================================
+# CacheConfig — IndexCacheManager 하드코딩 설정 외부화
+# ===========================================================================
+
+
+@dataclass
+class CacheConfig:
+    """IndexCacheManager에서 사용하는 모델/리소스 설정."""
+
+    colbert_model: str = "jinaai/jina-colbert-v2"
+    colbert_device: str = "cpu"
+    flashrank_model: str = "ms-marco-MultiBERT-L-12"
+    flashrank_max_length: int = 512
+    contextual_llm: str = "gpt-4o-mini"
+    rerank_n: int = 20
+
+
+# ===========================================================================
 # IndexCacheManager
 # ===========================================================================
 
@@ -138,6 +155,7 @@ def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
 class IndexCacheManager:
     """동일 (dense, sparse) 쌍은 같은 Qdrant 인덱스를 재사용."""
 
+    config: CacheConfig = field(default_factory=CacheConfig)
     cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
     ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
     _colbert_model: Any = field(default=None, repr=False)     # ColBERT 싱글톤
@@ -148,22 +166,25 @@ class IndexCacheManager:
         if self._colbert_model is not None:
             return self._colbert_model
         from pylate import models
-        print("[ColBERT 캐시] 모델 최초 로드 중 (이후 공유)...")
+        print(f"[ColBERT 캐시] 모델 최초 로드 중 (device={self.config.colbert_device})...")
         self._colbert_model = models.ColBERT(
-            model_name_or_path="jinaai/jina-colbert-v2",
-            device="cpu",
+            model_name_or_path=self.config.colbert_model,
+            device=self.config.colbert_device,
             trust_remote_code=True,
         )
         print("[ColBERT 캐시] 모델 로드 완료.")
         return self._colbert_model
 
-    def get_flashrank_ranker(self, model_name: str = "ms-marco-MultiBERT-L-12"):
+    def get_flashrank_ranker(self):
         """FlashRank Ranker를 1회만 로드하고 이후 공유."""
         if self._flashrank_ranker is not None:
             return self._flashrank_ranker
         from flashrank import Ranker
         print("[FlashRank 캐시] Ranker 최초 로드 중 (이후 공유)...")
-        self._flashrank_ranker = Ranker(model_name=model_name, max_length=512)
+        self._flashrank_ranker = Ranker(
+            model_name=self.config.flashrank_model,
+            max_length=self.config.flashrank_max_length,
+        )
         print("[FlashRank 캐시] Ranker 로드 완료.")
         return self._flashrank_ranker
 
@@ -207,16 +228,17 @@ class IndexCacheManager:
         if base_key in self.cache:
             cached_base, _ = self.cache[base_key]
             if cached_base._dense_embeddings is not None:
-                ctx_base._dense_embeddings = cached_base._dense_embeddings
-                ctx_base._embedding_dim = cached_base._embedding_dim
-            if cached_base._sparse_embeddings is not None:
-                ctx_base._sparse_embeddings = cached_base._sparse_embeddings
-                ctx_base._use_langchain_sparse = cached_base._use_langchain_sparse
+                ctx_base.share_embeddings(
+                    dense_embeddings=cached_base._dense_embeddings,
+                    sparse_embeddings=cached_base._sparse_embeddings,
+                    embedding_dim=cached_base._embedding_dim,
+                    use_langchain_sparse=cached_base._use_langchain_sparse,
+                )
 
         strategy = ContextualRetrievalStrategy(
             base_strategy=ctx_base,
             parent_pairs=parent_pairs,
-            llm_model="gpt-4o-mini",
+            llm_model=self.config.contextual_llm,
         )
         strategy.index(child_chunks)
         self.ctx_cache[key] = strategy
@@ -244,24 +266,30 @@ def build_strategy_from_spec(
         base = index_cache.get_or_build_contextual(spec, child_chunks, parent_pairs, reindex)
 
     # 3. Reranker 적용 (Decorator)
+    cfg = index_cache.config
     if spec.reranker == "colbert":
         from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
 
         shared = index_cache.get_colbert_model()
         strategy = ColBERTRerankStrategy(
-            base_strategy=base, rerank_n=20, shared_model=shared
+            base_strategy=base,
+            model_name=cfg.colbert_model,
+            rerank_n=cfg.rerank_n,
+            device=cfg.colbert_device,
+            shared_model=shared,
         )
-        strategy._device = "cpu"
-        strategy._is_ready = True
         return strategy
     elif spec.reranker == "flashrank":
         from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
 
         shared = index_cache.get_flashrank_ranker()
         strategy = FlashRankRerankStrategy(
-            base_strategy=base, rerank_n=20, shared_ranker=shared
+            base_strategy=base,
+            model_name=cfg.flashrank_model,
+            rerank_n=cfg.rerank_n,
+            max_length=cfg.flashrank_max_length,
+            shared_ranker=shared,
         )
-        strategy._is_ready = True
         return strategy
 
     return base
@@ -707,21 +735,14 @@ def _run_preset_mode(args):
 
     evaluator = None
     if not args.no_ragas:
-        if args.legacy_evaluator:
-            from rag_bench.evaluation import RAGEvaluator
-            try:
-                evaluator = RAGEvaluator()
-            except Exception as e:
-                print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
-        else:
-            from rag_bench.evaluation import ExtendedRAGEvaluator
-            from rag_bench.evaluation.metrics import MetricPreset
-            try:
-                preset_enum = MetricPreset(args.metric_preset)
-                evaluator = ExtendedRAGEvaluator(preset=preset_enum)
-                print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
-            except Exception as e:
-                print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        from rag_bench.evaluation import ExtendedRAGEvaluator
+        from rag_bench.evaluation.metrics import MetricPreset
+        try:
+            preset_enum = MetricPreset(args.metric_preset)
+            evaluator = ExtendedRAGEvaluator(preset=preset_enum)
+            print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
+        except Exception as e:
+            print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
     if evaluator is not None:
         eval_runner = BenchmarkRunner(
@@ -1251,21 +1272,14 @@ def _run_legacy_mode(args):
 
     evaluator = None
     if not args.no_ragas:
-        if args.legacy_evaluator:
-            from rag_bench.evaluation import RAGEvaluator
-            try:
-                evaluator = RAGEvaluator()
-            except Exception as e:
-                print(f"RAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
-        else:
-            from rag_bench.evaluation import ExtendedRAGEvaluator
-            from rag_bench.evaluation.metrics import MetricPreset
-            try:
-                preset_enum = MetricPreset(args.metric_preset)
-                evaluator = ExtendedRAGEvaluator(preset=preset_enum)
-                print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
-            except Exception as e:
-                print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
+        from rag_bench.evaluation import ExtendedRAGEvaluator
+        from rag_bench.evaluation.metrics import MetricPreset
+        try:
+            preset_enum = MetricPreset(args.metric_preset)
+            evaluator = ExtendedRAGEvaluator(preset=preset_enum)
+            print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
+        except Exception as e:
+            print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
     runner = BenchmarkRunner(
         strategies=active_strategies,
@@ -1341,9 +1355,6 @@ def main():
     parser.add_argument("--scoring-profile", type=str, default="balanced",
                         choices=["balanced", "precision_critical", "speed_critical", "comprehensive"],
                         help="스코어링 프로파일 (기본: balanced)")
-    parser.add_argument("--legacy-evaluator", action="store_true",
-                        help="레거시 RAGEvaluator 강제 사용")
-
     # 레거시 모드 옵션
     parser.add_argument("--combos", type=str, default=None,
                         help="DenseSparse 조합 ID (쉼표 구분, 예: 1,3,4)")

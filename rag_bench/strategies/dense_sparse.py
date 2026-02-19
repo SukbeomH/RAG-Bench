@@ -327,6 +327,29 @@ class DenseSparseStrategy(BaseRAGStrategy):
     def is_ready(self) -> bool:
         return self._is_ready
 
+    def share_embeddings(
+        self,
+        dense_embeddings,
+        sparse_embeddings,
+        embedding_dim: int,
+        use_langchain_sparse: bool,
+    ) -> None:
+        """외부에서 Dense/Sparse 임베딩 모델 객체를 주입한다.
+
+        IndexCacheManager 등에서 이미 로드된 모델을 공유할 때 사용.
+        주입 후에는 _ensure_initialized()가 Qdrant만 초기화한다.
+
+        Args:
+            dense_embeddings: Dense 임베딩 모델 객체.
+            sparse_embeddings: Sparse 임베딩 모델 객체.
+            embedding_dim: Dense 벡터 차원.
+            use_langchain_sparse: langchain sparse 호환 여부.
+        """
+        self._dense_embeddings = dense_embeddings
+        self._sparse_embeddings = sparse_embeddings
+        self._embedding_dim = embedding_dim
+        self._use_langchain_sparse = use_langchain_sparse
+
     def _init_dense(self):
         """Dense 임베딩 모델 초기화."""
         model_spec = self._dense_model

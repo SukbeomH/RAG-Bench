@@ -307,50 +307,22 @@ def patch_qdrant_memory_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ColBERT 디바이스 패치
+# CacheConfig 헬퍼
 # ---------------------------------------------------------------------------
 
 
-def patch_colbert_device(device: str = "cuda") -> None:
-    """IndexCacheManager.get_colbert_model()을 패치하여 ColBERT 디바이스를 변경한다."""
-    from rag_bench.scripts.run_all_combos import IndexCacheManager
+def get_cache_config(device: str = "cuda") -> "CacheConfig":
+    """Colab 환경에 맞는 CacheConfig를 반환한다.
 
-    original_get = IndexCacheManager.get_colbert_model
+    Args:
+        device: ColBERT 디바이스 ('cuda' 또는 'cpu').
 
-    def _patched_get(self):
-        if self._colbert_model is not None:
-            return self._colbert_model
-        from pylate import models
+    Returns:
+        CacheConfig 인스턴스.
+    """
+    from rag_bench.scripts.run_all_combos import CacheConfig
 
-        print(f"[ColBERT 캐시] 모델 최초 로드 중 (device={device})...")
-        self._colbert_model = models.ColBERT(
-            model_name_or_path="jinaai/jina-colbert-v2",
-            device=device,
-            trust_remote_code=True,
-        )
-        print("[ColBERT 캐시] 모델 로드 완료.")
-        return self._colbert_model
-
-    IndexCacheManager.get_colbert_model = _patched_get
-    print(f"[Patch] IndexCacheManager.get_colbert_model → device='{device}'")
-
-    # build_strategy_from_spec에서 ColBERT strategy._device = "cpu" 하드코딩 오버라이드
-    from rag_bench.scripts.run_all_combos import (
-        build_strategy_from_spec as _original_build,
-    )
-
-    def _patched_build(spec, index_cache, child_chunks, parent_pairs, reindex=False):
-        strategy = _original_build(
-            spec, index_cache, child_chunks, parent_pairs, reindex
-        )
-        if hasattr(strategy, "_device") and device == "cuda":
-            strategy._device = device
-        return strategy
-
-    import rag_bench.scripts.run_all_combos as rac
-
-    rac.build_strategy_from_spec = _patched_build
-    print(f"[Patch] build_strategy_from_spec → ColBERT _device='{device}'")
+    return CacheConfig(colbert_device=device)
 
 
 # ---------------------------------------------------------------------------
@@ -399,12 +371,8 @@ def init_colab(
 
     patch_rag_bench_config(qdrant_mode=qdrant_mode)
 
-    # 디바이스 패치
-    if device == "cuda":
-        patch_dense_device(device="cuda")
-        patch_colbert_device(device="cuda")
-    else:
-        patch_dense_device(device="cpu")
+    # 디바이스 패치 (Dense 임베딩)
+    patch_dense_device(device=device)
 
     # 인메모리 모드 패치
     if qdrant_mode == "memory":

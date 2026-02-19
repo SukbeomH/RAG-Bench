@@ -23,6 +23,7 @@ from rag_bench_colab.colab_config import (
     DRIVE_BENCHDATA_DIR,
     DRIVE_CHECKPOINTS_DIR,
     DRIVE_RESULTS_DIR,
+    get_cache_config,
     get_qdrant_path,
     release_memory,
 )
@@ -261,7 +262,7 @@ class ColabBenchmarkRunner:
         tqdm = self._get_tqdm()
 
         if self._index_cache is None:
-            self._index_cache = IndexCacheManager()
+            self._index_cache = IndexCacheManager(config=get_cache_config(self.device))
 
         strategies = []
         completed_labels = set(self.checkpoint.list_completed("pass1_"))
@@ -412,7 +413,7 @@ class ColabBenchmarkRunner:
                 all_scores.append(data)
 
         if self._index_cache is None:
-            self._index_cache = IndexCacheManager()
+            self._index_cache = IndexCacheManager(config=get_cache_config(self.device))
 
         for strategy_name in tqdm(top_strategies, desc="Pass 2: RAGAS 평가"):
             ckpt_key = f"pass2_{strategy_name}"
