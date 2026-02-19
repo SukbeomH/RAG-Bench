@@ -108,7 +108,27 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
             info["api_key_loaded"] = False
             print("[Warning] Colab Secrets 접근 실패. 수동으로 API Key를 설정하세요.")
     else:
+        # 로컬 실행: .env 파일에서 환경변수 로드
+        try:
+            from dotenv import load_dotenv
+
+            # 프로젝트 루트 → rag_bench_colab/ → 현재 디렉토리 순서로 탐색
+            _candidates = [
+                COLAB_PROJECT_ROOT / ".env",
+                Path(__file__).parent.parent / ".env",
+                Path(".env"),
+            ]
+            for _env_path in _candidates:
+                if _env_path.exists():
+                    load_dotenv(_env_path, override=False)
+                    print(f"[API Key] .env 로드: {_env_path}")
+                    break
+        except ImportError:
+            pass  # python-dotenv 미설치 시 무시
+
         info["api_key_loaded"] = "OPENAI_API_KEY" in os.environ
+        if not info["api_key_loaded"]:
+            print("[Warning] OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
 
     # 3. HF_HOME 설정 (Drive 사용 시 영속 캐시)
     if info["drive_mounted"]:
