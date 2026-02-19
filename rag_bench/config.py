@@ -25,6 +25,19 @@ QDRANT_BASE_PATH = PROJECT_ROOT  # qdrant_db_<strategy> 접두사로 사용
 PACKAGE_ROOT = Path(__file__).parent
 BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"      # 벤치마크 대상 markdown 문서
 BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"  # 벤치마크 중간 산출물
+MODELS_DIR = PACKAGE_ROOT / "_models"         # 로컬 모델 캐시
+
+# ---------------------------------------------------------------------------
+# HuggingFace 모델 레지스트리
+# ---------------------------------------------------------------------------
+REQUIRED_HF_MODELS = [
+    "BM-K/KoSimCSE-roberta-multitask",
+    "intfloat/multilingual-e5-large",
+    "BAAI/bge-m3",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "naver/splade-cocondenser-ensembledistil",
+    "jinaai/jina-colbert-v2",
+]
 
 # .env 파일 로드
 from dotenv import load_dotenv
@@ -76,6 +89,43 @@ def setup_ssl_bypass() -> None:
     # SSL_CERT_FILE 동기화 (requests와 동일하게)
     if "REQUESTS_CA_BUNDLE" in os.environ:
         os.environ["SSL_CERT_FILE"] = os.environ["REQUESTS_CA_BUNDLE"]
+
+    ensure_model_cache()
+
+
+def _hf_cache_dir_name(model_id: str) -> str:
+    """HuggingFace 캐시 디렉토리명 변환 (예: 'BAAI/bge-m3' → 'models--BAAI--bge-m3')."""
+    return f"models--{model_id.replace('/', '--')}"
+
+
+def ensure_model_cache() -> None:
+    """프로젝트 로컬 모델 캐시 설정.
+
+    ~/.cache/huggingface/hub 에 모델이 있으면 심링크로 재사용하고,
+    없으면 HF_HOME을 로컬로 설정하여 이후 다운로드가 프로젝트 내부에 저장되게 한다.
+    """
+    local_hub = MODELS_DIR / "hub"
+    local_hub.mkdir(parents=True, exist_ok=True)
+
+    hf_default_cache = Path.home() / ".cache" / "huggingface" / "hub"
+
+    linked = 0
+    for model_id in REQUIRED_HF_MODELS:
+        dir_name = _hf_cache_dir_name(model_id)
+        local_path = local_hub / dir_name
+        hf_cache_path = hf_default_cache / dir_name
+
+        if local_path.exists():
+            continue
+
+        if hf_cache_path.exists():
+            local_path.symlink_to(hf_cache_path)
+            linked += 1
+
+    os.environ["HF_HOME"] = str(MODELS_DIR)
+
+    if linked > 0:
+        print(f"[모델 캐시] {linked}개 모델 심링크 생성 → {MODELS_DIR}")
 
 
 def ensure_dirs() -> None:

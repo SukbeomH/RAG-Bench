@@ -35,6 +35,9 @@ parent_store/
 # 벤치마크 중간 산출물 (실행 시 새로 생성)
 rag_bench/_benchdata/
 
+# 로컬 모델 캐시 (심링크 또는 다운로드)
+rag_bench/_models/
+
 # Claude Code
 .claude/
 
