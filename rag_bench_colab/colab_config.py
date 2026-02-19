@@ -15,7 +15,7 @@ from typing import Optional
 # 경로 상수
 # ---------------------------------------------------------------------------
 
-COLAB_PROJECT_ROOT = Path("/content/autorag")
+COLAB_PROJECT_ROOT = Path("/content/RAG-Bench")
 COLAB_DATA_DIR = COLAB_PROJECT_ROOT / "rag_bench_colab" / "data"
 COLAB_DOCS_DIR = COLAB_DATA_DIR / "docs"
 
@@ -34,10 +34,12 @@ QDRANT_EPHEMERAL_BASE = Path("/content/qdrant_workspace")
 # 환경 감지
 # ---------------------------------------------------------------------------
 
+
 def is_colab() -> bool:
     """Google Colab 환경 여부."""
     try:
         import google.colab  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -47,6 +49,7 @@ def get_device() -> str:
     """CUDA 사용 가능 시 'cuda', 아니면 'cpu'."""
     try:
         import torch
+
         if torch.cuda.is_available():
             name = torch.cuda.get_device_name(0)
             print(f"[Device] CUDA: {name}")
@@ -60,6 +63,7 @@ def get_device() -> str:
 # ---------------------------------------------------------------------------
 # Colab 환경 초기화
 # ---------------------------------------------------------------------------
+
 
 def setup_colab_env(mount_drive: bool = True) -> dict:
     """Colab 환경을 초기화한다.
@@ -78,6 +82,7 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
     if mount_drive and is_colab():
         try:
             from google.colab import drive
+
             drive.mount("/content/drive")
             info["drive_mounted"] = True
         except Exception as e:
@@ -90,6 +95,7 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
     if is_colab():
         try:
             from google.colab import userdata
+
             api_key = userdata.get("OPENAI_API_KEY")
             if api_key:
                 os.environ["OPENAI_API_KEY"] = api_key
@@ -115,8 +121,12 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
         info["hf_home"] = "/content/hf_cache"
 
     # 4. 디렉토리 생성
-    for d in [DRIVE_BENCHDATA_DIR, DRIVE_CHECKPOINTS_DIR, DRIVE_RESULTS_DIR,
-              QDRANT_EPHEMERAL_BASE]:
+    for d in [
+        DRIVE_BENCHDATA_DIR,
+        DRIVE_CHECKPOINTS_DIR,
+        DRIVE_RESULTS_DIR,
+        QDRANT_EPHEMERAL_BASE,
+    ]:
         d.mkdir(parents=True, exist_ok=True)
 
     # 5. 공통 환경 변수
@@ -133,6 +143,7 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
 # ---------------------------------------------------------------------------
 # rag_bench config 패치
 # ---------------------------------------------------------------------------
+
 
 def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     """rag_bench.config 모듈의 경로를 Colab 환경으로 오버라이드.
@@ -161,11 +172,13 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
         # MPS 관련 로직은 Colab에서 불필요 (CUDA 환경)
+
     cfg.setup_ssl_bypass = _colab_ssl_bypass
 
     # run_all_combos 모듈의 값 복사된 변수도 패치 (import 시 값이 복사되므로)
     try:
         import rag_bench.scripts.run_all_combos as rac
+
         rac.BENCH_DATA_DIR = DRIVE_BENCHDATA_DIR
         rac.BENCH_DOCS_DIR = COLAB_DOCS_DIR
     except ImportError:
@@ -181,6 +194,7 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
 # ---------------------------------------------------------------------------
 # Qdrant 경로/모드 헬퍼
 # ---------------------------------------------------------------------------
+
 
 def get_qdrant_path(
     dense: str, sparse: str, qdrant_mode: str = "ephemeral", contextual: bool = False
@@ -211,6 +225,7 @@ def get_qdrant_path(
 # ---------------------------------------------------------------------------
 # Dense 모델 디바이스 패치
 # ---------------------------------------------------------------------------
+
 
 def patch_dense_device(device: str = "cuda") -> None:
     """DenseSparseStrategy._init_dense()를 패치하여 임베딩 모델 디바이스를 변경한다."""
@@ -243,6 +258,7 @@ def patch_dense_device(device: str = "cuda") -> None:
 # ---------------------------------------------------------------------------
 # Qdrant 인메모리 패치
 # ---------------------------------------------------------------------------
+
 
 def patch_qdrant_memory_mode() -> None:
     """DenseSparseStrategy._init_qdrant()를 패치하여 ':memory:' 모드를 지원한다.
@@ -294,6 +310,7 @@ def patch_qdrant_memory_mode() -> None:
 # ColBERT 디바이스 패치
 # ---------------------------------------------------------------------------
 
+
 def patch_colbert_device(device: str = "cuda") -> None:
     """IndexCacheManager.get_colbert_model()을 패치하여 ColBERT 디바이스를 변경한다."""
     from rag_bench.scripts.run_all_combos import IndexCacheManager
@@ -304,6 +321,7 @@ def patch_colbert_device(device: str = "cuda") -> None:
         if self._colbert_model is not None:
             return self._colbert_model
         from pylate import models
+
         print(f"[ColBERT 캐시] 모델 최초 로드 중 (device={device})...")
         self._colbert_model = models.ColBERT(
             model_name_or_path="jinaai/jina-colbert-v2",
@@ -317,15 +335,20 @@ def patch_colbert_device(device: str = "cuda") -> None:
     print(f"[Patch] IndexCacheManager.get_colbert_model → device='{device}'")
 
     # build_strategy_from_spec에서 ColBERT strategy._device = "cpu" 하드코딩 오버라이드
-    from rag_bench.scripts.run_all_combos import build_strategy_from_spec as _original_build
+    from rag_bench.scripts.run_all_combos import (
+        build_strategy_from_spec as _original_build,
+    )
 
     def _patched_build(spec, index_cache, child_chunks, parent_pairs, reindex=False):
-        strategy = _original_build(spec, index_cache, child_chunks, parent_pairs, reindex)
-        if hasattr(strategy, '_device') and device == "cuda":
+        strategy = _original_build(
+            spec, index_cache, child_chunks, parent_pairs, reindex
+        )
+        if hasattr(strategy, "_device") and device == "cuda":
             strategy._device = device
         return strategy
 
     import rag_bench.scripts.run_all_combos as rac
+
     rac.build_strategy_from_spec = _patched_build
     print(f"[Patch] build_strategy_from_spec → ColBERT _device='{device}'")
 
@@ -334,11 +357,13 @@ def patch_colbert_device(device: str = "cuda") -> None:
 # 메모리 관리
 # ---------------------------------------------------------------------------
 
+
 def release_memory():
     """GPU/CPU 메모리 강제 해제."""
     gc.collect()
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             allocated = torch.cuda.memory_allocated() / 1024**2
@@ -350,6 +375,7 @@ def release_memory():
 # ---------------------------------------------------------------------------
 # 통합 초기화
 # ---------------------------------------------------------------------------
+
 
 def init_colab(
     qdrant_mode: str = "ephemeral",
