@@ -304,6 +304,433 @@ def plot_layer_contribution(
 
 
 # ---------------------------------------------------------------------------
+# 5-H1. Ablation Waterfall — 레이어별 품질 기여도
+# ---------------------------------------------------------------------------
+
+
+def plot_ablation_waterfall(
+    ragas_df: pd.DataFrame,
+    metric: Optional[str] = None,
+) -> None:
+    """레이어 추가 시 품질 기여도 폭포 차트 (Ablation Waterfall).
+
+    Baseline(Dense+Sparse) 대비 Reranker / Contextual 추가가
+    품질 점수에 미치는 평균 기여도를 시각화한다.
+
+    Args:
+        ragas_df: 'strategy' + RAGAS 메트릭 컬럼 필요.
+        metric: 분석할 메트릭. None이면 weighted_ 컬럼 또는 첫 수치 컬럼 자동 선택.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("plotly가 필요합니다: pip install plotly")
+        return
+
+    if ragas_df is None or ragas_df.empty:
+        print("RAGAS 데이터가 없습니다.")
+        return
+
+    numeric_cols = [
+        c for c in ragas_df.columns
+        if c != "strategy" and pd.api.types.is_numeric_dtype(ragas_df[c])
+    ]
+    if not numeric_cols:
+        print("수치 메트릭 컬럼이 없습니다.")
+        return
+
+    if metric is None:
+        weighted = [c for c in numeric_cols if c.startswith("weighted_")]
+        metric = weighted[0] if weighted else numeric_cols[0]
+
+    if metric not in ragas_df.columns:
+        print(f"메트릭 '{metric}'이 없습니다. 사용 가능: {numeric_cols}")
+        return
+
+    # 전략명 패턴으로 레이어 분류
+    def _classify(name: str):
+        has_ctx = "Contextual" in name
+        has_rerank = "FlashRank" in name or "ColBERT" in name
+        return has_ctx, has_rerank
+
+    groups: Dict[str, List[float]] = {
+        "baseline": [], "reranker": [], "contextual": [], "both": []
+    }
+    for _, row in ragas_df.iterrows():
+        score = row[metric]
+        if pd.isna(score):
+            continue
+        has_ctx, has_rerank = _classify(str(row["strategy"]))
+        if has_ctx and has_rerank:
+            groups["both"].append(float(score))
+        elif has_ctx:
+            groups["contextual"].append(float(score))
+        elif has_rerank:
+            groups["reranker"].append(float(score))
+        else:
+            groups["baseline"].append(float(score))
+
+    means: Dict[str, Optional[float]] = {
+        k: float(np.mean(v)) if v else None for k, v in groups.items()
+    }
+
+    if means["baseline"] is None:
+        print("Baseline 전략(Reranker/Contextual 없음)이 평가되지 않았습니다.")
+        return
+
+    base = means["baseline"]
+    x_labels: List[str] = ["Baseline"]
+    y_values: List[float] = [base]
+    measures: List[str] = ["absolute"]
+    text_vals: List[str] = [f"{base:.3f}"]
+
+    # 누적값 추적
+    cumulative = base
+    if means["reranker"] is not None:
+        delta = means["reranker"] - base
+        x_labels.append("+ Reranker")
+        y_values.append(delta)
+        measures.append("relative")
+        text_vals.append(f"{delta:+.3f}")
+        cumulative += delta
+
+    if means["contextual"] is not None:
+        delta = means["contextual"] - base
+        x_labels.append("+ Contextual")
+        y_values.append(delta)
+        measures.append("relative")
+        text_vals.append(f"{delta:+.3f}")
+        cumulative = base + delta  # contextual은 독립 경로
+
+    if means["both"] is not None:
+        # reranker + contextual 조합 → 누적 대비 추가 효과
+        ref = base + (means["reranker"] - base if means["reranker"] else 0) \
+                   + (means["contextual"] - base if means["contextual"] else 0)
+        delta = means["both"] - ref
+        x_labels.append("Reranker + Contextual")
+        y_values.append(delta)
+        measures.append("relative")
+        text_vals.append(f"{delta:+.3f}")
+
+    # 총합 bar
+    final = sum(
+        v for v, m in zip(y_values, measures) if m == "relative"
+    ) + base
+    x_labels.append("최종 (합산)")
+    y_values.append(0)
+    measures.append("total")
+    text_vals.append(f"{final:.3f}")
+
+    fig = go.Figure(go.Waterfall(
+        name="품질 기여도",
+        orientation="v",
+        measure=measures,
+        x=x_labels,
+        y=y_values,
+        text=text_vals,
+        textposition="outside",
+        connector={"line": {"color": "rgb(63,63,63)", "width": 1}},
+        increasing={"marker": {"color": "#2ecc71"}},
+        decreasing={"marker": {"color": "#e74c3c"}},
+        totals={"marker": {"color": "#3498db"}},
+    ))
+    fig.update_layout(
+        title=f"레이어별 품질 기여도 — Ablation Waterfall ({metric})",
+        yaxis_title=f"{metric} 점수",
+        yaxis=dict(range=[0, 1.15]),
+        height=450,
+        font=dict(family="NanumGothic, sans-serif"),
+        showlegend=False,
+    )
+    fig.show()
+
+
+# ---------------------------------------------------------------------------
+# 5-H3. Layer Interaction Heatmap — Dense × Sparse 조합 상호작용
+# ---------------------------------------------------------------------------
+
+
+def plot_layer_interaction_heatmap(
+    ragas_df: pd.DataFrame,
+    metric: Optional[str] = None,
+) -> None:
+    """Dense × Sparse 조합별 품질 상호작용 히트맵.
+
+    Reranker / Contextual 유무에 따라 서브플롯을 분리하여
+    어떤 Dense+Sparse 조합이 각 조건에서 최적인지 시각화한다.
+
+    Args:
+        ragas_df: 'strategy' + RAGAS 메트릭 컬럼 필요.
+        metric: 분석할 메트릭. None이면 자동 선택.
+    """
+    import re
+
+    import matplotlib.pyplot as plt
+
+    try:
+        import seaborn as sns
+    except ImportError:
+        print("seaborn이 필요합니다: pip install seaborn")
+        return
+
+    if ragas_df is None or ragas_df.empty:
+        print("RAGAS 데이터가 없습니다.")
+        return
+
+    numeric_cols = [
+        c for c in ragas_df.columns
+        if c != "strategy" and pd.api.types.is_numeric_dtype(ragas_df[c])
+    ]
+    if not numeric_cols:
+        print("수치 메트릭 컬럼이 없습니다.")
+        return
+
+    if metric is None:
+        weighted = [c for c in numeric_cols if c.startswith("weighted_")]
+        metric = weighted[0] if weighted else numeric_cols[0]
+
+    if metric not in ragas_df.columns:
+        print(f"메트릭 '{metric}'이 없습니다.")
+        return
+
+    # 전략명에서 Dense / Sparse 추출
+    # 패턴: DS({dense}+{sparse}) — 래퍼에 중첩될 수 있음
+    def _parse(name: str):
+        m = re.search(r"DS\(([^+]+)\+([^)]+)\)", name)
+        if not m:
+            return None
+        return {
+            "dense": m.group(1).strip(),
+            "sparse": m.group(2).strip(),
+            "has_rerank": "FlashRank" in name or "ColBERT" in name,
+            "has_ctx": "Contextual" in name,
+            metric: None,
+        }
+
+    parsed_rows = []
+    for _, row in ragas_df.iterrows():
+        info = _parse(str(row["strategy"]))
+        if info is None:
+            continue
+        val = row[metric]
+        if pd.isna(val):
+            continue
+        info[metric] = float(val)
+        parsed_rows.append(info)
+
+    if not parsed_rows:
+        print("전략명에서 Dense/Sparse 정보를 추출할 수 없습니다.")
+        return
+
+    df_p = pd.DataFrame(parsed_rows)
+
+    group_defs = [
+        ("Baseline\n(No Reranker, No Contextual)",
+         (~df_p["has_rerank"]) & (~df_p["has_ctx"])),
+        ("+ Reranker",
+         df_p["has_rerank"] & (~df_p["has_ctx"])),
+        ("+ Contextual",
+         (~df_p["has_rerank"]) & df_p["has_ctx"]),
+        ("Reranker + Contextual",
+         df_p["has_rerank"] & df_p["has_ctx"]),
+    ]
+    groups = [(label, df_p[mask]) for label, mask in group_defs if mask.any()]
+
+    if not groups:
+        print("히트맵을 그릴 데이터가 없습니다.")
+        return
+
+    n = len(groups)
+    n_dense = df_p["dense"].nunique()
+    fig, axes = plt.subplots(1, n, figsize=(5.5 * n, max(3, n_dense * 0.7 + 2.5)))
+    if n == 1:
+        axes = [axes]
+
+    for ax, (label, gdf) in zip(axes, groups):
+        pivot = gdf.pivot_table(
+            index="dense", columns="sparse", values=metric, aggfunc="mean"
+        )
+        if pivot.empty:
+            ax.set_visible(False)
+            continue
+        sns.heatmap(
+            pivot,
+            annot=True,
+            fmt=".3f",
+            cmap="YlOrRd",
+            vmin=0,
+            vmax=1,
+            ax=ax,
+            linewidths=0.5,
+            cbar_kws={"shrink": 0.8},
+        )
+        ax.set_title(label, fontsize=10)
+        ax.set_xlabel("Sparse Model")
+        ax.set_ylabel("Dense Model")
+        ax.tick_params(axis="x", rotation=30)
+        ax.tick_params(axis="y", rotation=0)
+
+    fig.suptitle(f"Dense × Sparse 조합별 상호작용 ({metric})", fontsize=13, y=1.03)
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# 5-H4. Tradeoff Bubble Chart — 레이턴시 × 품질 × 비용
+# ---------------------------------------------------------------------------
+
+
+def plot_tradeoff_bubble(
+    latency_df: pd.DataFrame,
+    ragas_df: pd.DataFrame,
+    run_record: Optional[dict] = None,
+    metric: Optional[str] = None,
+) -> None:
+    """레이턴시 × 품질 × 비용 3차원 버블 차트.
+
+    x=레이턴시, y=품질, 버블 크기=인덱싱 비용(토큰),
+    색상=레이어 구성(Baseline/Reranker/Contextual/Both).
+    파레토 프론티어(점선)도 함께 표시한다.
+
+    Args:
+        latency_df: 'strategy', 'avg_latency' 컬럼 필요.
+        ragas_df: 'strategy' + RAGAS 메트릭 컬럼 필요.
+        run_record: run_history dict. 토큰 비용 추출에 사용 (없으면 균일 크기).
+        metric: 품질 메트릭. None이면 자동 선택.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("plotly가 필요합니다: pip install plotly")
+        return
+
+    if latency_df is None or ragas_df is None:
+        print("latency_df와 ragas_df가 모두 필요합니다.")
+        return
+
+    lat_df = latency_df.copy()
+    if "avg_latency" not in lat_df.columns and "avg_latency_ms" in lat_df.columns:
+        lat_df["avg_latency"] = lat_df["avg_latency_ms"] / 1000
+
+    numeric_cols = [
+        c for c in ragas_df.columns
+        if c != "strategy" and pd.api.types.is_numeric_dtype(ragas_df[c])
+    ]
+    if not numeric_cols:
+        print("수치 메트릭 컬럼이 없습니다.")
+        return
+
+    if metric is None:
+        weighted = [c for c in numeric_cols if c.startswith("weighted_")]
+        metric = weighted[0] if weighted else numeric_cols[0]
+
+    if metric not in ragas_df.columns:
+        print(f"메트릭 '{metric}'이 없습니다.")
+        return
+
+    merged = lat_df.merge(ragas_df[["strategy", metric]], on="strategy", how="inner")
+    if merged.empty:
+        print("레이턴시-품질 매칭 데이터가 없습니다.")
+        return
+
+    # run_record에서 전략별 인덱싱 비용 추출
+    cost_map: Dict[str, float] = {}
+    if run_record:
+        for st in run_record.get("strategy_timings", []):
+            lbl = st.get("label", "")
+            idx_tok = st.get("indexing_tokens") or {}
+            cost_map[lbl] = float(idx_tok.get("total_cost_usd", 0.0) or 0.0)
+
+    def _get_cost(name: str) -> float:
+        # label 부분 매칭
+        for lbl, cost in cost_map.items():
+            if lbl and (lbl in name or name in lbl):
+                return cost
+        return 0.0
+
+    merged["cost"] = merged["strategy"].apply(_get_cost)
+    max_cost = merged["cost"].max()
+    merged["bubble_size"] = (
+        (merged["cost"] / max_cost * 28 + 10) if max_cost > 0 else 18
+    ).clip(10, 38)
+
+    # 레이어 구성으로 색상 분류
+    _COLOR_MAP = {
+        "Baseline":               "#3498db",
+        "+ Reranker":             "#e74c3c",
+        "+ Contextual":           "#e67e22",
+        "Reranker + Contextual":  "#9b59b6",
+    }
+
+    def _group(name: str) -> str:
+        has_ctx = "Contextual" in name
+        has_rerank = "FlashRank" in name or "ColBERT" in name
+        if has_ctx and has_rerank:
+            return "Reranker + Contextual"
+        if has_ctx:
+            return "+ Contextual"
+        if has_rerank:
+            return "+ Reranker"
+        return "Baseline"
+
+    merged["group"] = merged["strategy"].apply(_group)
+
+    fig = go.Figure()
+
+    for group_name, color in _COLOR_MAP.items():
+        gdf = merged[merged["group"] == group_name]
+        if gdf.empty:
+            continue
+        hover = [
+            f"<b>{r['strategy']}</b><br>"
+            f"레이턴시: {r['avg_latency']:.3f}s<br>"
+            f"{metric}: {r[metric]:.3f}<br>"
+            f"인덱싱 비용: ${r['cost']:.4f}"
+            for _, r in gdf.iterrows()
+        ]
+        fig.add_trace(go.Scatter(
+            x=gdf["avg_latency"],
+            y=gdf[metric],
+            mode="markers",
+            name=group_name,
+            hovertext=hover,
+            hoverinfo="text",
+            marker=dict(
+                size=gdf["bubble_size"],
+                color=color,
+                opacity=0.78,
+                line=dict(color="white", width=1),
+            ),
+        ))
+
+    # 파레토 프론티어
+    if len(merged) > 1:
+        pareto = _compute_pareto_front(
+            merged[["avg_latency", metric]].values,
+            minimize_x=True, maximize_y=True,
+        )
+        if len(pareto) > 1:
+            ps = pareto[pareto[:, 0].argsort()]
+            fig.add_trace(go.Scatter(
+                x=ps[:, 0], y=ps[:, 1],
+                mode="lines",
+                line=dict(color="gray", dash="dot", width=1.5),
+                name="파레토 프론티어",
+            ))
+
+    cost_note = " (버블 크기 = 인덱싱 비용)" if max_cost > 0 else ""
+    fig.update_layout(
+        title=f"레이턴시 × 품질 × 비용 비교{cost_note}",
+        xaxis_title="평균 레이턴시 (s)",
+        yaxis_title=metric,
+        height=520,
+        font=dict(family="NanumGothic, sans-serif"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.show()
+
+
+# ---------------------------------------------------------------------------
 # 6. 비용 파이 차트
 # ---------------------------------------------------------------------------
 
@@ -814,6 +1241,19 @@ def display_dashboard(
 
         print("\n--- RAGAS Heatmap ---")
         plot_ragas_heatmap(ragas_df)
+
+    # 2-H1. Ablation Waterfall
+    if ragas_df is not None and not ragas_df.empty:
+        print("\n--- Ablation Waterfall ---")
+        plot_ablation_waterfall(ragas_df)
+
+        print("\n--- Layer Interaction Heatmap ---")
+        plot_layer_interaction_heatmap(ragas_df)
+
+    # 2-H4. Tradeoff Bubble Chart
+    if lat_df is not None and ragas_df is not None and not ragas_df.empty:
+        print("\n--- Tradeoff Bubble Chart ---")
+        plot_tradeoff_bubble(lat_df, ragas_df, run_record=run_record)
 
     # 3. 파레토 프론티어
     if lat_df is not None and ragas_df is not None:
