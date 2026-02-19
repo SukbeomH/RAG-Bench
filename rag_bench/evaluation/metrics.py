@@ -177,13 +177,7 @@ def create_metrics(
                 kwargs["embeddings"] = embeddings
 
         try:
-            metric = cls(**kwargs)
-            # strictness > 1은 RAGAS 내부적으로 n>1 API 호출을 요청하지만
-            # instructor 라이브러리 패치로 인해 OpenAI가 n=1만 반환함.
-            # strictness=1로 고정하여 "LLM returned 1 generations instead of 3" 경고 제거.
-            if hasattr(metric, "strictness") and metric.strictness > 1:
-                metric.strictness = 1
-            instances.append(metric)
+            instances.append(cls(**kwargs))
         except Exception:
             pass
 
