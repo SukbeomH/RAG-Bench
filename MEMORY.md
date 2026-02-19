@@ -388,23 +388,26 @@ f587073 chore: 레거시 정리 — AutoRAG 잔존 참조 현행화 + 불필요 
 - 예상 비용: ~$0.08 (gpt-4o-mini 기준).
 - CLI: `--method ragas` / `--method legacy` / `--build-kg-only` / `--reuse-kg`.
 
-### 미커밋 변경사항 (8개 파일)
-| 파일 | 변경 유형 | 카테고리 |
-|------|----------|---------|
-| `config.py` | 수정 (모델 캐시 + MPS 수정) | 인프라 |
-| `colbert.py` | 수정 (MPS 제거) | MPS 수정 |
-| `colbert_rerank.py` | 수정 (MPS 제거 + shared_model) | MPS 수정 |
-| `run_all_combos.py` | 수정 (ColBERT 싱글톤 + 메모리 해제) | MPS 수정 |
-| `prefetch_models.py` | 신규 | 인프라 |
-| `.gitignore` | 수정 | 인프라 |
-| `README.md` | 수정 (라이선스 섹션 제거) | 문서 |
-| `ragas_testset_generation_v2_research.md` | 신규 | 리서치 |
+### 커밋 (4개, 논리적 분리 완료)
+```
+cb5165c fix: MPS OOM 해결 — ColBERT CPU 강제 + 싱글톤 캐시 + 메모리 해제
+f684e28 feat: HF 모델 로컬 캐시 — 6종 모델 심링크 + prefetch 스크립트
+8460952 docs: RAGAS v2 리서치 문서 + MEMORY 세션 기록 갱신
+bf321b6 perf: 벤치마크 실행 최적화 — FlashRank 싱글톤 + Pass 결과 재사용 + LLM 병렬화 + SPLADE 배치
+```
+
+#### 5. 벤치마크 실행 최적화 (HIGH 4개)
+- **FlashRank 싱글톤**: `IndexCacheManager.get_flashrank_ranker()` — 24회 → 1회 ONNX 로드.
+- **Pass 1→2 결과 재사용**: `BenchmarkRunner.inject_results()` — 재검색 완전 제거.
+- **Answer 생성 병렬화**: `ThreadPoolExecutor(max_workers=8)` + lazy LLM 초기화.
+- **SPLADE 배치 처리**: `SpladeEncoder.embed_documents()` batch_size=32.
+- **검증**: `--preset quick --pass1-only` 4전략 × 20쿼리 = 80회 성공, MPS OOM 없음.
 
 ### 다음 작업
-1. **미커밋 변경사항 커밋**: 3~4개 논리적 커밋으로 분리
-2. **72개 조합 벤치마크 재실행**: MPS OOM 수정 후 재시도
-3. **QA 데이터셋 고도화 구현**: RAGAS v2 방식 `--method ragas` 구현 (리서치 완료)
-4. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
+1. **72개 조합 풀 벤치마크 재실행**: `--preset full --top_n 10 --layers`
+2. **QA 데이터셋 고도화 구현**: RAGAS v2 방식 `--method ragas` 구현 (리서치 완료)
+3. **evaluation 메트릭 확장**: Extended 메트릭 + per-sample 점수
+4. **MEDIUM 최적화** (선택): cleanup 인덱스 보존, 전략 실행 병렬화 등
 5. **벤치마크 시각화 갱신**: bench_visualize.ipynb 업데이트
 
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
