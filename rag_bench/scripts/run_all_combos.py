@@ -137,6 +137,7 @@ class IndexCacheManager:
     """동일 (dense, sparse) 쌍은 같은 Qdrant 인덱스를 재사용."""
 
     cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
+    ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
 
     def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
         """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드."""
@@ -146,13 +147,8 @@ class IndexCacheManager:
         qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{spec.dense}_{spec.sparse}")
 
         if key in self.cache and not reindex:
-            _, cached_path = self.cache[key]
-            strategy = DenseSparseStrategy(
-                dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=cached_path
-            )
-            strategy._ensure_initialized()
-            strategy._is_ready = True
-            return strategy
+            cached_strategy, _ = self.cache[key]
+            return cached_strategy
         else:
             strategy = DenseSparseStrategy(
                 dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=qdrant_path
@@ -160,6 +156,31 @@ class IndexCacheManager:
             strategy.index(child_chunks)
             self.cache[key] = (strategy, qdrant_path)
             return strategy
+
+    def get_or_build_contextual(self, spec: ComboSpec, child_chunks, parent_pairs, reindex=False):
+        """contextual 전략을 캐시에서 가져오거나 새로 빌드."""
+        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
+
+        key = f"ctx:{spec.index_key}"
+
+        if key in self.ctx_cache and not reindex:
+            return self.ctx_cache[key]
+
+        ctx_qdrant_path = str(
+            BENCH_DATA_DIR / f"qdrant_db_ctx_{spec.dense}_{spec.sparse}"
+        )
+        ctx_base = DenseSparseStrategy(
+            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=ctx_qdrant_path
+        )
+        strategy = ContextualRetrievalStrategy(
+            base_strategy=ctx_base,
+            parent_pairs=parent_pairs,
+            llm_model="gpt-4o-mini",
+        )
+        strategy.index(child_chunks)
+        self.ctx_cache[key] = strategy
+        return strategy
 
 
 # ===========================================================================
@@ -178,25 +199,9 @@ def build_strategy_from_spec(
     # 1. Base: DenseSparse (인덱스 캐시 활용)
     base = index_cache.get_or_build(spec, child_chunks, reindex=reindex)
 
-    # 2. LLM Support 적용 (인덱싱 전 전처리이므로 먼저)
+    # 2. LLM Support 적용 (contextual 캐시 활용)
     if spec.llm_support == "contextual":
-        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-
-        ctx_qdrant_path = str(
-            BENCH_DATA_DIR / f"qdrant_db_ctx_{spec.dense}_{spec.sparse}"
-        )
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-        ctx_base = DenseSparseStrategy(
-            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=ctx_qdrant_path
-        )
-        strategy = ContextualRetrievalStrategy(
-            base_strategy=ctx_base,
-            parent_pairs=parent_pairs,
-            llm_model="gpt-4o-mini",
-        )
-        strategy.index(child_chunks)
-        base = strategy
+        base = index_cache.get_or_build_contextual(spec, child_chunks, parent_pairs, reindex)
 
     # 3. Reranker 적용 (Decorator)
     if spec.reranker == "colbert":
