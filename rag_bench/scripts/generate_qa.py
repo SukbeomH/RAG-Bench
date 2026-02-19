@@ -154,11 +154,13 @@ def _generate_qa_ragas(
     query_dist: str = "balanced",
 ) -> Optional[List[dict]]:
     """RAGAS KnowledgeGraph + TestsetGenerator로 QA 생성."""
+    import os
+
     import httpx
-    from langchain_core.documents import Document as LCDocument
-    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-    from ragas.llms import LangchainLLMWrapper
+    from langchain_openai import OpenAIEmbeddings
+    from openai import AsyncOpenAI
     from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import llm_factory
     from ragas.testset import TestsetGenerator
     from ragas.testset.graph import KnowledgeGraph
     from ragas.testset.transforms import default_transforms, apply_transforms
@@ -168,21 +170,18 @@ def _generate_qa_ragas(
         MultiHopSpecificQuerySynthesizer,
     )
 
-    # 1. LLM/Embedding 초기화 (SSL bypass)
+    # 1. LLM/Embedding 초기화 (SSL bypass, llm_factory 네이티브)
     print("  [RAGAS] LLM/Embedding 초기화...")
-    http_client = httpx.Client(verify=False)
     async_client = httpx.AsyncClient(verify=False)
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        http_client=http_client,
-        http_async_client=async_client,
+    openai_client = AsyncOpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        http_client=async_client,
     )
-    embeddings = OpenAIEmbeddings(
-        http_client=http_client,
-        http_async_client=async_client,
-    )
-    ragas_llm = LangchainLLMWrapper(llm)
+    ragas_llm = llm_factory(model="gpt-4o-mini", client=openai_client)
+
+    sync_http_client = httpx.Client(verify=False)
+    embeddings = OpenAIEmbeddings(http_client=sync_http_client)
     ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
 
     # 2. LangChain 문서 준비
