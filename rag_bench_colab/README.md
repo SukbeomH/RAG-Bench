@@ -1,6 +1,6 @@
 # RAG Bench Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/autorag/blob/main/rag_bench_colab/rag_benchmark.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/RAG-Bench/blob/main/rag_bench_colab/rag_benchmark.ipynb)
 
 Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 
@@ -30,8 +30,28 @@ runner = ColabBenchmarkRunner(
     device=None,              # cuda | cpu | None (자동 감지)
     parallel_queries=0,       # 쿼리 병렬화 (0=비활성, T4에서 4~8 권장)
     reindex=False,            # True: 기존 인덱스 삭제 후 재구축
+    metric_preset="core_only",    # core_only (4) | comprehensive (7) | full (11+) | reference_free
+    scoring_profile="balanced",   # balanced | precision_critical | speed_critical | comprehensive
 )
 ```
+
+### 메트릭 프리셋
+
+| 프리셋 | 메트릭 수 | 설명 |
+|--------|----------|------|
+| `core_only` | 4 | faithfulness, answer_relevancy, context_precision, llm_context_recall |
+| `comprehensive` | 7 | Core 4 + factual_correctness, context_entity_recall, response_relevancy |
+| `full` | 11+ | 모든 RAGAS v0.4+ 메트릭 (lightweight 포함) |
+| `reference_free` | 2~3 | ground truth 불필요한 메트릭만 |
+
+### 스코어링 프로파일
+
+| 프로파일 | 설명 |
+|---------|------|
+| `balanced` | 4대 Core 메트릭 균등 가중 (각 25%) |
+| `precision_critical` | 정확성 중심 (faithfulness 40%, context_precision 30%) |
+| `speed_critical` | 핵심 2개만 (answer_relevancy 50%, faithfulness 50%) |
+| `comprehensive` | 7개 메트릭 고르게 분산 |
 
 ## 디렉토리 구조
 

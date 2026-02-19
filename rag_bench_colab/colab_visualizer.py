@@ -381,6 +381,67 @@ def display_styled_table(df: pd.DataFrame) -> None:
         print(df.to_string(index=False))
 
 
+def display_weighted_scores(
+    reports: dict,
+    scoring_profile: str = "balanced",
+) -> Optional[pd.DataFrame]:
+    """EvaluationReport의 가중 점수를 프로파일별로 표시.
+
+    Args:
+        reports: {strategy_name: EvaluationReport} dict.
+        scoring_profile: 하이라이트할 프로파일.
+
+    Returns:
+        가중 점수 DataFrame.
+    """
+    if not reports:
+        print("EvaluationReport가 없습니다.")
+        return None
+
+    try:
+        from rag_bench.evaluation.evaluator import SCORING_PROFILES
+    except ImportError:
+        print("rag_bench.evaluation.evaluator를 import할 수 없습니다.")
+        return None
+
+    profile_names = list(SCORING_PROFILES.keys())
+    rows = []
+    for name, report in reports.items():
+        ws = report.weighted_score
+        row = {"strategy": name}
+        for p in profile_names:
+            row[p] = ws.get(p, 0.0)
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # scoring_profile 기준 내림차순 정렬
+    if scoring_profile in df.columns:
+        df = df.sort_values(scoring_profile, ascending=False).reset_index(drop=True)
+        df.index = df.index + 1
+        df.index.name = "rank"
+
+    try:
+        from IPython.display import display
+
+        def _highlight_best(s):
+            if s.name in profile_names:
+                is_best = s == s.max()
+                return ["background-color: #d4edda; font-weight: bold" if v else "" for v in is_best]
+            return [""] * len(s)
+
+        styled = df.style.apply(_highlight_best).format(
+            {c: "{:.4f}" for c in profile_names}
+        )
+        display(styled)
+    except ImportError:
+        print(df.to_string())
+
+    return df
+
+
 # ---------------------------------------------------------------------------
 # 8. 수행 이력 — 플랫폼 정보 카드
 # ---------------------------------------------------------------------------
@@ -697,6 +758,8 @@ def display_dashboard(
     combos: Optional[list] = None,
     cost_data: Optional[Dict[str, float]] = None,
     run_record: Optional[dict] = None,
+    reports: Optional[dict] = None,
+    scoring_profile: str = "balanced",
 ) -> None:
     """전체 시각화 대시보드 (위 함수들 통합 호출).
 
@@ -706,6 +769,8 @@ def display_dashboard(
         combos: ComboSpec 목록.
         cost_data: 비용 데이터.
         run_record: 수행 이력 JSON dict (run_history/*.json).
+        reports: {strategy_name: EvaluationReport} dict (가중 점수용).
+        scoring_profile: 하이라이트할 스코어링 프로파일.
     """
     print("=" * 60)
     print(" RAG Benchmark Dashboard")
@@ -757,7 +822,12 @@ def display_dashboard(
         print("\n--- Cost Breakdown ---")
         plot_cost_breakdown(cost_data)
 
-    # 6. 리더보드
+    # 6. Weighted Scores
+    if reports:
+        print("\n--- Weighted Scores ---")
+        display_weighted_scores(reports, scoring_profile=scoring_profile)
+
+    # 7. 리더보드
     print("\n--- Leaderboard ---")
     summary = create_summary_table(lat_df, ragas_df)
     if not summary.empty:
