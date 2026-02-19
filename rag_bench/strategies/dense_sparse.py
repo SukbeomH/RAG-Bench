@@ -283,8 +283,8 @@ class DenseSparseStrategy(BaseRAGStrategy):
             combo = COMBO_DEFINITIONS[combo_id]
             self._dense_model = combo["dense_model"]
             self._sparse_type = combo["sparse_type"]
-            self._combo_id = combo_id
-            self._combo = combo
+            self._combo_id: Optional[int] = combo_id
+            self._combo: Optional[dict] = combo
         elif dense_model is not None:
             self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
             self._sparse_type = sparse_type or "fastembed_bm25"
@@ -311,7 +311,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     @property
     def name(self) -> str:
-        if self._combo_id:
+        if self._combo_id and self._combo:
             return f"[{self._combo_id}] {self._combo['name']}"
         dense_short = self._dense_model.split("/")[-1]
         return f"DS({dense_short}+{self._sparse_type})"

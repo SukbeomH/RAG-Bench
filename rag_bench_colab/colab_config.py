@@ -91,7 +91,8 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
     else:
         info["drive_mounted"] = False
 
-    # 2. API Key 로드 (Colab Secrets → 환경변수)
+    # 2. API Key 로드 (Colab Secrets 우선 → dotenv 폴백)
+    # Step 1: Colab Secrets에서 시도
     if is_colab():
         try:
             from google.colab import userdata
@@ -101,14 +102,31 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
                 os.environ["OPENAI_API_KEY"] = api_key
                 info["api_key_loaded"] = True
                 print("[API Key] Colab Secrets에서 OPENAI_API_KEY 로드 완료")
-            else:
-                info["api_key_loaded"] = False
-                print("[Warning] OPENAI_API_KEY가 Colab Secrets에 설정되지 않았습니다")
         except Exception:
-            info["api_key_loaded"] = False
-            print("[Warning] Colab Secrets 접근 실패. 수동으로 API Key를 설정하세요.")
-    else:
-        info["api_key_loaded"] = "OPENAI_API_KEY" in os.environ
+            print("[API Key] Colab Secrets 접근 실패. .env 파일로 폴백합니다.")
+
+    # Step 2: 아직 키가 없으면 dotenv에서 시도 (로컬 + Colab 공통 폴백)
+    if "OPENAI_API_KEY" not in os.environ:
+        try:
+            from dotenv import load_dotenv
+
+            # 프로젝트 루트 → rag_bench_colab/ → 현재 디렉토리 순서로 탐색
+            _candidates = [
+                COLAB_PROJECT_ROOT / ".env",
+                Path(__file__).parent.parent / ".env",
+                Path(".env"),
+            ]
+            for _env_path in _candidates:
+                if _env_path.exists():
+                    load_dotenv(_env_path, override=False)
+                    print(f"[API Key] .env 로드: {_env_path}")
+                    break
+        except ImportError:
+            pass  # python-dotenv 미설치 시 무시
+
+    info["api_key_loaded"] = "OPENAI_API_KEY" in os.environ
+    if not info["api_key_loaded"]:
+        print("[Warning] OPENAI_API_KEY가 설정되지 않았습니다. Colab Secrets 또는 .env 파일을 확인하세요.")
 
     # 3. HF_HOME 설정 (Drive 사용 시 영속 캐시)
     if info["drive_mounted"]:
@@ -133,7 +151,7 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     warnings.filterwarnings("ignore")
 
-    print(f"\n[Setup] 환경 설정 완료:")
+    print("\n[Setup] 환경 설정 완료:")
     for k, v in info.items():
         print(f"  {k}: {v}")
 
@@ -166,8 +184,6 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     cfg.ensure_model_cache = lambda: None
 
     # SSL bypass는 Colab에서 불필요하지만 호환성 유지
-    original_ssl_bypass = cfg.setup_ssl_bypass
-
     def _colab_ssl_bypass():
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -184,7 +200,7 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     except ImportError:
         pass  # 아직 로드되지 않았으면 무시 (이후 import 시 cfg 값 사용)
 
-    print(f"[Patch] rag_bench.config 패치 완료:")
+    print("[Patch] rag_bench.config 패치 완료:")
     print(f"  BENCH_DOCS_DIR → {cfg.BENCH_DOCS_DIR}")
     print(f"  BENCH_DATA_DIR → {cfg.BENCH_DATA_DIR}")
     print(f"  MODELS_DIR     → {cfg.MODELS_DIR}")
@@ -278,7 +294,7 @@ def patch_dense_device(device: str = "cuda") -> None:
             self._embedding_dim = len(test_vec)
         print(f"  Dense: {model_spec} ({self._embedding_dim}d, device={device})")
 
-    DenseSparseStrategy._init_dense = _patched_init_dense
+    DenseSparseStrategy._init_dense = _patched_init_dense  # type: ignore[method-assign]
     print(f"[Patch] DenseSparseStrategy._init_dense → device='{device}', trust_remote_code=True")
 
 
@@ -329,7 +345,7 @@ def patch_qdrant_memory_mode() -> None:
         else:
             original_init_qdrant(self)
 
-    DenseSparseStrategy._init_qdrant = _patched_init_qdrant
+    DenseSparseStrategy._init_qdrant = _patched_init_qdrant  # type: ignore[method-assign]
     print("[Patch] DenseSparseStrategy._init_qdrant → ':memory:' 모드 지원")
 
 
@@ -338,7 +354,7 @@ def patch_qdrant_memory_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_cache_config(device: str = "cuda") -> "CacheConfig":
+def get_cache_config(device: str = "cuda"):
     """Colab 환경에 맞는 CacheConfig를 반환한다.
 
     Args:

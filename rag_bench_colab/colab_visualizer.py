@@ -156,6 +156,15 @@ def plot_latency_vs_quality(
         print("plotly가 필요합니다: pip install plotly")
         return
 
+    # quality_metric이 없으면 사용 가능한 수치 컬럼 자동 선택
+    available_cols = [c for c in ragas_df.columns if c != "strategy" and pd.api.types.is_numeric_dtype(ragas_df[c])]
+    if quality_metric not in ragas_df.columns:
+        if not available_cols:
+            print("RAGAS DataFrame에 수치 메트릭 컬럼이 없습니다.")
+            return
+        quality_metric = available_cols[0]
+        print(f"[Info] quality_metric → '{quality_metric}' (자동 선택)")
+
     merged = lat_df.merge(ragas_df[["strategy", quality_metric]], on="strategy", how="inner")
 
     if merged.empty:
@@ -267,7 +276,7 @@ def plot_layer_contribution(
     fig, axes = plt.subplots(1, len(layers), figsize=(16, 5))
 
     for ax, (layer_name, get_val) in zip(axes, layers.items()):
-        groups = {}
+        groups: Dict[str, List[float]] = {}
         for spec in specs:
             val = get_val(spec)
             strategy_name = spec.label
@@ -278,7 +287,7 @@ def plot_layer_contribution(
 
         if groups:
             labels = sorted(groups.keys())
-            data = [groups[l] for l in labels]
+            data = [groups[lbl] for lbl in labels]
             bp = ax.boxplot(data, labels=labels, patch_artist=True)
             for patch, color in zip(bp["boxes"], plt.cm.Set2(np.linspace(0, 1, len(labels)))):
                 patch.set_facecolor(color)
@@ -351,6 +360,7 @@ def create_summary_table(
     elif ragas_df is not None:
         merged = ragas_df.copy()
     else:
+        assert lat_df is not None
         merged = lat_df.copy()
 
     return merged

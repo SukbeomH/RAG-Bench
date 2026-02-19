@@ -126,7 +126,7 @@ class ExtendedRAGEvaluator:
         self.preset = preset
         self._evaluator_llm = None
         self._embeddings = embeddings
-        self._metrics = None
+        self._metrics: Optional[List[Any]] = None
         self.cost_tracker = CostTracker()
 
     def _ensure_initialized(self, has_reference: bool = True):
@@ -185,7 +185,7 @@ class ExtendedRAGEvaluator:
                 "response": answers[i],
                 "retrieved_contexts": contexts[i],
             }
-            if has_reference:
+            if has_reference and ground_truths is not None:
                 kwargs["reference"] = ground_truths[i]
             samples.append(SingleTurnSample(**kwargs))
 

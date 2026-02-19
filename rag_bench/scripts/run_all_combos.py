@@ -58,15 +58,27 @@ ALL_COMBO_IDS = [1, 2, 3, 4]
 
 @dataclass
 class ComboSpec:
-    """3-Layer 조합 명세."""
+    """3-Layer 조합 명세.
 
-    dense: str                        # DENSE_MODELS 키 (예: "kosimcse")
-    sparse: str                       # SPARSE_TYPES 값 (예: "splade")
+    graphrag=True 이면 dense/sparse/reranker/llm_support 는 무시되고
+    GraphRAGStrategy가 단독으로 사용된다.
+    """
+
+    dense: str = ""                   # DENSE_MODELS 키 (예: "kosimcse")
+    sparse: str = ""                  # SPARSE_TYPES 값 (예: "splade")
     reranker: Optional[str] = None    # None | "colbert" | "flashrank"
     llm_support: Optional[str] = None # None | "contextual"
+    graphrag: bool = False            # True → GraphRAGStrategy 사용
+
+    @classmethod
+    def for_graphrag(cls) -> "ComboSpec":
+        """GraphRAG 전용 ComboSpec 생성 헬퍼."""
+        return cls(graphrag=True)
 
     @property
     def label(self) -> str:
+        if self.graphrag:
+            return "graphrag"
         parts = [self.dense, self.sparse]
         if self.reranker:
             parts.append(self.reranker)
@@ -76,6 +88,8 @@ class ComboSpec:
 
     @property
     def retrieval_mode(self) -> str:
+        if self.graphrag:
+            return "graph"
         mode = "hybrid"
         suffixes = []
         if self.reranker:
@@ -89,6 +103,8 @@ class ComboSpec:
     @property
     def index_key(self) -> str:
         """인덱스 캐싱 키. (dense, sparse) 쌍으로 결정."""
+        if self.graphrag:
+            return "graphrag"
         return f"{self.dense}:{self.sparse}"
 
 
@@ -118,14 +134,24 @@ PRESETS: Dict[str, Dict[str, list]] = {
 }
 
 
-def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
-    """3-Layer 카테시안 곱으로 유효 조합 생성."""
+def generate_valid_combinations(
+    config: Dict[str, list],
+    include_graphrag: bool = False,
+) -> List[ComboSpec]:
+    """3-Layer 카테시안 곱으로 유효 조합 생성.
+
+    Args:
+        config: PRESETS 딕셔너리 항목.
+        include_graphrag: True 이면 마지막에 GraphRAG ComboSpec 추가.
+    """
     combos = []
     for d in config["dense_models"]:
         for s in config["sparse_models"]:
             for r in config["rerankers"]:
-                for l in config["llm_support"]:
-                    combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=l))
+                for llm_sup in config["llm_support"]:
+                    combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=llm_sup))
+    if include_graphrag:
+        combos.append(ComboSpec.for_graphrag())
     return combos
 
 
@@ -258,6 +284,20 @@ def build_strategy_from_spec(
     reindex: bool = False,
 ):
     """ComboSpec에서 전략 인스턴스 생성."""
+    # GraphRAG 분기: DenseSparse 파이프라인과 독립적으로 처리
+    if spec.graphrag:
+        from rag_bench.strategies.graph_rag import GraphRAGStrategy
+
+        strategy = GraphRAGStrategy(
+            mode="hybrid",
+            working_dir=str(BENCH_DATA_DIR / "lightrag_graphrag"),
+            llm_model="gpt-4.1-nano",
+            top_k=60,
+        )
+        parent_docs = [doc for _, doc in parent_pairs]
+        strategy.index(parent_docs)
+        return strategy
+
     # 1. Base: DenseSparse (인덱스 캐시 활용)
     base = index_cache.get_or_build(spec, child_chunks, reindex=reindex)
 
@@ -271,26 +311,24 @@ def build_strategy_from_spec(
         from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
 
         shared = index_cache.get_colbert_model()
-        strategy = ColBERTRerankStrategy(
+        return ColBERTRerankStrategy(
             base_strategy=base,
             model_name=cfg.colbert_model,
             rerank_n=cfg.rerank_n,
             device=cfg.colbert_device,
             shared_model=shared,
         )
-        return strategy
     elif spec.reranker == "flashrank":
         from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
 
         shared = index_cache.get_flashrank_ranker()
-        strategy = FlashRankRerankStrategy(
+        return FlashRankRerankStrategy(
             base_strategy=base,
             model_name=cfg.flashrank_model,
             rerank_n=cfg.rerank_n,
             max_length=cfg.flashrank_max_length,
             shared_ranker=shared,
         )
-        return strategy
 
     return base
 
@@ -318,24 +356,24 @@ def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str, rei
     strategy = DenseSparseStrategy(combo_id=combo_id, qdrant_path=qdrant_path)
 
     if reindex:
-        print(f"  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
+        print("  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
         strategy.index(child_chunks)
     else:
         qdrant_dir = Path(qdrant_path)
         if not qdrant_dir.exists() or not any(qdrant_dir.iterdir()):
-            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
             strategy.index(child_chunks)
         else:
-            print(f"  [기존 로드] 임베딩 모델 로드 중...")
+            print("  [기존 로드] 임베딩 모델 로드 중...")
             strategy._ensure_initialized()
-            print(f"  [기존 로드] Qdrant 컬렉션 연결 완료")
+            print("  [기존 로드] Qdrant 컬렉션 연결 완료")
             from rag_bench.strategies.dense_sparse import KoreanBM25Encoder
             if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
-                print(f"  [기존 로드] BM25 어휘 구축 중...")
+                print("  [기존 로드] BM25 어휘 구축 중...")
                 texts = [doc.page_content for doc in child_chunks]
                 strategy._sparse_embeddings.fit(texts)
             strategy._is_ready = True
-            print(f"  [기존 로드] 준비 완료")
+            print("  [기존 로드] 준비 완료")
     return strategy, None
 
 
@@ -407,18 +445,18 @@ def _try_build_graphrag(parent_docs, reindex=True):
     )
 
     if reindex:
-        print(f"  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
+        print("  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
         strategy.index(parent_docs)
     else:
         wd = Path(working_dir)
         if not wd.exists() or not any(wd.iterdir()):
-            print(f"  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
+            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
             strategy.index(parent_docs)
         else:
-            print(f"  [기존 로드] LightRAG 그래프 로드 중...")
+            print("  [기존 로드] LightRAG 그래프 로드 중...")
             strategy._ensure_initialized()
             strategy._is_ready = True
-            print(f"  [기존 로드] 그래프 로드 완료")
+            print("  [기존 로드] 그래프 로드 완료")
     return strategy, None
 
 
@@ -845,7 +883,6 @@ def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
 
 def _build_latency_summary(latency_df):
     """쿼리별 raw DataFrame → 전략별 요약 DataFrame (avg_latency 등)."""
-    import pandas as pd
 
     valid = latency_df[latency_df["error"].isna()].copy()
     if valid.empty:
@@ -961,8 +998,8 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
         pf = rec.platform_info
         lines.append("## 실행 환경")
         lines.append("")
-        lines.append(f"| 항목 | 값 |")
-        lines.append(f"|------|-----|")
+        lines.append("| 항목 | 값 |")
+        lines.append("|------|-----|")
         lines.append(f"| Run ID | {rec.run_id} |")
         lines.append(f"| Preset | {rec.preset} |")
         lines.append(f"| Platform | {pf.get('os', '')} {pf.get('os_release', '')} |")
@@ -994,8 +1031,8 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
         if tt.total_tokens > 0:
             lines.append("## 토큰 사용량")
             lines.append("")
-            lines.append(f"| 항목 | 값 |")
-            lines.append(f"|------|-----|")
+            lines.append("| 항목 | 값 |")
+            lines.append("|------|-----|")
             lines.append(f"| Total Tokens | {tt.total_tokens:,} |")
             lines.append(f"| Prompt | {tt.prompt_tokens:,} |")
             lines.append(f"| Completion | {tt.completion_tokens:,} |")
