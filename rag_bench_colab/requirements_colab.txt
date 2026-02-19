@@ -1,0 +1,45 @@
+# rag_bench_colab — Colab 전용 의존성
+# pyproject.toml 기반, Colab 불필요 패키지 제외 + 시각화 추가
+
+# --- LangChain ---
+langchain>=1.0
+langchain-community>=0.3
+langchain-core>=0.3
+langchain-huggingface>=0.1
+langchain-openai>=0.2
+langchain-qdrant>=0.2
+langchain-text-splitters>=0.3
+langgraph>=0.2
+
+# --- Vector DB ---
+qdrant-client>=1.11
+
+# --- NLP ---
+konlpy>=0.6.0
+fastembed>=0.4
+
+# --- ML ---
+pylate>=1.0
+sentence-transformers>=3.1
+transformers>=4.40
+torch>=2.2
+flashrank>=0.2
+einops>=0.8.2
+
+# --- RAG ---
+lightrag-hku>=1.0
+nest-asyncio>=1.6
+
+# --- Evaluation ---
+ragas>=0.4.3
+
+# --- Utils ---
+python-dotenv>=1.0
+pandas>=2.2
+httpx
+
+# --- Visualization (Colab 추가) ---
+matplotlib>=3.10
+plotly>=5.18
+seaborn>=0.13
+kaleido>=0.2

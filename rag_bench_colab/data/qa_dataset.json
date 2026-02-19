@@ -1,0 +1,126 @@
+{
+  "docs_hash": "a815b521473ca3bc",
+  "num_qa": 20,
+  "qa_pairs": [
+    {
+      "question": "주어진 데이터에서 가장 큰 숫자는 무엇인가요?",
+      "ground_truth": "주어진 데이터에서 가장 큰 숫자는 1.414.819입니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_5",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "엔비디아의 NVLink Fusion 전략은 무엇을 목표로 하고 있나요?",
+      "ground_truth": "엔비디아의 NVLink Fusion 전략은 경쟁사마저 생태계로 끌어들이고, NVLink를 AI 인프라의 핵심 스케일업 표준으로 만들어 미래 AI 데이터센터의 신경망을 장악하려는 목표를 가지고 있습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_21",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "AI DC가 전력망에 대한 의존도를 낮추기 위해 지향하는 방식은 무엇인가요?",
+      "ground_truth": "AI DC는 독립형(Off-grid) 방식으로 전력망에 대한 의존도를 낮추고, 자체적인 현장 발전을 지향하고 있습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_12",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "OpenAI의 GPT-6가 목표로 하는 세 가지 핵심 축은 무엇인가요?",
+      "ground_truth": "OpenAI의 GPT-6는 기억, 개인화, 지속성을 목표로 하고 있습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_3",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "IgniteTech의 CEO 에릭 보건은 기존 인력을 어떻게 변화시키기로 결정했나요?",
+      "ground_truth": "에릭 보건은 기존 인력의 80%를 교체하고 그 빈자리를 AI-Native 역량을 갖춘 인력으로 대체하기로 결정했습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_1",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "메타가 AI 엔지니어를 영입하기 위해 어떤 방식으로 접근했는가?",
+      "ground_truth": "메타의 주커버그 CEO는 직접 전화하고 식사 대접을 하며 AI 엔지니어와 연구원을 데려왔습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_9",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "중국 AI 시장에서 DeepSeek의 주요 성과는 무엇인가요?",
+      "ground_truth": "DeepSeek R1은 2025년 1월에 출시되어 당시 최고의 모델 OpenAI o1과 추론능력 면에서 대등한 성능을 보였고, 이는 중국이 AI 기술의 최전선에 도달했음을 의미합니다. 또한 DeepSeek 앱은 R1 모델 출시 후 앱스토어 1위를 기록했습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_17",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "일론 머스크가 작성한 X 게시물의 주요 테마는 무엇인가요?",
+      "ground_truth": "올해 1~8월 기준으로 정치가 주요 테마였지만, 하반기부터 AI/Grok/xAI에 대한 관심이 증가하고 있습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_7",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "팔란티어는 저렴해진 AI 모델을 어떻게 활용하고 있나요?",
+      "ground_truth": "팔란티어는 저렴해진 AI 모델을 직접 만들지 않고, 기업의 모든 데이터를 현실 세계의 실제 개념에 맞게 연결한 디지털 청사진을 구축합니다. 그리고 전용 AI 활용 플랫폼을 통해 외부의 AI 모델들을 그 청사진에 연결하여 활용합니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_25",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "AI 발전의 속도가 인간의 연구 역량에 비해 얼마나 빠르게 증가하고 있습니까?",
+      "ground_truth": "AI 시스템의 총체적인 지능력은 매년 약 25배 이상 증가하고 있으며, 1년의 AI 연구가 2년 후 625년의 인간 연구성과와 동일하다고 합니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_0",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "앤스로픽의 최신 AI 모델 '클로드 오퍼스 4.5'는 어떤 성능 향상을 이루었나요?",
+      "ground_truth": "'클로드 오퍼스 4.5'는 코딩과 에이전트, 심층 연구 분야에서 뛰어난 성능을 발휘하며, SWE-bench 벤치마크에서 80.9%의 평가 점수를 기록해 오픈AI의 최신 모델을 능가했습니다.",
+      "parent_id": "SPRi AI Brief_1월호_산업동향_0102_F_parent_1",
+      "source": "SPRi AI Brief_1월호_산업동향_0102_F.pdf"
+    },
+    {
+      "question": "트럼프 미국 대통령이 서명한 행정명령의 이름은 무엇인가요?",
+      "ground_truth": "트럼프 미국 대통령이 서명한 행정명령의 이름은 '제네시스 미션'입니다.",
+      "parent_id": "SPRi AI Brief_1월호_산업동향_0102_F_parent_0",
+      "source": "SPRi AI Brief_1월호_산업동향_0102_F.pdf"
+    },
+    {
+      "question": "앤스로픽의 연구 결과, LLM이 보상 해킹을 학습했을 때 나타나는 오정렬 현상은 무엇인가?",
+      "ground_truth": "LLM이 보상 해킹을 학습한 경우, 사용자를 기만하거나 AI 안전 연구를 방해하는 등의 심각한 오정렬 행동을 나타낼 수 있다는 연구 결과가 발표되었다.",
+      "parent_id": "SPRi AI Brief_1월호_산업동향_0102_F_parent_3",
+      "source": "SPRi AI Brief_1월호_산업동향_0102_F.pdf"
+    },
+    {
+      "question": "2023~2024년 한국의 AI 순위는 어떻게 되나요?",
+      "ground_truth": "2023~2024년 한국의 AI 순위는 6위입니다.",
+      "parent_id": "SPRi AI Brief_1월호_산업동향_0102_F_parent_2",
+      "source": "SPRi AI Brief_1월호_산업동향_0102_F.pdf"
+    },
+    {
+      "question": "미국 금융기업들이 구직자의 AI 사용을 제한하는 이유는 무엇인가?",
+      "ground_truth": "미국 금융기업들은 비판적 사고 능력을 갖춘 인재를 선발하기 위해 구직자의 AI 사용을 금지하고 있으며, 이는 직원들이 AI를 활용한 업무 성과 향상을 요구하는 것과 대조되는 이중 전략의 일환이다.",
+      "parent_id": "SPRi AI Brief_1월호_산업동향_0102_F_parent_4",
+      "source": "SPRi AI Brief_1월호_산업동향_0102_F.pdf"
+    },
+    {
+      "question": "미국의 수출 규제에 대한 엔비디아의 입장은 무엇인가요?",
+      "ground_truth": "엔비디아는 미국의 수출 제한 조치로 인해 향후 매출 전망에서 중국 시장을 제외하겠다고 발표했습니다. 또한, 엔비디아는 H20 칩의 대중 판매를 다시 허가받았습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_14",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "Qwen3-Coder의 주요 특징은 무엇인가요?",
+      "ground_truth": "Qwen3-Coder는 4,800억 파라미터를 가진 코딩 전문 모델로, 버그 수정, 기능 추가, 리팩토링 등의 실제 코딩 과제에 집중하여 훈련되었습니다. 이는 경쟁 수준의 코드 생성 대신 실제 문제 해결 능력을 강조합니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_18",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "AMD의 MI350X GPU는 엔비디아의 어떤 제품에 비해 가격이 얼마나 저렴한가?",
+      "ground_truth": "AMD의 MI350X GPU는 엔비디아의 B200 HGX 대비 거의 절반인 45% 저렴하다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_20",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "테슬라의 Full Self-Driving (FSD) 소프트웨어의 채택률은 현재 몇 퍼센트인가요?",
+      "ground_truth": "FSD 소프트웨어의 채택률은 현재 10대퍼센트로 상승했습니다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_23",
+      "source": "20250910_AI 현황 보고서.pdf"
+    },
+    {
+      "question": "Colossus 2단계의 목표로 설정된 GPU 집적 수는 얼마인가?",
+      "ground_truth": "Colossus 2단계의 목표는 최종적으로 100만 개 이상의 Blackwell GPU 집적이다.",
+      "parent_id": "20250910_AI 현황 보고서_parent_10",
+      "source": "20250910_AI 현황 보고서.pdf"
+    }
+  ]
+}

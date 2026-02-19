@@ -410,6 +410,39 @@ bf321b6 perf: 벤치마크 실행 최적화 — FlashRank 싱글톤 + Pass 결�
 4. **MEDIUM 최적화** (선택): cleanup 인덱스 보존, 전략 실행 병렬화 등
 5. **벤치마크 시각화 갱신**: bench_visualize.ipynb 업데이트
 
+## 2026-02-19: Google Colab 벤치마크 환경 구축
+
+### 주요 활동
+- **`rag_bench_colab/` 디렉토리 전체 구현** (10개 파일, ~1,560줄):
+  - `colab_config.py` (368줄): Colab 환경 초기화 + rag_bench monkey-patch (경로, CUDA, Qdrant 인메모리)
+  - `colab_runner.py` (652줄): `ColabBenchmarkRunner` — 체크포인트 지원 2-Pass 벤치마크 래퍼
+  - `colab_visualizer.py` (443줄): 8개 시각화 함수 (matplotlib/plotly/seaborn)
+  - `rag_benchmark.ipynb`: 9 섹션 메인 Colab 노트북
+  - `requirements_colab.txt`: Colab 전용 의존성
+  - `data/`: QA 데이터셋 + 마크다운 문서 복사본
+  - `README.md`: Colab 뱃지, 프리셋 테이블, 사용법
+
+### 핵심 설계
+- **Monkey-patch 접근**: rag_bench 코드 수정 없이 런타임 패치로 Colab 환경 대응
+  - `patch_dense_device()`: 임베딩 모델 CPU → CUDA
+  - `patch_colbert_device()`: ColBERT 모델 CPU → CUDA
+  - `patch_qdrant_memory_mode()`: Qdrant `:memory:` 인메모리 지원
+- **체크포인트 시스템**: 전략별 JSON → Google Drive, 커널 재시작 시 완료된 전략 스킵 (12시간 세션 제한 대응)
+- **Qdrant 3모드**: ephemeral (세션 내 /content), drive (영속), memory (인메모리)
+
+### 예상 실행시간 (T4 GPU)
+| 프리셋 | 조합 수 | 총 예상 |
+|--------|---------|---------|
+| quick | 4 | ~15분 |
+| standard | 24 | ~50분 |
+| full | 72 | ~3시간 |
+
+### 다음 작업
+1. **Colab 실제 테스트**: T4 GPU에서 quick 프리셋 E2E 실행 검증
+2. **README.md `<user>` 플레이스홀더**: 실제 GitHub 사용자명으로 교체
+3. **72개 조합 풀 벤치마크 재실행** (로컬)
+4. **QA 데이터셋 고도화**: RAGAS v2 방식 구현
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동
