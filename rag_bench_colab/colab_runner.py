@@ -789,7 +789,7 @@ class ColabBenchmarkRunner:
         """
         from rag_bench.strategies.dense_sparse import DENSE_MODELS
 
-        # 키("minilm") → 실제 모델명("sentence-transformers/all-MiniLM-L6-v2") → 단축명
+        # 키("bge-m3") → 실제 모델명("BAAI/bge-m3") → 단축명
         dense_model = DENSE_MODELS.get(spec.dense, spec.dense)
         dense_short = dense_model.split("/")[-1]
         base_name = f"DS({dense_short}+{spec.sparse})"

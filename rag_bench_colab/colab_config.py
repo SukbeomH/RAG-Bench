@@ -230,7 +230,7 @@ def get_qdrant_path(
 
     Args:
         dense: Dense 모델 키 (e.g., 'bge-m3')
-        sparse: Sparse 모델 키 (e.g., 'fastembed_bm25')
+        sparse: Sparse 모델 키 (e.g., 'korean_bm25')
         qdrant_mode: 'ephemeral', 'drive', 'memory'
         contextual: contextual retrieval 인덱스 여부
 
