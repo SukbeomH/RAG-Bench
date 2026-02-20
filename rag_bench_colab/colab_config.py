@@ -101,10 +101,16 @@ def setup_colab_env(mount_drive: bool = True) -> dict:
             if api_key:
                 os.environ["OPENAI_API_KEY"] = api_key
                 print("[API Key] Colab Secrets에서 OPENAI_API_KEY 로드 완료")
+
+            upstage_key = userdata.get("UPSTAGE_API_KEY")
+            if upstage_key:
+                os.environ["UPSTAGE_API_KEY"] = upstage_key
+                print("[API Key] Colab Secrets에서 UPSTAGE_API_KEY 로드 완료")
         except Exception:
-            print("[Warning] Colab Secrets 접근 실패. Cell 1.4에서 수동 입력하세요.")
+            print("[Warning] Colab Secrets 접근 실패. Cell 1.4~1.5에서 수동 입력하세요.")
 
     info["api_key_loaded"] = "OPENAI_API_KEY" in os.environ
+    info["upstage_api_key_loaded"] = "UPSTAGE_API_KEY" in os.environ
 
     # 3. HF_HOME 설정 (Drive 사용 시 영속 캐시)
     if info["drive_mounted"]:
