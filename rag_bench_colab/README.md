@@ -11,6 +11,36 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 3. Colab Secrets에 `OPENAI_API_KEY` 등록
 4. 노트북 셀 순서대로 실행
 
+### 실행 흐름
+
+```python
+# 1. 환경 초기화 (Drive 마운트 + config 패치 + CUDA 디바이스)
+from rag_bench_colab.colab_config import init_colab
+init_colab(qdrant_mode="ephemeral")
+
+# 2. 러너 생성
+from rag_bench_colab.colab_runner import ColabBenchmarkRunner
+runner = ColabBenchmarkRunner(preset="quick", k=3, top_n=4)
+
+# 3. QA 데이터셋 생성 (최초 1회 또는 force=True 시)
+#    기본: 기존 rag_bench_colab/data/docs/*.md 사용
+runner.prepare_qa(num_qa=20)
+
+#    PDF 페이지 샘플링 적용 (docs/*.pdf → data/docs/*.md 재생성)
+runner.prepare_qa(num_qa=20, sample_pages=True)
+
+# 4. 데이터 로드 + 청킹
+child_chunks, parent_pairs, queries, ground_truths = runner.prepare_data()
+
+# 5. 벤치마크 실행
+combos = runner.generate_combos()
+lat_df  = runner.run_pass1(combos, queries, child_chunks, parent_pairs)
+ragas_df = runner.run_pass2(lat_df, combos, queries, ground_truths, child_chunks, parent_pairs)
+
+# 6. 결과 저장 (Drive + HTML 보고서)
+runner.export_results(lat_df, ragas_df)
+```
+
 ## 프리셋
 
 | 프리셋 | 조합 수 | 예상 시간 | API 비용 |
@@ -21,19 +51,42 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 
 ## 주요 파라미터
 
+### ColabBenchmarkRunner
+
 ```python
 runner = ColabBenchmarkRunner(
-    preset="quick",           # quick | standard | full
-    k=3,                      # 검색 결과 수
-    top_n=10,                 # Pass 2에서 RAGAS 평가할 상위 전략 수
-    qdrant_mode="ephemeral",  # ephemeral | drive | memory
-    device=None,              # cuda | cpu | None (자동 감지)
-    parallel_queries=0,       # 쿼리 병렬화 (0=비활성, T4에서 4~8 권장)
-    reindex=False,            # True: 기존 인덱스 삭제 후 재구축
+    preset="quick",               # quick | standard | full
+    k=3,                          # 검색 결과 수
+    top_n=10,                     # Pass 2에서 RAGAS 평가할 상위 전략 수
+    qdrant_mode="ephemeral",      # ephemeral | drive | memory
+    device=None,                  # cuda | cpu | None (자동 감지)
+    parallel_queries=0,           # 쿼리 병렬화 (0=비활성, T4에서 4~8 권장)
+    reindex=False,                # True: 기존 인덱스 삭제 후 재구축
     metric_preset="core_only",    # core_only (4) | comprehensive (7) | full (11+) | reference_free
     scoring_profile="balanced",   # balanced | precision_critical | speed_critical | comprehensive
 )
 ```
+
+### prepare_qa() — QA 데이터셋 생성
+
+```python
+runner.prepare_qa(
+    num_qa=20,                # 생성할 QA 수
+    sample_pages=False,       # True: docs/*.pdf를 페이지 샘플링 → data/docs/*.md 재생성
+    page_sample_ratio=0.1,    # 샘플링 비율 (기본 10%)
+    max_sample_pages=5,       # 최대 샘플 페이지 수
+    max_qa_per_page=2,        # 청크당 최대 QA 수 (QA 상한 계산용)
+    force=False,              # True: 캐시 무시하고 재생성
+    reuse_kg=False,           # True: 기존 KG 파일 재사용
+    build_kg_only=False,      # True: KG만 구축, QA 생성 안 함
+    num_personas=3,           # RAGAS 자동 페르소나 수
+    query_dist="balanced",    # single_hop | multi_hop | balanced
+)
+```
+
+> **경로 패치 의존성**: `prepare_qa()`는 `init_colab()` 호출 이후에 실행해야 합니다.
+> `init_colab()` 내부의 `patch_rag_bench_config()`가 `DOCS_DIR`, `BENCH_DOCS_DIR`,
+> `KG_SAVE_PATH` 등을 Colab 경로로 오버라이드합니다.
 
 ### 메트릭 프리셋
 

@@ -6,6 +6,8 @@
 
 Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 72개 전략 조합을 통일된 인터페이스로 비교합니다. Google Colab T4 GPU에서도 체크포인트 기반 벤치마크를 실행할 수 있습니다.
 
+> **최근 변경**: GraphRAG(LightRAG) 제거 + OpenAI/Upstage 임베딩 전략 추가 + HTML 벤치마크 보고서 자동 생성
+
 ## 전체 흐름도
 
 ```
@@ -120,13 +122,15 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 | **전략** | ColBERT 2-stage Reranking | 완료 |
 | **전략** | FlashRank 경량 Reranking (ONNX) | 완료 |
 | **전략** | Contextual Retrieval (LLM 문맥 부착) | 완료 |
-| **전략** | GraphRAG (LightRAG) | 완료 |
+| **전략** | OpenAI Embedding (text-embedding-3-small/large) | 완료 |
+| **전략** | Upstage Embedding (solar-embedding-1-large) | 완료 |
 | **파이프라인** | PDF → Markdown 변환 | 완료 |
 | **파이프라인** | Parent-Child 청킹 | 완료 |
 | **파이프라인** | QA 데이터셋 자동 생성 (GPT-4o-mini / RAGAS KG) | 완료 |
 | **벤치마크** | 72개 3-Layer 교차 조합 파이프라인 | 완료 |
 | **벤치마크** | 2-Pass 실행 (레이턴시 → RAGAS) | 완료 |
 | **벤치마크** | 레이어별 기여도 분석 | 완료 |
+| **보고서** | HTML 벤치마크 보고서 자동 생성 (차트 + Bootstrap) | 완료 |
 | **평가** | RAGAS v0.4+ 통합 (Core 4종 + Extended 5종 + Lightweight 2종) | 완료 |
 | **에이전트** | LangGraph Agentic RAG 대화 | 완료 |
 | **인프라** | Google Colab T4 GPU 벤치마크 환경 | 완료 |
@@ -171,7 +175,8 @@ Layer 3: Retrieval Mode ─ hybrid × reranker × llm_support        (6종)
 |------|----------|------|
 | **Python 3.12+** | 필수 | `.python-version` 파일에 명시 |
 | **uv** | 필수 | Python 패키지 매니저 ([설치](https://docs.astral.sh/uv/getting-started/installation/): `curl -LsSf https://astral.sh/uv/install.sh \| sh`) |
-| **OpenAI API Key** | RAGAS 평가 시 | GPT-4o-mini 기반 평가 + QA 생성 |
+| **OpenAI API Key** | RAGAS 평가 / QA 생성 시 | GPT-4o-mini 기반 평가 + QA 생성 + OpenAI 임베딩 전략 |
+| **Upstage API Key** | Upstage 전략 사용 시 | `UPSTAGE_API_KEY` 환경변수 필요 ([발급](https://console.upstage.ai)) |
 | **Java JDK** | KoNLPy 사용 시 | OKt 형태소 분석기 (Combo 1: KoSimCSE+BM25) |
 
 ### Step 1: 환경 설정
@@ -182,6 +187,9 @@ uv sync
 
 # 1-2. 환경변수 설정 (.env 파일 생성)
 echo "OPENAI_API_KEY=sk-your-api-key-here" > .env
+
+# Upstage 전략 사용 시 추가 설정
+echo "UPSTAGE_API_KEY=up_your-api-key-here" >> .env
 ```
 
 ### Step 2: QA 데이터셋 생성
@@ -189,17 +197,17 @@ echo "OPENAI_API_KEY=sk-your-api-key-here" > .env
 벤치마크 대상 문서(`rag_bench/docs/*.md`)에서 QA 쌍을 자동 생성합니다.
 
 ```bash
-# 레거시 방식 (GPT-4o-mini 기반 단순 QA)
-uv run python -m rag_bench.scripts.generate_qa --method legacy --num_qa 20
+# 기본 (기존 rag_bench/docs/*.md 파일 사용)
+uv run python -m rag_bench.scripts.generate_qa --num_qa 20
 
-# RAGAS KG 방식 (KnowledgeGraph 기반 다양한 QA 유형)
-uv run python -m rag_bench.scripts.generate_qa --method ragas --num_qa 50
+# PDF 페이지 샘플링 적용 (docs/*.pdf → rag_bench/docs/*.md 재변환, QA 수 자동 상한)
+uv run python -m rag_bench.scripts.generate_qa --sample_pages --num_qa 20
 
 # KG만 사전 구축 (QA 생성 없이)
-uv run python -m rag_bench.scripts.generate_qa --method ragas --build-kg-only
+uv run python -m rag_bench.scripts.generate_qa --build-kg-only
 
 # 기존 KG 재사용하여 QA 생성
-uv run python -m rag_bench.scripts.generate_qa --method ragas --num_qa 50 --reuse-kg
+uv run python -m rag_bench.scripts.generate_qa --num_qa 50 --reuse-kg
 ```
 
 생성 결과: `rag_bench/_benchdata/qa_dataset.json`
@@ -242,7 +250,17 @@ ls rag_bench/_benchdata/all_combos_*.csv
 cat rag_bench/_benchdata/e2e_report.md
 ```
 
-### Step 5 (선택): 시각화
+### Step 5 (선택): 보고서 및 시각화
+
+```python
+# HTML 벤치마크 보고서 생성 (Python API 방식)
+import pandas as pd
+from rag_bench.scripts.generate_html_report import generate_html_report
+
+latency_df = pd.read_csv("rag_bench/_benchdata/all_combos_latency.csv")
+ragas_df = pd.read_csv("rag_bench/_benchdata/all_combos_ragas.csv")
+generate_html_report(latency_df, ragas_df, output_path="rag_bench/_benchdata/benchmark_report.html")
+```
 
 ```bash
 # 시각화 노트북 (7종 차트: 레이턴시 바, RAGAS 레이더, 품질-속도 Scatter 등)
@@ -307,7 +325,6 @@ uv run python -m rag_bench.scripts.prefetch_models
 --combos 1,3,4       DenseSparse 조합 ID 지정
 --skip_colbert       ColBERT 단독 전략 건너뛰기
 --skip_rerank        ColBERTRerank 전략 건너뛰기
---skip_graphrag      GraphRAG 전략 건너뛰기
 --skip_contextual    Contextual Retrieval 건너뛰기
 --skip_flashrank     FlashRank Rerank 건너뛰기
 --contextual_base N  Contextual Retrieval 기반 조합 ID (기본: 3)
@@ -323,6 +340,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 | `all_combos_latency.csv` | 72개 전략 레이턴시 측정 결과 |
 | `all_combos_ragas.csv` | 상위 N개 RAGAS 평가 점수 |
 | `e2e_report.md` | 종합 리포트 (레이턴시 Top 10 + RAGAS + 실행 환경 + 비중%) |
+| `benchmark_report.html` | HTML 벤치마크 보고서 (차트 인라인, 브라우저에서 바로 열기) |
 | `run_history/run_*.json` | 수행 이력 (플랫폼, 전략별 타이밍, 토큰 사용량) |
 | `run_history/latest.json` | 최신 실행 이력 심링크 |
 
@@ -348,7 +366,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 | Rerank-DS4 | 0.6917 | 0.7632 | 0.8000 | 0.8750 |
 | Rerank-DS2 | 0.6275 | 0.7240 | **0.9917** | 0.9750 |
 
-**인사이트:** BGE-M3 + ColBERT Rerank 조합이 최고 품질 (context_recall 완벽). MiniLM+BM25는 속도 최강이나 한국어 품질 약함. GraphRAG는 context_recall 0.975로 높지만 precision 0.5, answer_relevancy 0.65로 noise 많음.
+**인사이트:** BGE-M3 + ColBERT Rerank 조합이 최고 품질 (context_recall 완벽). MiniLM+BM25는 속도 최강이나 한국어 품질 약함.
 
 ## 프로젝트 구조
 
@@ -363,6 +381,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 ├── docs/                              # 평가 대상 원본 PDF 문서 + 리서치
 │   ├── 20250910_AI 현황 보고서.pdf
 │   ├── SPRi AI Brief_1월호.pdf
+│   ├── service_modularization_proposal.md  # 서비스 모듈화 제안서
 │   └── research/                      # RAG 전략/도구 리서치 문서 8종
 ├── rag_bench/                         # 핵심 패키지
 │   ├── base.py                        # BaseRAGStrategy ABC
@@ -370,13 +389,14 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   ├── runner.py                      # BenchmarkRunner
 │   ├── run_tracker.py                 # 수행 이력 추적 (플랫폼, 타이밍, 토큰)
 │   ├── cli.py                         # RAGChat 대화 인터페이스
-│   ├── strategies/                    # RAG 전략 6종
+│   ├── strategies/                    # RAG 전략 7종
 │   │   ├── dense_sparse.py            # Dense+Sparse Hybrid (4종 임베딩)
 │   │   ├── colbert.py                 # ColBERT Late Interaction
 │   │   ├── colbert_rerank.py          # ColBERT 2-stage Reranking
 │   │   ├── flashrank_rerank.py        # FlashRank 경량 Reranking (ONNX)
 │   │   ├── contextual_retrieval.py    # Contextual Retrieval (LLM 문맥 부착)
-│   │   └── graph_rag.py              # GraphRAG (LightRAG)
+│   │   ├── openai_embed.py            # OpenAI text-embedding-3-small/large
+│   │   └── upstage_embed.py           # Upstage solar-embedding-1-large
 │   ├── indexing/                      # 문서 처리 파이프라인
 │   │   ├── pdf_converter.py           # PDF → Markdown (pymupdf4llm)
 │   │   └── chunker.py                # Parent-Child 청킹
@@ -390,7 +410,8 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   │   ├── state.py                   # State TypedDicts
 │   │   └── prompts.py                 # 프롬프트 템플릿
 │   ├── scripts/                       # 벤치마크 실행 스크립트
-│   │   ├── generate_qa.py             # QA 자동 생성
+│   │   ├── generate_qa.py             # QA 자동 생성 (페이지 샘플링 + QA 수 상한 지원)
+│   │   ├── generate_html_report.py    # HTML 벤치마크 보고서 생성
 │   │   ├── run_bench.py               # 3종 벤치마크
 │   │   ├── run_all_combos.py          # 72개 조합 벤치마크
 │   │   ├── prefetch_models.py         # HuggingFace 모델 프리페치

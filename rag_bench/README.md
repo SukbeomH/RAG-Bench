@@ -2,6 +2,8 @@
 
 Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스로 비교 벤치마크하는 LangChain/LangGraph 통합 패키지.
 
+> **최근 변경**: GraphRAG 제거 + OpenAI/Upstage 임베딩 전략 추가 + HTML 보고서 생성 + PDF 페이지 샘플링
+
 > 이 디렉토리 단독으로 공유 가능합니다. `pyproject.toml`, `uv.lock`이 포함되어 있습니다.
 
 ## 설계 의도
@@ -54,15 +56,19 @@ API 호출을 86% 절감하면서도 의미 있는 상위권 전략의 품질을
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                       BenchmarkRunner                          │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐     │
-│  │  Dense   │ │  ColBERT │ │  Graph   │ │ColBERT Rerank │     │
-│  │ +Sparse  │ │ (PyLate) │ │(LightRAG)│ │ (2-stage)     │     │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬────────┘     │
-│       │       ┌────────────┐ ┌──────────────┐   │              │
-│       │       │ FlashRank  │ │ Contextual   │   │              │
-│       │       │  Rerank    │ │  Retrieval   │   │              │
-│       │       └─────┬──────┘ └──────┬───────┘   │              │
-│       └─────────────┴──────┬────────┴───────────┘              │
+│  ┌──────────┐ ┌──────────┐ ┌───────────────┐ ┌────────────┐    │
+│  │  Dense   │ │  ColBERT │ │ColBERT Rerank │ │  FlashRank │    │
+│  │ +Sparse  │ │ (PyLate) │ │ (2-stage)     │ │   Rerank   │    │
+│  └────┬─────┘ └────┬─────┘ └──────┬────────┘ └──────┬─────┘   │
+│       │       ┌──────────────┐ ┌────────────┐   │              │
+│       │       │ Contextual   │ │  OpenAI    │   │              │
+│       │       │  Retrieval   │ │  Embed     │   │              │
+│       │       └──────┬───────┘ └─────┬──────┘   │              │
+│       │       ┌──────────────┐        │          │              │
+│       │       │   Upstage    │        │          │              │
+│       │       │   Embed      │        │          │              │
+│       │       └──────┬───────┘        │          │              │
+│       └──────────────┴────────────────┴──────────┘              │
 │                  ┌─────────▼─────────┐                         │
 │                  │  BaseRAGStrategy  │  ← ABC                  │
 │                  │  index()          │                          │
@@ -209,14 +215,15 @@ rag_bench/
 ├── run_tracker.py           # RunTracker — 수행 이력 추적 (플랫폼, 타이밍, 토큰)
 ├── cli.py                   # RAGChat — Agentic RAG 대화 인터페이스
 │
-├── strategies/              # RAG 전략 구현체 (6종)
+├── strategies/              # RAG 전략 구현체 (7종)
 │   ├── __init__.py          # 전략 클래스 일괄 export
 │   ├── dense_sparse.py      # ★ Dense+Sparse Hybrid (4종 임베딩 + 3종 희소 검색)
 │   ├── colbert.py           # ColBERT Late Interaction (PyLate, MaxSim)
 │   ├── colbert_rerank.py    # ColBERT 2-stage Reranking (Decorator Pattern)
 │   ├── flashrank_rerank.py  # FlashRank 경량 ONNX Reranking (Decorator)
 │   ├── contextual_retrieval.py  # Contextual Retrieval (인덱싱 시 LLM 문맥 부착)
-│   └── graph_rag.py         # GraphRAG (LightRAG — 엔터티/관계 그래프 검색)
+│   ├── openai_embed.py      # OpenAI text-embedding-3-small/large Dense 검색
+│   └── upstage_embed.py     # Upstage solar-embedding-1-large (passage/query 분리)
 │
 ├── indexing/                # 문서 처리 파이프라인
 │   ├── __init__.py          # pdfs_to_markdowns, create_parent_child_chunks export
@@ -238,7 +245,8 @@ rag_bench/
 │
 ├── scripts/                 # 벤치마크 실행 스크립트
 │   ├── __init__.py
-│   ├── generate_qa.py       # QA 데이터셋 자동 생성 (GPT-4o-mini / RAGAS KG)
+│   ├── generate_qa.py       # QA 데이터셋 자동 생성 (RAGAS KG, PDF 페이지 샘플링 통합)
+│   ├── generate_html_report.py  # ★ HTML 벤치마크 보고서 생성 (Python API, 차트 인라인, Bootstrap)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
 │   ├── run_all_combos.py    # ★ 72개 3-Layer 교차 조합 벤치마크 (2-Pass)
 │   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
@@ -337,13 +345,40 @@ Anthropic이 제안한 Contextual Retrieval 기법. **인덱싱 시** LLM으로 
 
 보고된 효과: 검색 실패율 49-67% 감소 (Anthropic 논문 기준)
 
-### 6. GraphRAGStrategy (strategies/graph_rag.py)
+### 6. OpenAIEmbedStrategy (strategies/openai_embed.py)
 
-LightRAG 백엔드. LLM으로 엔터티/관계를 추출하여 지식 그래프 구축 후 그래프 탐색 검색.
+OpenAI `text-embedding-3-small` / `text-embedding-3-large` 기반 순수 Dense 검색.
 
-3가지 모드: `local` (엔터티 중심), `global` (커뮤니티 요약), `hybrid` (둘 다)
+```python
+from rag_bench.strategies import OpenAIEmbedStrategy
 
-### 7. 문서 처리 파이프라인 (indexing/)
+strategy = OpenAIEmbedStrategy(model="text-embedding-3-small")
+strategy.index(documents)
+results = strategy.retrieve("AI 산업 동향은?", k=3)
+```
+
+| 모델 | 차원 | 특징 |
+|------|------|------|
+| `text-embedding-3-small` | 1536 | 경제적, 빠름 |
+| `text-embedding-3-large` | 3072 | 높은 품질 |
+
+환경변수: `OPENAI_API_KEY`
+
+### 7. UpstageEmbedStrategy (strategies/upstage_embed.py)
+
+Upstage `solar-embedding-1-large` 기반 Dense 검색. 인덱싱(passage)과 쿼리(query) 모델을 분리 운용합니다.
+
+```python
+from rag_bench.strategies import UpstageEmbedStrategy
+
+strategy = UpstageEmbedStrategy()  # passage 모델로 인덱싱, query 모델로 검색
+strategy.index(documents)
+results = strategy.retrieve("AI 산업 동향은?", k=3)
+```
+
+환경변수: `UPSTAGE_API_KEY`
+
+### 8. 문서 처리 파이프라인 (indexing/)
 
 ```
 PDF 문서 → pdf_converter.py → Markdown → chunker.py → Parent-Child 청크
@@ -353,7 +388,7 @@ PDF 문서 → pdf_converter.py → Markdown → chunker.py → Parent-Child 청
 
 Parent-Child 전략: 검색은 작은 Child 청크로 정밀하게, 답변 생성은 큰 Parent 청크로 풍부하게.
 
-### 8. RAGAS 평가 (evaluation/)
+### 9. RAGAS 평가 (evaluation/)
 
 RAGAS v0.4+ 기반 메트릭 체계:
 
@@ -380,7 +415,7 @@ RAGAS v0.4+ 기반 메트릭 체계:
 
 `ExtendedRAGEvaluator`는 샘플별 평가 + API 토큰 사용량/비용 추적을 지원합니다.
 
-### 9. 수행 이력 추적 (run_tracker.py)
+### 10. 수행 이력 추적 (run_tracker.py)
 
 벤치마크 실행의 상세 이력을 JSON으로 기록하는 추적 모듈.
 
@@ -414,7 +449,7 @@ filepath = tracker.finalize()  # JSON 저장 + latest.json 심링크
 - 콘솔에 단계별 비중(%) 요약 자동 출력
 - `latest.json` 심링크로 최신 실행에 바로 접근
 
-### 10. LangGraph 에이전트 (graph/)
+### 11. LangGraph 에이전트 (graph/)
 
 검색 전략을 LangGraph 기반 대화형 에이전트로 감싸는 모듈.
 
@@ -431,6 +466,8 @@ filepath = tracker.finalize()  # JSON 저장 + latest.json 심링크
 ```bash
 uv sync
 echo "OPENAI_API_KEY=sk-..." > .env
+# Upstage 전략 사용 시
+echo "UPSTAGE_API_KEY=up_..." >> .env
 ```
 
 ### 1. 72개 조합 벤치마크 (권장)
@@ -486,7 +523,23 @@ strategy = DenseSparseStrategy(combo_id=1)
 strategy.index(children)
 ```
 
-### 4. Agentic RAG 대화
+### 4. HTML 보고서 생성
+
+```python
+import pandas as pd
+from rag_bench.scripts.generate_html_report import generate_html_report
+
+latency_df = pd.read_csv("_benchdata/all_combos_latency.csv")
+ragas_df = pd.read_csv("_benchdata/all_combos_ragas.csv")
+generate_html_report(
+    latency_df,
+    ragas_df,
+    output_path="_benchdata/benchmark_report.html",
+)
+# → 브라우저에서 바로 열 수 있는 독립 HTML 파일 생성
+```
+
+### 5. Agentic RAG 대화
 
 ```python
 from rag_bench.strategies import DenseSparseStrategy
@@ -579,7 +632,6 @@ Reranker:
   --combos 1,3,4       DenseSparse 조합 ID 지정
   --skip_colbert       ColBERT 전략 건너뛰기
   --skip_rerank        ColBERTRerank 건너뛰기
-  --skip_graphrag      GraphRAG 건너뛰기
   --skip_contextual    Contextual Retrieval 건너뛰기
   --skip_flashrank     FlashRank Rerank 건너뛰기
   --contextual_base N  Contextual 기반 조합 ID (기본: 3)
@@ -588,11 +640,16 @@ Reranker:
 ### generate_qa.py
 
 ```
-  --method METHOD      QA 생성 방식: legacy (GPT-4o-mini) | ragas (KG 기반) (기본: legacy)
-  --num_qa N           생성할 QA 쌍 수 (기본: 10)
-  --sample_ratio F     청크 샘플링 비율 (기본: 0.3, legacy만)
-  --build-kg-only      KG만 사전 구축 (QA 생성 안 함, ragas만)
-  --reuse-kg           기존 KG 재사용하여 QA 생성 (ragas만)
+  --num_qa N                생성할 QA 쌍 수 (기본: 20)
+  --sample_pages            docs/*.pdf를 페이지 샘플링하여 rag_bench/docs/*.md 재생성
+  --page_sample_ratio F     페이지 샘플링 비율 (기본: 0.1 = 10%%, --sample_pages와 함께 사용)
+  --max_sample_pages N      최대 샘플 페이지 수 (기본: 5, --sample_pages와 함께 사용)
+  --max_qa_per_page N       청크당 최대 QA 수 (기본: 2, --sample_pages와 함께 QA 상한 계산)
+  --force                   캐시 무시하고 강제 재생성
+  --build-kg-only           KG만 구축, QA 생성 안 함
+  --reuse-kg                기존 KG 파일 재사용
+  --query-dist DIST         쿼리 분포: single_hop | multi_hop | balanced (기본: balanced)
+  --num-personas N          자동 페르소나 수 (기본: 3)
 ```
 
 ### run_bench.py
@@ -644,8 +701,8 @@ class MyStrategy(BaseRAGStrategy):
 - Dense+Sparse: `konlpy` (OKt), `transformers` (SPLADE), `fastembed`, `sentence-transformers`
 - ColBERT: `pylate`, `sentence-transformers`
 - FlashRank: `flashrank` (ONNX 기반)
-- Contextual: `langchain-openai` (GPT-4o-mini)
-- GraphRAG: `lightrag-hku`, `nest-asyncio`
+- Contextual / OpenAI Embed: `langchain-openai` (OPENAI_API_KEY 필요)
+- Upstage Embed: `langchain-upstage` (UPSTAGE_API_KEY 필요)
 
 **평가:**
 - `ragas>=0.4.3`, `datasets`
