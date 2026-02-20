@@ -6,7 +6,7 @@
   Layer 2: Sparse Model  (korean_bm25, splade, fastembed_bm25)
   Layer 3: Retrieval Mode (hybrid × reranker × llm_support = 6종)
 
-총 유효 조합: 4 × 3 × 6 = 72개 + GraphRAG(1) = 73개
+총 유효 조합: 4 × 3 × 6 = 72개
 
 레거시 모드:
   --combos / --skip_* 플래그 사용 시 기존 방식으로 동작.
@@ -20,7 +20,7 @@
 
 Usage:
     # 레거시 모드
-    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_colbert] [--skip_rerank] [--skip_graphrag] [--skip_contextual] [--skip_flashrank] [--no_ragas] [--reindex] [--contextual_base 3]
+    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_colbert] [--skip_rerank] [--skip_contextual] [--skip_flashrank] [--no_ragas] [--reindex] [--contextual_base 3]
 
     # 새 모드
     python -m rag_bench.scripts.run_all_combos --preset full --dry-run
@@ -58,27 +58,15 @@ ALL_COMBO_IDS = [1, 2, 3, 4]
 
 @dataclass
 class ComboSpec:
-    """3-Layer 조합 명세.
-
-    graphrag=True 이면 dense/sparse/reranker/llm_support 는 무시되고
-    GraphRAGStrategy가 단독으로 사용된다.
-    """
+    """3-Layer 조합 명세."""
 
     dense: str = ""                   # DENSE_MODELS 키 (예: "kosimcse")
     sparse: str = ""                  # SPARSE_TYPES 값 (예: "splade")
     reranker: Optional[str] = None    # None | "colbert" | "flashrank"
     llm_support: Optional[str] = None # None | "contextual"
-    graphrag: bool = False            # True → GraphRAGStrategy 사용
-
-    @classmethod
-    def for_graphrag(cls) -> "ComboSpec":
-        """GraphRAG 전용 ComboSpec 생성 헬퍼."""
-        return cls(graphrag=True)
 
     @property
     def label(self) -> str:
-        if self.graphrag:
-            return "graphrag"
         parts = [self.dense, self.sparse]
         if self.reranker:
             parts.append(self.reranker)
@@ -88,8 +76,6 @@ class ComboSpec:
 
     @property
     def retrieval_mode(self) -> str:
-        if self.graphrag:
-            return "graph"
         mode = "hybrid"
         suffixes = []
         if self.reranker:
@@ -103,8 +89,6 @@ class ComboSpec:
     @property
     def index_key(self) -> str:
         """인덱스 캐싱 키. (dense, sparse) 쌍으로 결정."""
-        if self.graphrag:
-            return "graphrag"
         return f"{self.dense}:{self.sparse}"
 
 
@@ -134,15 +118,11 @@ PRESETS: Dict[str, Dict[str, list]] = {
 }
 
 
-def generate_valid_combinations(
-    config: Dict[str, list],
-    include_graphrag: bool = False,
-) -> List[ComboSpec]:
+def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
     """3-Layer 카테시안 곱으로 유효 조합 생성.
 
     Args:
         config: PRESETS 딕셔너리 항목.
-        include_graphrag: True 이면 마지막에 GraphRAG ComboSpec 추가.
     """
     combos = []
     for d in config["dense_models"]:
@@ -150,8 +130,6 @@ def generate_valid_combinations(
             for r in config["rerankers"]:
                 for llm_sup in config["llm_support"]:
                     combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=llm_sup))
-    if include_graphrag:
-        combos.append(ComboSpec.for_graphrag())
     return combos
 
 
@@ -284,20 +262,6 @@ def build_strategy_from_spec(
     reindex: bool = False,
 ):
     """ComboSpec에서 전략 인스턴스 생성."""
-    # GraphRAG 분기: DenseSparse 파이프라인과 독립적으로 처리
-    if spec.graphrag:
-        from rag_bench.strategies.graph_rag import GraphRAGStrategy
-
-        strategy = GraphRAGStrategy(
-            mode="hybrid",
-            working_dir=str(BENCH_DATA_DIR / "lightrag_graphrag"),
-            llm_model="gpt-4.1-nano",
-            top_k=60,
-        )
-        parent_docs = [doc for _, doc in parent_pairs]
-        strategy.index(parent_docs)
-        return strategy
-
     # 1. Base: DenseSparse (인덱스 캐시 활용)
     base = index_cache.get_or_build(spec, child_chunks, reindex=reindex)
 
@@ -433,32 +397,6 @@ def _try_build_flashrank_rerank(base_strategy, child_chunks):
     return strategy, None
 
 
-def _try_build_graphrag(parent_docs, reindex=True):
-    from rag_bench.strategies.graph_rag import GraphRAGStrategy
-
-    working_dir = str(BENCH_DATA_DIR / "lightrag_graphrag")
-    strategy = GraphRAGStrategy(
-        mode="hybrid",
-        working_dir=working_dir,
-        llm_model="gpt-4.1-nano",
-        top_k=60,
-    )
-
-    if reindex:
-        print("  [재인덱싱] LightRAG 그래프 구축 중 (LLM API 호출)...")
-        strategy.index(parent_docs)
-    else:
-        wd = Path(working_dir)
-        if not wd.exists() or not any(wd.iterdir()):
-            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
-            strategy.index(parent_docs)
-        else:
-            print("  [기존 로드] LightRAG 그래프 로드 중...")
-            strategy._ensure_initialized()
-            strategy._is_ready = True
-            print("  [기존 로드] 그래프 로드 완료")
-    return strategy, None
-
 
 def _safe_build(
     label: str, build_fn, *args, progress: str = "",
@@ -582,6 +520,7 @@ def _run_preset_mode(args):
 
     config = PRESETS[preset_name]
     combos = generate_valid_combinations(config)
+
 
     print(f"\n{'═' * 60}")
     print(f" 3-Layer 조합 벤치마크 — 프리셋: {preset_name}")
@@ -1150,7 +1089,6 @@ def _run_legacy_mode(args):
     print(f"대상 DenseSparse 조합: {combo_ids}")
     print(f"ColBERT: {'OFF' if args.skip_colbert else 'ON'}")
     print(f"ColBERTRerank: {'OFF' if args.skip_rerank else 'ON'}")
-    print(f"GraphRAG: {'OFF' if args.skip_graphrag else 'ON'}")
     print(f"Contextual Retrieval: {'OFF' if args.skip_contextual else f'ON (base=combo{args.contextual_base})'}")
     print(f"FlashRank Rerank: {'OFF' if args.skip_flashrank else 'ON'}")
     print(f"RAGAS 평가: {'OFF' if args.no_ragas else 'ON'}")
@@ -1189,7 +1127,6 @@ def _run_legacy_mode(args):
         len(combo_ids)
         + (0 if args.skip_colbert else 1)
         + (0 if args.skip_rerank else len(combo_ids))
-        + (0 if args.skip_graphrag else 1)
         + (0 if args.skip_contextual else 1)
         + (0 if args.skip_flashrank else len(combo_ids))
     )
@@ -1234,20 +1171,7 @@ def _run_legacy_mode(args):
             if strategy is not None:
                 rerank_strategies[cid] = strategy
 
-    # 3-d. GraphRAG
-    graphrag_strategy = None
-    if not args.skip_graphrag:
-        current += 1
-        parent_docs = [doc for _, doc in parent_pairs]
-        label = "GraphRAG (LightRAG, hybrid)"
-        strategy, err = _safe_build(
-            label, _try_build_graphrag, parent_docs, reindex,
-            progress=f"[{current}/{total_strategies}]",
-        )
-        build_results.append((label, strategy, err))
-        graphrag_strategy = strategy
-
-    # 3-e. Contextual Retrieval
+    # 3-d. Contextual Retrieval
     contextual_strategy = None
     if not args.skip_contextual:
         current += 1
@@ -1261,7 +1185,7 @@ def _run_legacy_mode(args):
         build_results.append((label, strategy, err))
         contextual_strategy = strategy
 
-    # 3-f. FlashRank Rerank
+    # 3-e. FlashRank Rerank
     flashrank_strategies = {}
     if not args.skip_flashrank:
         for cid, ds in ds_strategies.items():
@@ -1287,8 +1211,6 @@ def _run_legacy_mode(args):
     for cid in combo_ids:
         if cid in rerank_strategies:
             active_strategies.append(rerank_strategies[cid])
-    if graphrag_strategy is not None:
-        active_strategies.append(graphrag_strategy)
     if contextual_strategy is not None:
         active_strategies.append(contextual_strategy)
     for cid in combo_ids:
@@ -1399,8 +1321,6 @@ def main():
                         help="ColBERT 단독 전략 건너뛰기")
     parser.add_argument("--skip_rerank", action="store_true",
                         help="ColBERTRerank 전략 건너뛰기")
-    parser.add_argument("--skip_graphrag", action="store_true",
-                        help="GraphRAG 전략 건너뛰기")
     parser.add_argument("--skip_contextual", action="store_true",
                         help="Contextual Retrieval 전략 건너뛰기")
     parser.add_argument("--skip_flashrank", action="store_true",

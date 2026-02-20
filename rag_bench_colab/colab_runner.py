@@ -5,7 +5,6 @@ run_all_combos.py의 2-Pass 벤치마크를 Colab 환경에 맞게 래핑:
 - Google Drive 체크포인트로 중단/재개
 - tqdm.notebook 진행률
 - CUDA 디바이스 자동 감지
-- GraphRAG 통합
 - RunTracker 통합 (수행 이력 추적)
 - MetricPreset / ScoringProfile 지원
 """
@@ -95,7 +94,6 @@ class ColabBenchmarkRunner:
         reindex: bool = False,
         metric_preset: str = "core_only",
         scoring_profile: str = "balanced",
-        include_graphrag: bool = False,
     ):
         self.preset = preset
         self.k = k
@@ -105,7 +103,6 @@ class ColabBenchmarkRunner:
         self.reindex = reindex
         self.metric_preset = metric_preset
         self.scoring_profile = scoring_profile
-        self.include_graphrag = include_graphrag
 
         if device is None:
             from rag_bench_colab.colab_config import get_device
@@ -124,7 +121,6 @@ class ColabBenchmarkRunner:
             "device": device,
             "metric_preset": metric_preset,
             "scoring_profile": scoring_profile,
-            "include_graphrag": include_graphrag,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
@@ -226,20 +222,15 @@ class ColabBenchmarkRunner:
     # ------------------------------------------------------------------
 
     def generate_combos(self) -> list:
-        """프리셋 기반 ComboSpec 목록 생성.
-
-        include_graphrag=True 이면 마지막에 GraphRAG ComboSpec이 추가된다.
-        """
+        """프리셋 기반 ComboSpec 목록 생성."""
         from rag_bench.scripts.run_all_combos import PRESETS, generate_valid_combinations
 
         if self.preset not in PRESETS:
             raise ValueError(f"알 수 없는 프리셋: {self.preset}. 사용 가능: {list(PRESETS.keys())}")
 
         config = PRESETS[self.preset]
-        combos = generate_valid_combinations(config, include_graphrag=self.include_graphrag)
-        base_count = len(combos) - (1 if self.include_graphrag else 0)
-        print(f"[Combos] 프리셋 '{self.preset}': {base_count}개 조합"
-              + (f" + GraphRAG 1개 = 총 {len(combos)}개" if self.include_graphrag else ""))
+        combos = generate_valid_combinations(config)
+        print(f"[Combos] 프리셋 '{self.preset}': {len(combos)}개 조합")
         return combos
 
     # ------------------------------------------------------------------
@@ -516,80 +507,6 @@ class ColabBenchmarkRunner:
         return self._reports
 
     # ------------------------------------------------------------------
-    # GraphRAG 실행
-    # ------------------------------------------------------------------
-
-    def run_graphrag(
-        self,
-        parent_pairs: list,
-        queries: list,
-        ground_truths: list,
-    ) -> Optional[Dict]:
-        """GraphRAG 별도 실행.
-
-        Returns:
-            {'latency': dict, 'ragas': dict} 또는 None.
-        """
-        from rag_bench.config import BENCH_DATA_DIR
-        from rag_bench.runner import BenchmarkRunner
-        from rag_bench.strategies.graph_rag import GraphRAGStrategy
-
-        print("\n[GraphRAG] LightRAG 실행 시작")
-
-        working_dir = str(BENCH_DATA_DIR / "lightrag_graphrag")
-        strategy = GraphRAGStrategy(
-            mode="hybrid",
-            working_dir=working_dir,
-            llm_model="gpt-4.1-nano",
-            top_k=60,
-        )
-
-        parent_docs = [doc for _, doc in parent_pairs]
-
-        try:
-            strategy.index(parent_docs)
-
-            runner = BenchmarkRunner(
-                strategies=[strategy],
-                queries=queries,
-                k=self.k,
-                evaluator=None,
-            )
-            runner.run()
-            runner.compare()
-
-            lat_df = runner.to_dataframe()
-            result = {"latency": lat_df.to_dict() if lat_df is not None else {}}
-
-            # RAGAS 평가
-            from rag_bench.evaluation import ExtendedRAGEvaluator
-            evaluator = ExtendedRAGEvaluator(llm_model="gpt-4o-nano")
-
-            for name, query_results in runner._results.items():
-                questions = [r["query"] for r in query_results]
-                contexts = [[d["content"] for d in r["results"]] for r in query_results]
-                answers = self._generate_answers(questions, contexts)
-
-                report = evaluator.evaluate_strategy(
-                    strategy_name=name,
-                    questions=questions,
-                    contexts=contexts,
-                    answers=answers,
-                    ground_truths=ground_truths,
-                )
-                result["ragas"] = {"strategy": name, **report.aggregate_dict}
-
-            self.checkpoint.save("graphrag", result)
-            print("[GraphRAG] 완료")
-            return result
-
-        except Exception as e:
-            print(f"[GraphRAG] 실패: {e}")
-            return None
-        finally:
-            release_memory()
-
-    # ------------------------------------------------------------------
     # 결과 Export
     # ------------------------------------------------------------------
 
@@ -597,7 +514,6 @@ class ColabBenchmarkRunner:
         self,
         latency_df: Optional[pd.DataFrame] = None,
         ragas_df: Optional[pd.DataFrame] = None,
-        graphrag_result: Optional[Dict] = None,
     ) -> Path:
         """결과를 Google Drive에 저장.
 
@@ -616,14 +532,6 @@ class ColabBenchmarkRunner:
             ragas_path = output_dir / "ragas.csv"
             ragas_df.to_csv(ragas_path, index=False, encoding="utf-8-sig")
             print(f"  RAGAS: {ragas_path}")
-
-        if graphrag_result is not None:
-            grag_path = output_dir / "graphrag.json"
-            grag_path.write_text(
-                json.dumps(graphrag_result, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
-            print(f"  GraphRAG: {grag_path}")
 
         # per-sample CSV 저장 (EvaluationReport.per_sample_df)
         if self._reports:
@@ -652,10 +560,25 @@ class ColabBenchmarkRunner:
                 print(f"  [Warning] RunTracker 저장 실패: {e}")
 
         # Markdown 리포트 생성
-        report = self._generate_report(latency_df, ragas_df, graphrag_result)
+        report = self._generate_report(latency_df, ragas_df)
         report_path = output_dir / "report.md"
         report_path.write_text(report, encoding="utf-8")
         print(f"  리포트: {report_path}")
+
+        # HTML 보고서 생성
+        try:
+            from rag_bench.scripts.generate_html_report import generate_html_report
+            html_path = output_dir / "report.html"
+            run_record = self.get_run_record()
+            generate_html_report(
+                latency_df=latency_df,
+                ragas_df=ragas_df,
+                output_path=str(html_path),
+                session_id=self.session_id,
+                run_record=run_record,
+            )
+        except Exception as e:
+            print(f"  [Warning] HTML 보고서 생성 실패: {e}")
 
         print(f"\n[Export] 결과 저장 완료: {output_dir}")
         return output_dir
@@ -766,7 +689,6 @@ class ColabBenchmarkRunner:
         self,
         latency_df: Optional[pd.DataFrame],
         ragas_df: Optional[pd.DataFrame],
-        graphrag_result: Optional[Dict],
     ) -> str:
         """Markdown 리포트 생성."""
         run_record = self.get_run_record()
@@ -887,14 +809,5 @@ class ColabBenchmarkRunner:
                 lines.append("")
             except Exception:
                 pass
-
-        if graphrag_result and "ragas" in graphrag_result:
-            lines.append("## GraphRAG 결과")
-            lines.append("")
-            ragas = graphrag_result["ragas"]
-            for k, v in ragas.items():
-                if k != "strategy":
-                    lines.append(f"- **{k}**: {v}")
-            lines.append("")
 
         return "\n".join(lines)

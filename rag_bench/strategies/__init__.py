@@ -3,15 +3,17 @@
 from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 from rag_bench.strategies.colbert import ColBERTStrategy
 from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
-from rag_bench.strategies.graph_rag import GraphRAGStrategy
 from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
 from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
+from rag_bench.strategies.openai_embed import OpenAIEmbedStrategy
+from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
 
 __all__ = [
     "DenseSparseStrategy",
     "ColBERTStrategy",
     "ColBERTRerankStrategy",
-    "GraphRAGStrategy",
     "ContextualRetrievalStrategy",
     "FlashRankRerankStrategy",
+    "OpenAIEmbedStrategy",
+    "UpstageEmbedStrategy",
 ]
