@@ -4,7 +4,7 @@ CacheConfig + IndexCacheManager.
 인덱스 캐시 관리 및 설정.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -25,15 +25,15 @@ class CacheConfig:
     rerank_n: int = 20
 
 
-@dataclass
 class IndexCacheManager:
     """동일 (dense, sparse) 쌍은 같은 Qdrant 인덱스를 재사용."""
 
-    config: CacheConfig = field(default_factory=CacheConfig)
-    cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
-    ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
-    _colbert_model: Any = field(default=None, repr=False)     # ColBERT 싱글톤
-    _flashrank_ranker: Any = field(default=None, repr=False)  # FlashRank 싱글톤
+    def __init__(self, config: Optional[CacheConfig] = None):
+        self.config = config or CacheConfig()
+        self.cache: Dict[str, Tuple[Any, str]] = {}
+        self.ctx_cache: Dict[str, Any] = {}
+        self._colbert_model: Any = None
+        self._flashrank_ranker: Any = None
 
     def get_colbert_model(self):
         """ColBERT 모델을 1회만 로드하고 이후 공유."""

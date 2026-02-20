@@ -755,12 +755,7 @@ class ColabBenchmarkRunner:
         if self._tracker is None:
             return None
         try:
-            from dataclasses import asdict
-            rec = self._tracker._record
-            rec.strategy_timings = [asdict(t) for t in self._tracker._timings]
-            rec.phase_times = [asdict(p) for p in self._tracker._phases]
-            rec.token_usage_total = asdict(self._tracker._token_total)
-            return asdict(rec)
+            return self._tracker.get_snapshot()
         except Exception:
             return None
 
