@@ -302,18 +302,43 @@ def _generate_qa_ragas(
 # ---------------------------------------------------------------------------
 
 
+def _compute_effective_num_qa(args, parent_pairs) -> int:
+    """샘플링 설정에 따른 유효 QA 수 계산."""
+    if not args.sample_pages or not args.max_qa_per_page:
+        return args.num_qa
+
+    # 문서별 소스 수 집계 (샘플링 페이지 수 근사치로 활용)
+    sources = set()
+    for _, doc in parent_pairs:
+        source = doc.metadata.get("source", "unknown")
+        sources.add(source)
+
+    # 각 문서의 청크 수 기준으로 샘플 페이지 수 추정
+    # (실제 PDF 샘플링이 적용된 경우 청크 수 ≈ 샘플 페이지 수)
+    sampled_page_count = len(parent_pairs)
+    max_qa = sampled_page_count * args.max_qa_per_page
+    effective = min(args.num_qa, max_qa)
+    if effective < args.num_qa:
+        print(f"  [QA 상한] 청크 {sampled_page_count}개 × {args.max_qa_per_page}/청크 = "
+              f"최대 {max_qa}개 → {effective}개로 제한")
+    return effective
+
+
 def _run_legacy_method(args, parent_pairs, child_chunks, docs_hash, qa_path, tracker):
     """레거시 GPT-4o-mini 기반 QA 생성."""
+    # 2. 유효 QA 수 계산
+    effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
+
     # 2. Parent 샘플링
-    print(f"\n=== Step 2: Parent 샘플링 ({args.num_qa}개) ===")
-    sampled = _sample_parents(parent_pairs, args.num_qa)
+    print(f"\n=== Step 2: Parent 샘플링 ({effective_num_qa}개) ===")
+    sampled = _sample_parents(parent_pairs, effective_num_qa)
     print(f"  샘플링된 Parent 청크: {len(sampled)}개")
 
     # 3. QA 생성 (토큰 추적)
     print(f"\n=== Step 3: GPT-4o-mini QA 생성 ===")
     with tracker.phase("qa_generation"):
         with track_openai_tokens() as qa_tokens:
-            qa_pairs = _generate_qa_pairs(sampled, args.num_qa)
+            qa_pairs = _generate_qa_pairs(sampled, effective_num_qa)
     if qa_tokens.total_tokens > 0:
         qa_tokens.llm_model = "gpt-4o-mini"
         tracker.add_tokens(qa_tokens, phase="qa_generation")
@@ -377,6 +402,10 @@ def _run_ragas_method(args, parent_pairs, child_chunks, docs_hash, qa_path, trac
 def main():
     parser = argparse.ArgumentParser(description="QA 데이터셋 자동 생성")
     parser.add_argument("--num_qa", type=int, default=20, help="생성할 QA 수 (기본: 20)")
+    parser.add_argument("--max_qa_per_page", type=int, default=2,
+                        help="청크당 최대 QA 수 (기본: 2, sample_pages와 함께 사용)")
+    parser.add_argument("--sample_pages", action="store_true",
+                        help="청크 수 기반 QA 상한 적용")
     parser.add_argument("--force", action="store_true", help="캐시 무시하고 재생성")
     parser.add_argument("--method", type=str, default="legacy",
                         choices=["legacy", "ragas"],
