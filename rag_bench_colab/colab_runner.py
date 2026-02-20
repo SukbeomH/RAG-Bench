@@ -129,6 +129,8 @@ class ColabBenchmarkRunner:
         self._pass1_results: Dict[str, List[dict]] = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
         self._tracker: Optional[Any] = None       # RunTracker 인스턴스
         self._reports: Dict[str, Any] = {}  # EvaluationReport 저장
+        self._cached_parent_pairs: Optional[list] = None  # prepare_qa() 청킹 결과 캐시
+        self._cached_child_chunks: Optional[list] = None  # prepare_qa() 청킹 결과 캐시
 
     def _get_tqdm(self):
         """노트북 tqdm 또는 표준 tqdm 반환."""
@@ -248,6 +250,9 @@ class ColabBenchmarkRunner:
             parent_store_path=str(parent_store_path),
         )
         print(f"[QA Step 1] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+        # prepare_data()에서 재사용할 수 있도록 캐시
+        self._cached_parent_pairs = parent_pairs
+        self._cached_child_chunks = child_chunks
 
         if not parent_pairs:
             raise RuntimeError("Parent 청크가 생성되지 않았습니다.")
@@ -332,21 +337,26 @@ class ColabBenchmarkRunner:
         ground_truths = [qa["ground_truth"] for qa in qa_pairs]
         print(f"[Data] QA 데이터셋: {len(queries)}개 쿼리")
 
-        # Parent-Child 청킹
-        if self._tracker:
+        # Parent-Child 청킹 (prepare_qa() 캐시 우선 재사용)
+        if self._cached_parent_pairs is not None:
+            parent_pairs = self._cached_parent_pairs
+            child_chunks = self._cached_child_chunks
+            print(f"[Data] 청킹 캐시 재사용: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+        elif self._tracker:
             with self._tracker.phase("chunking"):
                 parent_store_path = BENCH_DATA_DIR / "parent_store"
                 parent_pairs, child_chunks = create_parent_child_chunks(
                     markdown_dir=str(BENCH_DOCS_DIR),
                     parent_store_path=str(parent_store_path),
                 )
+            print(f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
         else:
             parent_store_path = BENCH_DATA_DIR / "parent_store"
             parent_pairs, child_chunks = create_parent_child_chunks(
                 markdown_dir=str(BENCH_DOCS_DIR),
                 parent_store_path=str(parent_store_path),
             )
-        print(f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+            print(f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
 
         # 트래커에 설정 기록
         if self._tracker:
