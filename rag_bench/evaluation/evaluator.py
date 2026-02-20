@@ -158,6 +158,17 @@ class _MultiPerspectiveLLM:
                 self.agenerate_text(prompt, n, temperature, stop, callbacks)
             )
 
+    async def generate(
+        self,
+        prompt: Any,
+        n: int = 1,
+        temperature: Optional[float] = 0.01,
+        stop: Optional[List[str]] = None,
+        callbacks: List[Any] = [],
+    ) -> Any:
+        """RAGAS BaseRagasLLM.generate() 인터페이스 구현 — n 파라미터 지원."""
+        return await self.agenerate_text(prompt, n, temperature or 1e-8, stop, callbacks)
+
     def __getattr__(self, name: str) -> Any:
         """그 외 RAGAS LLM 인터페이스는 base_llm에 위임."""
         return getattr(self._base_llm, name)
