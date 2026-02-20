@@ -5,10 +5,35 @@ matplotlib, plotly, seaborn으로 차트를 생성한다.
 Colab 노트북에서 inline 렌더링을 기본으로 한다.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# 전략 그룹 색상 맵 (모듈 레벨 — H-2, H-4, M-4에서 공유)
+# ---------------------------------------------------------------------------
+
+_COLOR_MAP = {
+    "Baseline":              "#3498db",
+    "+ Reranker":            "#e74c3c",
+    "+ Contextual":          "#e67e22",
+    "Reranker + Contextual": "#9b59b6",
+}
+
+
+def _classify_group(strategy_name: str) -> str:
+    """전략명에서 레이어 그룹을 분류한다."""
+    has_ctx = "Contextual" in strategy_name
+    has_rerank = "FlashRank" in strategy_name or "ColBERT" in strategy_name
+    if has_ctx and has_rerank:
+        return "Reranker + Contextual"
+    if has_ctx:
+        return "+ Contextual"
+    if has_rerank:
+        return "+ Reranker"
+    return "Baseline"
 
 
 # ---------------------------------------------------------------------------
@@ -655,25 +680,7 @@ def plot_tradeoff_bubble(
     ).clip(10, 38)
 
     # 레이어 구성으로 색상 분류
-    _COLOR_MAP = {
-        "Baseline":               "#3498db",
-        "+ Reranker":             "#e74c3c",
-        "+ Contextual":           "#e67e22",
-        "Reranker + Contextual":  "#9b59b6",
-    }
-
-    def _group(name: str) -> str:
-        has_ctx = "Contextual" in name
-        has_rerank = "FlashRank" in name or "ColBERT" in name
-        if has_ctx and has_rerank:
-            return "Reranker + Contextual"
-        if has_ctx:
-            return "+ Contextual"
-        if has_rerank:
-            return "+ Reranker"
-        return "Baseline"
-
-    merged["group"] = merged["strategy"].apply(_group)
+    merged["group"] = merged["strategy"].apply(_classify_group)
 
     fig = go.Figure()
 
@@ -1187,6 +1194,548 @@ def plot_token_usage(run_record: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# H-2. Metric Violin — 전략 그룹별 Per-Sample 메트릭 분포
+# ---------------------------------------------------------------------------
+
+
+def plot_metric_violin(
+    reports: Dict[str, Any],
+    metrics: Optional[List[str]] = None,
+) -> None:
+    """전략 그룹별 per-sample RAGAS 점수 분포를 Violin 차트로 시각화.
+
+    Args:
+        reports: {strategy_name: EvaluationReport} dict.
+                 EvaluationReport.per_sample_df에 per-sample 점수가 있어야 함.
+        metrics: 시각화할 메트릭 목록. None이면 자동 선택 (최대 4개).
+    """
+    import matplotlib.pyplot as plt
+
+    try:
+        import seaborn as sns
+    except ImportError:
+        print("seaborn이 필요합니다: pip install seaborn")
+        return
+
+    if not reports:
+        print("EvaluationReport가 없습니다.")
+        return
+
+    # 1. per_sample_df 수집
+    rows = []
+    for name, report in reports.items():
+        df_s = getattr(report, "per_sample_df", None)
+        if df_s is None or (hasattr(df_s, "empty") and df_s.empty):
+            continue
+        df_s = df_s.copy()
+        df_s["strategy"] = name
+        df_s["group"] = _classify_group(name)
+        rows.append(df_s)
+
+    if not rows:
+        print("[Info] per_sample_df가 없습니다. 집계 점수로 대체합니다.")
+        _plot_metric_violin_fallback(reports, metrics)
+        return
+
+    combined = pd.concat(rows, ignore_index=True)
+
+    # 2. 메트릭 컬럼 자동 선택
+    exclude = {"strategy", "group", "user_input", "response", "retrieved_contexts", "reference"}
+    numeric_cols = [
+        c for c in combined.columns
+        if c not in exclude and pd.api.types.is_numeric_dtype(combined[c])
+    ]
+    if not numeric_cols:
+        print("수치 메트릭 컬럼이 없습니다.")
+        return
+    if metrics is None:
+        metrics = numeric_cols[:4]
+    else:
+        metrics = [m for m in metrics if m in combined.columns]
+
+    if not metrics:
+        print("지정한 메트릭이 데이터에 없습니다.")
+        return
+
+    # 3. Violin 서브플롯
+    n = len(metrics)
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 5), sharey=False)
+    if n == 1:
+        axes = [axes]
+
+    group_order = [g for g in ["Baseline", "+ Reranker", "+ Contextual", "Reranker + Contextual"]
+                   if g in combined["group"].values]
+    palette = {k: v for k, v in _COLOR_MAP.items() if k in group_order}
+
+    for ax, metric in zip(axes, metrics):
+        sns.violinplot(
+            data=combined,
+            x="group", y=metric,
+            order=group_order,
+            palette=palette,
+            inner="box",
+            ax=ax,
+            cut=0,
+        )
+        ax.set_title(metric, fontsize=11)
+        ax.set_xlabel("")
+        ax.set_ylabel("Score" if ax is axes[0] else "")
+        ax.set_ylim(-0.05, 1.05)
+        ax.tick_params(axis="x", rotation=20)
+
+    fig.suptitle("전략 그룹별 메트릭 분포 — H-2 Metric Violin", fontsize=14, y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
+def _plot_metric_violin_fallback(reports: Dict[str, Any], metrics: Optional[List[str]]) -> None:
+    """per_sample_df 없을 때 집계 점수 막대로 대체."""
+    import matplotlib.pyplot as plt
+
+    rows = []
+    for name, report in reports.items():
+        agg = getattr(report, "aggregate_dict", {})
+        rows.append({"strategy": name, "group": _classify_group(name), **agg})
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+    numeric_cols = [c for c in df.columns if c not in {"strategy", "group"}
+                    and pd.api.types.is_numeric_dtype(df[c])]
+    if metrics:
+        numeric_cols = [m for m in metrics if m in numeric_cols]
+    if not numeric_cols:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = range(len(df))
+    for i, col in enumerate(numeric_cols[:4]):
+        ax.bar([xi + i * 0.2 for xi in x], df[col], width=0.2, label=col, alpha=0.8)
+    ax.set_xticks([xi + 0.3 for xi in x])
+    ax.set_xticklabels(df["strategy"], rotation=30, ha="right", fontsize=8)
+    ax.set_title("전략별 집계 점수 (per_sample_df 없음 — 집계 대체)")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# M-1. Pipeline Diagram — RAG 파이프라인 구조 다이어그램
+# ---------------------------------------------------------------------------
+
+
+def plot_pipeline_diagram(
+    spec: Optional[Any] = None,
+    strategy_name: Optional[str] = None,
+) -> None:
+    """RAG 파이프라인 레이어 구조를 박스-화살표 다이어그램으로 시각화.
+
+    Args:
+        spec: ComboSpec 인스턴스. None이면 strategy_name으로 파싱.
+        strategy_name: 전략명 문자열 (spec이 없을 때 사용).
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    from matplotlib.patches import FancyBboxPatch
+
+    # spec에서 레이어 정보 추출
+    if spec is not None:
+        dense = getattr(spec, "dense", "Dense")
+        sparse = getattr(spec, "sparse", "Sparse")
+        reranker = getattr(spec, "reranker", None)
+        llm_support = getattr(spec, "llm_support", None)
+    else:
+        # strategy_name으로 파싱
+        name = strategy_name or "DenseSparse"
+        dense = "Dense"
+        sparse = "Sparse"
+        reranker = "flashrank" if "FlashRank" in name else ("colbert" if "ColBERT" in name else None)
+        llm_support = "contextual" if "Contextual" in name else None
+
+    has_rerank = reranker is not None
+    has_ctx = llm_support is not None
+
+    # 노드 정의: (label, x_center, y_center, color)
+    nodes = [
+        ("Documents\n(Markdown)", 0.5, 0.5, "#95a5a6"),
+        ("Parent-Child\nChunking", 2.0, 0.5, "#7f8c8d"),
+        (f"Dense\n({dense})", 3.5, 0.75, "#3498db"),
+        (f"Sparse\n({sparse})", 3.5, 0.25, "#2ecc71"),
+        ("Qdrant\nHybrid Index", 5.0, 0.5, "#1abc9c"),
+        ("Hybrid\nRetrieval", 6.5, 0.5, "#16a085"),
+    ]
+
+    x_cursor = 8.0
+    if has_rerank:
+        nodes.append((f"Reranker\n({reranker})", x_cursor, 0.5, "#e74c3c"))
+        x_cursor += 1.5
+    if has_ctx:
+        nodes.append((f"Contextual\nLLM", x_cursor, 0.5, "#e67e22"))
+        x_cursor += 1.5
+
+    nodes.append(("Answer\nLLM", x_cursor, 0.5, "#9b59b6"))
+    x_cursor += 1.5
+    nodes.append(("Response", x_cursor, 0.5, "#2c3e50"))
+
+    fig, ax = plt.subplots(figsize=(max(14, x_cursor + 1), 3))
+    ax.set_xlim(-0.2, x_cursor + 0.7)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    BOX_W, BOX_H = 1.2, 0.28
+
+    def draw_box(label, cx, cy, color):
+        x0, y0 = cx - BOX_W / 2, cy - BOX_H / 2
+        box = FancyBboxPatch(
+            (x0, y0), BOX_W, BOX_H,
+            boxstyle="round,pad=0.02",
+            linewidth=1.5,
+            edgecolor="white",
+            facecolor=color,
+            alpha=0.88,
+            zorder=3,
+        )
+        ax.add_patch(box)
+        ax.text(cx, cy, label, ha="center", va="center",
+                fontsize=7.5, color="white", weight="bold", zorder=4,
+                multialignment="center")
+
+    def draw_arrow(x1, y1, x2, y2):
+        ax.annotate(
+            "", xy=(x2 - BOX_W / 2, y2),
+            xytext=(x1 + BOX_W / 2, y1),
+            arrowprops=dict(arrowstyle="->", color="#555555", lw=1.2),
+            zorder=2,
+        )
+
+    # 박스 그리기
+    for label, cx, cy, color in nodes:
+        draw_box(label, cx, cy, color)
+
+    # 화살표 (순서대로)
+    prev = None
+    for label, cx, cy, color in nodes:
+        if prev:
+            # Dense/Sparse → Qdrant 는 두 경로
+            if prev[0].startswith("Parent") and label.startswith("Dense"):
+                draw_arrow(prev[1], prev[2], cx, cy + 0.13)
+                prev = (label, cx, cy, color)
+                continue
+            if prev[0].startswith("Parent") and label.startswith("Sparse"):
+                draw_arrow(prev[1], prev[2], cx, cy - 0.13)
+                prev = (label, cx, cy, color)
+                continue
+            if label.startswith("Qdrant") and (prev[0].startswith("Dense") or prev[0].startswith("Sparse")):
+                draw_arrow(prev[1], prev[2], cx, cy)
+                prev = (label, cx, cy, color)
+                continue
+        if prev and not prev[0].startswith("Dense") and not prev[0].startswith("Sparse"):
+            draw_arrow(prev[1], prev[2], cx, cy)
+        prev = (label, cx, cy, color)
+
+    # 범례 레이블
+    legend_patches = [
+        mpatches.Patch(color="#3498db", label="Dense Embedding"),
+        mpatches.Patch(color="#2ecc71", label="Sparse Embedding"),
+        mpatches.Patch(color="#1abc9c", label="Vector Store"),
+    ]
+    if has_rerank:
+        legend_patches.append(mpatches.Patch(color="#e74c3c", label=f"Reranker ({reranker})"))
+    if has_ctx:
+        legend_patches.append(mpatches.Patch(color="#e67e22", label="Contextual LLM"))
+    legend_patches.append(mpatches.Patch(color="#9b59b6", label="Answer LLM"))
+
+    ax.legend(handles=legend_patches, loc="upper left", fontsize=8,
+              bbox_to_anchor=(0, 1.15), ncol=len(legend_patches))
+
+    title_parts = [dense, sparse]
+    if has_rerank:
+        title_parts.append(reranker)
+    if has_ctx:
+        title_parts.append("contextual")
+    ax.set_title(f"RAG Pipeline — {' + '.join(title_parts)}", fontsize=12, pad=30)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# M-3. Strategy Gantt — 전략 빌드 타임라인
+# ---------------------------------------------------------------------------
+
+
+def plot_strategy_gantt(
+    run_record: dict,
+    top_n: int = 40,
+) -> None:
+    """전략 빌드 시간을 누적 합산하여 Gantt 바 차트로 시각화.
+
+    strategy_timings의 build_time_s를 순서대로 누적하여 start 시간을 계산.
+    절대 타임스탬프가 없으므로 기록 순서 = 실행 순서로 가정.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+        top_n: 표시할 최대 전략 수.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    timings = run_record.get("strategy_timings", [])
+    if not timings:
+        print("전략 타이밍 데이터가 없습니다.")
+        return
+
+    # 빌드 성공 여부와 관계없이 전부 표시 (실패는 회색)
+    timings = timings[:top_n]
+
+    # 누적 start 계산
+    cursor = 0.0
+    bars = []
+    for t in timings:
+        bt = t.get("build_time_s", 0)
+        has_llm = bool((t.get("indexing_tokens") or {}).get("total_tokens", 0))
+        success = t.get("build_success", True)
+        bars.append({
+            "label": t.get("label", "unknown"),
+            "start": cursor,
+            "duration": bt,
+            "has_llm": has_llm,
+            "success": success,
+        })
+        cursor += bt
+
+    def _bar_color(b: dict) -> str:
+        if not b["success"]:
+            return "#bdc3c7"   # 실패: 회색
+        if b["has_llm"]:
+            return "#E45756"   # LLM 사용: 빨강
+        return "#4C78A8"       # 일반: 파랑
+
+    fig, ax = plt.subplots(figsize=(14, max(4, len(bars) * 0.35)))
+
+    for b in bars:
+        color = _bar_color(b)
+        ax.barh(
+            b["label"], b["duration"], left=b["start"],
+            color=color, alpha=0.85, edgecolor="white", linewidth=0.5,
+        )
+        if b["duration"] > 0:
+            ax.text(
+                b["start"] + b["duration"] / 2,
+                b["label"],
+                f"{b['duration']:.1f}s",
+                va="center", ha="center", fontsize=7, color="white",
+            )
+
+    ax.set_xlabel("누적 경과 시간 (s)")
+    ax.set_title(
+        f"M-3: Strategy Build Gantt  (총 {cursor:.1f}s, {len(bars)}개 전략)",
+        fontsize=13,
+    )
+    ax.invert_yaxis()
+
+    # Phase 구분선 (strategy_build 단계 끝)
+    phase_cursor = 0.0
+    for p in run_record.get("phase_times", []):
+        dur = p.get("duration_s", 0)
+        if "build" in p.get("phase", "") or "strategy" in p.get("phase", ""):
+            ax.axvline(
+                phase_cursor + dur, color="orange",
+                linestyle="--", linewidth=1.2, alpha=0.7,
+                label="Phase 경계",
+            )
+        phase_cursor += dur
+
+    ax.legend(handles=[
+        Patch(color="#4C78A8", label="Embedding Only"),
+        Patch(color="#E45756", label="+ LLM (Contextual)"),
+        Patch(color="#bdc3c7", label="Failed"),
+    ], loc="lower right", fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# M-4. Cost-Efficiency — 비용 대비 품질 효율
+# ---------------------------------------------------------------------------
+
+
+def plot_cost_efficiency(
+    run_record: dict,
+    ragas_df: pd.DataFrame,
+    latency_df: Optional[pd.DataFrame] = None,
+    metric: Optional[str] = None,
+    cost_per_query_usd: float = 1.5e-6,
+) -> None:
+    """비용 대비 품질 효율 산점도 (M-4 Cost-Efficiency).
+
+    X축: 전략당 총 추정 비용(USD) = 인덱싱(LLM) 비용 + 쿼리 비용 추정
+    Y축: RAGAS 품질 점수
+    파레토 프론티어(저비용 고품질) + 효율 TOP 3 라벨 표시.
+
+    Args:
+        run_record: run_history JSON 로드 결과.
+        ragas_df: 전략별 RAGAS 점수 DataFrame.
+        latency_df: 전략별 레이턴시 DataFrame (쿼리 비용 추정용, 없으면 생략).
+        metric: 품질 메트릭. None이면 자동 선택.
+        cost_per_query_usd: 쿼리 1회당 추정 토큰 비용 단가.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("plotly가 필요합니다: pip install plotly")
+        return
+
+    if ragas_df is None or ragas_df.empty:
+        print("ragas_df가 없습니다.")
+        return
+
+    # 1. 전략별 인덱싱 비용 + 레이턴시 수집
+    cost_map: Dict[str, float] = {}
+    latency_map: Dict[str, float] = {}
+    for st in run_record.get("strategy_timings", []):
+        lbl = st.get("label", "")
+        idx_tok = st.get("indexing_tokens") or {}
+        cost_map[lbl] = float(idx_tok.get("total_cost_usd", 0.0))
+        latency_map[lbl] = st.get("avg_latency_ms", 0) / 1000.0
+
+    # latency_df 우선 사용
+    if latency_df is not None and not latency_df.empty:
+        lat_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
+        for _, row in latency_df.iterrows():
+            name = str(row["strategy"])
+            val = row[lat_col]
+            if lat_col == "avg_latency_ms":
+                val = val / 1000.0
+            latency_map[name] = float(val)
+
+    # 2. 품질 메트릭 선택
+    non_metric_cols = {"strategy", "group"}
+    numeric_cols = [
+        c for c in ragas_df.columns
+        if c not in non_metric_cols and pd.api.types.is_numeric_dtype(ragas_df[c])
+    ]
+    if not numeric_cols:
+        print("수치 메트릭 컬럼이 없습니다.")
+        return
+    if metric is None:
+        metric = numeric_cols[0]
+    if metric not in ragas_df.columns:
+        print(f"메트릭 '{metric}'이 없습니다.")
+        return
+
+    # 3. 병합 및 비용 계산
+    n_queries = run_record.get("num_queries", 1) or 1
+    rows = []
+    for _, row in ragas_df.iterrows():
+        name = str(row["strategy"])
+        # 부분 문자열 매칭
+        idx_cost = 0.0
+        lat = 0.0
+        matched = False
+        for lbl, cost in cost_map.items():
+            if lbl and (lbl in name or name in lbl):
+                idx_cost = cost
+                lat = latency_map.get(lbl, latency_map.get(name, 0.0))
+                matched = True
+                break
+        if not matched:
+            lat = latency_map.get(name, 0.0)
+
+        query_cost = lat * n_queries * cost_per_query_usd
+        total_cost = idx_cost + query_cost
+        quality = row[metric]
+        if pd.isna(quality):
+            continue
+        rows.append({
+            "strategy": name,
+            "group": _classify_group(name),
+            "total_cost": total_cost,
+            "quality": float(quality),
+            "idx_cost": idx_cost,
+            "lat": lat,
+        })
+
+    if not rows:
+        print("매칭된 데이터가 없습니다.")
+        return
+
+    merged = pd.DataFrame(rows)
+
+    # 4. 비용 효율 지수 + TOP 3
+    merged["efficiency"] = merged["quality"] / (merged["total_cost"] + 1e-8)
+    top3 = merged.nlargest(3, "efficiency")
+
+    # log scale 여부 (전체 비용이 0에 매우 가까운 전략이 많으면 log)
+    use_log = (merged["total_cost"] > 0).sum() > len(merged) * 0.3 and merged["total_cost"].max() > 1e-3
+
+    # 5. Plotly scatter
+    fig = go.Figure()
+    for group_name, color in _COLOR_MAP.items():
+        gdf = merged[merged["group"] == group_name]
+        if gdf.empty:
+            continue
+        hover = [
+            f"<b>{r['strategy']}</b><br>"
+            f"총 비용: ${r['total_cost']:.6f}<br>"
+            f"인덱싱: ${r['idx_cost']:.6f}<br>"
+            f"레이턴시: {r['lat']:.3f}s<br>"
+            f"{metric}: {r['quality']:.3f}<br>"
+            f"효율 지수: {r['efficiency']:.1f}"
+            for _, r in gdf.iterrows()
+        ]
+        fig.add_trace(go.Scatter(
+            x=gdf["total_cost"],
+            y=gdf["quality"],
+            mode="markers",
+            name=group_name,
+            hovertext=hover,
+            hoverinfo="text",
+            marker=dict(size=12, color=color, opacity=0.82,
+                        line=dict(color="white", width=1)),
+        ))
+
+    # 파레토 프론티어 (저비용 고품질)
+    pts = merged[["total_cost", "quality"]].values
+    if len(pts) > 1:
+        pareto = _compute_pareto_front(pts, minimize_x=True, maximize_y=True)
+        if len(pareto) > 1:
+            ps = pareto[pareto[:, 0].argsort()]
+            fig.add_trace(go.Scatter(
+                x=ps[:, 0], y=ps[:, 1],
+                mode="lines",
+                line=dict(color="gray", dash="dot", width=1.5),
+                name="파레토 프론티어",
+            ))
+
+    # TOP 3 효율 라벨
+    for _, r in top3.iterrows():
+        fig.add_annotation(
+            x=r["total_cost"], y=r["quality"],
+            text=f"★ {r['strategy'][:28]}",
+            showarrow=True, arrowhead=2, arrowsize=1,
+            font=dict(size=8, color="#2c3e50"),
+            bgcolor="rgba(255,255,255,0.7)",
+        )
+
+    xaxis_opts: Dict[str, Any] = dict(title="총 추정 비용 (USD)")
+    if use_log:
+        xaxis_opts["type"] = "log"
+        xaxis_opts["title"] = "총 추정 비용 (USD, log scale)"
+
+    fig.update_layout(
+        title=f"M-4: 비용 대비 품질 효율 — {metric}",
+        xaxis=xaxis_opts,
+        yaxis=dict(title=metric, range=[-0.05, 1.05]),
+        height=520,
+        font=dict(family="NanumGothic, sans-serif"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.show()
+
+
+# ---------------------------------------------------------------------------
 # 12. 통합 대시보드
 # ---------------------------------------------------------------------------
 
@@ -1273,6 +1822,30 @@ def display_dashboard(
     if cost_data:
         print("\n--- Cost Breakdown ---")
         plot_cost_breakdown(cost_data)
+
+    # 2-H2. Metric Violin
+    if reports:
+        print("\n--- H-2: Metric Violin (Per-Sample Distribution) ---")
+        plot_metric_violin(reports)
+
+    # M-1. Pipeline Diagram
+    if combos:
+        print("\n--- M-1: Pipeline Diagram ---")
+        sample_spec = next(
+            (s for s in combos if getattr(s, "reranker", None) and getattr(s, "llm_support", None)),
+            combos[0],
+        )
+        plot_pipeline_diagram(spec=sample_spec)
+
+    # M-3. Gantt
+    if run_record:
+        print("\n--- M-3: Strategy Build Gantt ---")
+        plot_strategy_gantt(run_record)
+
+    # M-4. Cost-Efficiency
+    if run_record and ragas_df is not None and not ragas_df.empty:
+        print("\n--- M-4: Cost-Efficiency ---")
+        plot_cost_efficiency(run_record, ragas_df, lat_df)
 
     # 6. Weighted Scores
     if reports:
