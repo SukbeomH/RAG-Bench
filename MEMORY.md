@@ -706,3 +706,39 @@ python scripts/cleanup_legacy_indexes.py --execute
 | 중간 | 전부 해결 | PLAN.md |
 | 낮음 | 전부 해결 | PLAN_LOW.md |
 | 범위 외 잔존 | 3건 | `runner.py:250` max_workers=8, `graph/nodes.py:109,120` 리터럴 4/6, `run_bench.py:68` rerank_n=20 |
+
+---
+
+## 2026-02-20 (3차): 범위 외 잔존 매직 넘버 상수 교체
+
+### 커밋
+- `6b7f30d` — refactor(config): 범위 외 잔존 매직 넘버 상수 교체
+
+### 수행 작업
+
+**`config.py` 실행 파라미터 상수 4개 신규 추가**
+```python
+DEFAULT_RERANK_N = 20        # 리랭킹 후보 수 (ColBERT/FlashRank)
+DEFAULT_LLM_WORKERS = 8      # LLM 답변 생성 병렬 워커 수
+CONV_SUMMARY_MIN_MESSAGES = 4  # 대화 요약 최소 메시지 수
+CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
+```
+
+**매직 넘버 교체 위치**
+| 파일 | 이전 | 이후 |
+|------|------|------|
+| `runner.py:250` | `max_workers=8` | `DEFAULT_LLM_WORKERS` |
+| `graph/nodes.py:109` | `< 4` | `< CONV_SUMMARY_MIN_MESSAGES` |
+| `graph/nodes.py:120` | `[-6:]` | `[-CONV_HISTORY_WINDOW:]` |
+| `scripts/run_bench.py:68` | `rerank_n=20` | `DEFAULT_RERANK_N` |
+
+### 최종 기술 부채 상태 (모든 항목 해소)
+| 우선순위 | 상태 | 비고 |
+|---------|------|------|
+| 높음 | 2건 해결, 2건 의도됨 | force_recreate·MPS 해결 / tests·SSL 의도됨 |
+| 중간 | ✅ 전부 해결 | PLAN.md |
+| 낮음 | ✅ 전부 해결 | PLAN_LOW.md |
+| 범위 외 잔존 | ✅ 전부 해결 | 매직 넘버 → config.py 상수 통합 완료 |
+
+### 다음 세션 예정 작업
+- 없음 (식별된 모든 기술 부채 처리 완료)
