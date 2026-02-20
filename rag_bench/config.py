@@ -69,13 +69,16 @@ def setup_ssl_bypass() -> None:
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    # MPS OOM 방지: CPU 강제 사용
+    # MPS OOM 방지: MPS 비활성화 (CPU 강제)
+    # torch.set_default_device("cpu") 는 전역 __torch_function__ 훅을 등록해
+    # torch.no_grad() 컨텍스트 매니저 내부 set_grad_enabled/dropout 호출과 충돌함.
+    # 대신 is_available()을 False로 패치하면 모든 라이브러리가 MPS를 없다고 인식,
+    # 전역 훅 없이 CPU로 자동 폴백한다.
     os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
     try:
         import torch
         if torch.backends.mps.is_available():
-            torch.set_default_device("cpu")
-            # 기존 MPS 캐시 해제
+            torch.backends.mps.is_available = lambda: False  # type: ignore[method-assign]
             torch.mps.empty_cache()
             gc.collect()
     except Exception:
