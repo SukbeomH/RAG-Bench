@@ -636,11 +636,15 @@ def _run_preset_mode(args):
     print(f"{'=' * 60}")
     print(f"  총 검색: {len(active_strategies)}개 전략 x {len(queries)}개 쿼리 = {len(active_strategies) * len(queries)}회")
 
+    pass1_workers = getattr(args, "pass1_workers", 0)
+    if pass1_workers > 1:
+        print(f"  [병렬 모드] pass1-workers={pass1_workers}")
     runner = BenchmarkRunner(
         strategies=active_strategies,
         queries=queries,
         k=args.k,
         evaluator=None,
+        parallel_strategies=pass1_workers,
     )
     with tracker.phase("pass1_latency"):
         runner.run()
@@ -1302,6 +1306,8 @@ def main():
                         help="프리셋 선택: quick|standard|full")
     parser.add_argument("--pass1-only", action="store_true",
                         help="레이턴시만 측정 (RAGAS 없음)")
+    parser.add_argument("--pass1-workers", type=int, default=0,
+                        help="Pass 1 전략 병렬 워커 수 (기본: 0=순차). 예: --pass1-workers 4")
     parser.add_argument("--top_n", type=int, default=None,
                         help="Pass 1 후 상위 N 조합만 RAGAS 평가")
     parser.add_argument("--dry-run", action="store_true",

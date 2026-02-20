@@ -38,12 +38,14 @@ class BenchmarkRunner:
         k: int = 3,
         evaluator: Optional["ExtendedRAGEvaluator"] = None,
         parallel_queries: int = 0,
+        parallel_strategies: int = 0,
     ):
         self.strategies = strategies
         self.queries = queries
         self.k = k
         self.evaluator = evaluator
         self.parallel_queries = parallel_queries or int(os.environ.get("RAG_BENCH_PARALLEL", "0"))
+        self.parallel_strategies = parallel_strategies or int(os.environ.get("RAG_BENCH_PARALLEL_STRATEGIES", "0"))
         self._results: Dict[str, List[dict]] = {}
         self._reports: Dict[str, "EvaluationReport"] = {}
         self._generator = None  # lazy 초기화
@@ -66,12 +68,16 @@ class BenchmarkRunner:
         """
         모든 전략에 대해 쿼리를 실행하고 결과를 수집한다.
 
+        parallel_strategies > 1이면 여러 전략을 동시에 실행한다.
         parallel_queries > 0이면 전략 내 쿼리를 병렬 실행한다.
 
         Returns:
             전략 이름 → 쿼리별 결과 목록.
         """
         self._results = {}
+
+        if self.parallel_strategies > 1:
+            return self._run_strategies_parallel()
 
         for strategy in self.strategies:
             strategy_name = strategy.name
@@ -91,6 +97,52 @@ class BenchmarkRunner:
             self._results[strategy_name] = query_results
 
         return self._results
+
+    def _run_strategy_all_queries(self, strategy: BaseRAGStrategy) -> tuple:
+        """단일 전략의 모든 쿼리를 실행하고 (name, results) 반환."""
+        strategy_name = strategy.name
+        print(f"\n{'=' * 60}")
+        print(f"전략: {strategy_name}")
+        print(f"설명: {strategy.description}")
+        print(f"{'=' * 60}")
+
+        if self.parallel_queries > 1:
+            query_results = self._run_parallel(strategy)
+        else:
+            query_results = []
+            for query in self.queries:
+                result = self._run_single(strategy, query)
+                query_results.append(result)
+
+        return strategy_name, query_results
+
+    def _run_strategies_parallel(self) -> Dict[str, List[dict]]:
+        """여러 전략을 ThreadPool으로 병렬 실행."""
+        results: Dict[str, List[dict]] = {}
+        workers = min(self.parallel_strategies, len(self.strategies))
+        print(f"\n  [병렬 모드] {len(self.strategies)}개 전략을 {workers}개 워커로 실행")
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self._run_strategy_all_queries, strategy): strategy
+                for strategy in self.strategies
+            }
+            for future in as_completed(futures):
+                try:
+                    name, query_results = future.result()
+                    results[name] = query_results
+                except Exception as e:
+                    strategy = futures[future]
+                    print(f"  [오류] {strategy.name}: {e}")
+                    results[strategy.name] = []
+
+        # strategies 순서 유지
+        ordered: Dict[str, List[dict]] = {}
+        for strategy in self.strategies:
+            if strategy.name in results:
+                ordered[strategy.name] = results[strategy.name]
+        self._results = ordered
+        return ordered
 
     def _run_parallel(self, strategy: BaseRAGStrategy) -> List[dict]:
         """전략 내 쿼리들을 ThreadPool으로 병렬 실행."""
