@@ -281,7 +281,7 @@ class ExtendedRAGEvaluator:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-nano",
+        llm_model: str = "gpt-4o-mini",
         preset: MetricPreset = MetricPreset.CORE_ONLY,
         embeddings: Optional[Any] = None,
     ):
@@ -296,20 +296,21 @@ class ExtendedRAGEvaluator:
         """LLM 및 메트릭 lazy 초기화."""
         if self._evaluator_llm is None:
             try:
-                import os
+                import warnings
 
                 import httpx
-                from openai import AsyncOpenAI
-                from ragas.llms import llm_factory
+                from langchain_openai import ChatOpenAI
+                from ragas.llms import LangchainLLMWrapper
 
-                openai_client = AsyncOpenAI(
-                    api_key=os.environ.get("OPENAI_API_KEY"),
-                    http_client=httpx.AsyncClient(verify=False),
-                )
-                base_llm = llm_factory(
+                chat_llm = ChatOpenAI(
                     model=self.llm_model,
-                    client=openai_client,
+                    http_client=httpx.Client(verify=False),
+                    http_async_client=httpx.AsyncClient(verify=False),
                 )
+                # LangchainLLMWrapper는 BaseRagasLLM을 구현하므로 agenerate_text() 지원
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    base_llm = LangchainLLMWrapper(chat_llm)
                 # n>1 요청을 단일 구조화 호출로 처리하는 래퍼 적용
                 self._evaluator_llm = _MultiPerspectiveLLM(
                     base_llm=base_llm,
