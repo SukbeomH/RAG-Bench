@@ -26,9 +26,12 @@ transformers>=4.40
 flashrank>=0.2
 einops>=0.8.2
 
-# --- RAG ---
-lightrag-hku>=1.0
-nest-asyncio>=1.6
+# --- PDF 처리 ---
+pymupdf>=1.24          # fitz — PDF 페이지 샘플링 (pdfs_to_markdowns)
+pymupdf4llm>=0.0.17    # PDF → Markdown 변환
+
+# --- Upstage ---
+langchain-upstage>=0.3
 
 # --- Evaluation ---
 ragas>=0.4.3
