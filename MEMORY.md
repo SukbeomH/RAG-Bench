@@ -674,3 +674,35 @@ python scripts/cleanup_legacy_indexes.py --execute
 ### 다음 세션 예정 작업
 1. `PLAN_LOW.md` 실행 (`/gsd:executor`)
 2. 높은 우선순위 부채 계획 수립 검토
+
+---
+
+## 2026-02-20 (2차): 높은 우선순위 기술 부채 2건 해결
+
+### 커밋
+- `a264c7b` — fix(config,strategies): MPS 람다 패치 → 환경변수 교체, force_recreate 제거
+
+### 수행 작업
+
+**① MPS 런타임 패치 교체 (`rag_bench/config.py`)**
+- 이전: `torch.backends.mps.is_available = lambda: False` — 프레임워크 내부 메서드 람다 오버라이드
+- 이후: `os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"` — 공식 PyTorch 환경 변수로 대체
+- `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` 및 `torch.mps.empty_cache()` 유지
+- 근거: `detect_device()`가 이미 MPS를 제외. 외부 라이브러리의 MPS 시도 시 OOM 대신 CPU 폴백
+
+**② force_recreate=True 제거 (`openai_embed.py`, `upstage_embed.py`)**
+- 이전: `QdrantVectorStore.from_documents(..., force_recreate=True)` — 매 실행마다 강제 재생성
+- 이후: 디스크 인덱스 존재 시 `from_existing_collection()` 재사용, 없을 때만 `from_documents()`
+- `IndexCacheManager.get_or_build()`와 동일한 패턴 적용
+
+### 사용자 결정 사항 (의도된 사항)
+- `tests/` 부재 — 의도됨, 유지
+- SSL 전역 우회 (`setup_ssl_bypass`) — 의도됨, 유지
+
+### 최종 기술 부채 상태
+| 우선순위 | 상태 | 비고 |
+|---------|------|------|
+| 높음 | 2건 해결, 2건 의도됨 | force_recreate·MPS 해결 / tests·SSL 의도됨 |
+| 중간 | 전부 해결 | PLAN.md |
+| 낮음 | 전부 해결 | PLAN_LOW.md |
+| 범위 외 잔존 | 3건 | `runner.py:250` max_workers=8, `graph/nodes.py:109,120` 리터럴 4/6, `run_bench.py:68` rerank_n=20 |
