@@ -18,6 +18,7 @@ import sys
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
+    DEFAULT_RERANK_N,
     QDRANT_DB_PREFIX,
     setup_ssl_bypass,
 )
@@ -65,7 +66,7 @@ def _build_strategies(child_chunks, skip_colbert: bool) -> list:
     reranker = ColBERTRerankStrategy(
         base_strategy=ds_rerank_base,
         model_name="jinaai/jina-colbert-v2",
-        rerank_n=20,
+        rerank_n=DEFAULT_RERANK_N,
     )
     strategies.append(reranker)
 

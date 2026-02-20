@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from rag_bench.evaluation.evaluator import ExtendedRAGEvaluator
 
 from rag_bench.base import BaseRAGStrategy
-from rag_bench.config import DEFAULT_ANSWER_LLM
+from rag_bench.config import DEFAULT_ANSWER_LLM, DEFAULT_LLM_WORKERS
 from rag_bench.evaluation.evaluator import EvaluationReport
 
 
@@ -247,7 +247,7 @@ class BenchmarkRunner:
                     except Exception:
                         return "Generation failed."
 
-                with ThreadPoolExecutor(max_workers=8) as executor:
+                with ThreadPoolExecutor(max_workers=DEFAULT_LLM_WORKERS) as executor:
                     futures = {
                         executor.submit(_invoke, prompt): idx
                         for idx, prompt in pending

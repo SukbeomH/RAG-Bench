@@ -20,6 +20,7 @@ from langchain_core.messages import (
 from langchain_core.tools import tool
 from langgraph.types import Send
 
+from rag_bench.config import CONV_HISTORY_WINDOW, CONV_SUMMARY_MIN_MESSAGES
 from rag_bench.graph.prompts import (
     get_aggregation_prompt,
     get_conversation_summary_prompt,
@@ -106,7 +107,7 @@ def make_analyze_chat_and_summarize(llm):
     """대화 요약 노드 팩토리."""
 
     def analyze_chat_and_summarize(state: State):
-        if len(state["messages"]) < 4:
+        if len(state["messages"]) < CONV_SUMMARY_MIN_MESSAGES:
             return {"conversation_summary": ""}
         relevant_msgs = [
             msg
@@ -117,7 +118,7 @@ def make_analyze_chat_and_summarize(llm):
         if not relevant_msgs:
             return {"conversation_summary": ""}
         conversation = "Conversation history:\n"
-        for msg in relevant_msgs[-6:]:
+        for msg in relevant_msgs[-CONV_HISTORY_WINDOW:]:
             role = "User" if isinstance(msg, HumanMessage) else "Assistant"
             conversation += f"{role}: {msg.content}\n"
         summary_response = llm.with_config(temperature=0.2).invoke(

@@ -69,6 +69,14 @@ DEFAULT_ANSWER_LLM = "gpt-4o-mini"      # 답변 생성용 (BenchmarkRunner)
 DEFAULT_EVAL_LLM = "gpt-4o-mini"        # RAGAS 평가용 (ExtendedRAGEvaluator)
 DEFAULT_CONTEXTUAL_LLM = "gpt-4o-mini"  # Contextual Retrieval 압축용
 
+# ---------------------------------------------------------------------------
+# 실행 파라미터 상수
+# ---------------------------------------------------------------------------
+DEFAULT_RERANK_N = 20        # 리랭킹 후보 수 (ColBERT/FlashRank)
+DEFAULT_LLM_WORKERS = 8      # LLM 답변 생성 병렬 워커 수
+CONV_SUMMARY_MIN_MESSAGES = 4  # 대화 요약 최소 메시지 수
+CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
+
 
 def setup_ssl_bypass() -> None:
     """기업 네트워크/프록시 환경을 위한 SSL 우회 설정."""
