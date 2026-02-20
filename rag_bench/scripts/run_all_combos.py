@@ -2,11 +2,11 @@
 전체 조합 벤치마크 — 3-Layer 교차 조합 + 2-Pass 실행.
 
 3-Layer 설계:
-  Layer 1: Dense Model   (kosimcse, e5, bge-m3, minilm)
-  Layer 2: Sparse Model  (korean_bm25, splade, fastembed_bm25)
+  Layer 1: Dense Model   (kosimcse, e5, bge-m3 / openai-large, upstage)
+  Layer 2: Sparse Model  (korean_bm25, splade)
   Layer 3: Retrieval Mode (hybrid × reranker × llm_support = 6종)
 
-총 유효 조합: 4 × 3 × 6 = 72개
+총 유효 조합 (full): 5 × 2 × 6 = 60개
 
 옵션:
   --preset quick|standard|full  프리셋 기반 조합 생성 (필수)

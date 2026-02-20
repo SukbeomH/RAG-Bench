@@ -619,3 +619,58 @@ python scripts/cleanup_legacy_indexes.py --execute
 | `docs/research/ragatouille_research.md` | ColBERT/RAGatouille Late Interaction 검색 |
 | `docs/research/noderag_research.md` | NodeRAG 이질적 그래프 기반 RAG |
 | `docs/research/raghub_ecosystem_research.md` | RAG 생태계 전체 조감도 (신규) |
+
+## 2026-02-20: 코드베이스 재분석 + 기술 부채 확장 + PLAN.md 실행 + PLAN_LOW.md 작성
+
+### 주요 활동
+
+#### 1. 코드베이스 재분석 — ARCHITECTURE.md, STACK.md 업데이트
+- 현재 디렉토리 구조, 모듈 의존 관계, 외부 연동점 전면 재스캔.
+- `ARCHITECTURE.md`, `STACK.md` 최신 상태로 갱신.
+
+#### 2. 기술 부채 목록 업데이트 (14건 → 18건)
+- 기존 14건 재검토: 1건 해결 확인, 2건 악화 판정, 4건 신규 발견.
+- 총 18건으로 확장 정리.
+
+#### 3. 중간 우선순위 부채 해결 (PLAN.md 실행 — 5 Phase, 5 커밋)
+
+| Phase | 내용 | 파일 |
+|-------|------|------|
+| Phase 1 | `QDRANT_DB_PREFIX` 상수 추가 | `rag_bench/config.py` |
+| Phase 2 | `combo/cache.py`, `dense_sparse.py` 하드코딩 제거, `run_all_combos.py` 레거시 ~200줄 삭제, `COMBO_DEFINITIONS`/`combo_id` 완전 제거 | `combo/cache.py`, `dense_sparse.py`, `run_all_combos.py` |
+| Phase 3 | `combo/spec.py` HF 전용 프리셋 고정, `generate_valid_combinations()` 유효성 검증 추가 | `combo/spec.py` |
+| Phase 4 | `scripts/cleanup_legacy_indexes.py` 신규 생성, `qdrant_db_combo1~4` 레거시 인덱스 삭제 완료 | `scripts/cleanup_legacy_indexes.py` |
+
+##### 생성된 원자적 커밋 (4개)
+```
+2c9a129 feat(config): QDRANT_DB_PREFIX 상수 추가 (#16)
+5742f01 refactor(dense_sparse): COMBO_DEFINITIONS·combo_id 제거 + QDRANT_DB_PREFIX 치환 + 레거시 정리 스크립트 (#6, #7, #10, #16)
+9c6fc5f refactor(run_all_combos): 레거시 모드 전면 제거 + PRESETS HuggingFace 전용 고정 (#5, #6, #9)
+97b4264 refactor(dense_sparse+spec): 유료 API 모델 제거 + 조합 유효성 검증 추가 (#6, #7)
+```
+
+#### 4. 변경사항 검증 완료 — PLAN.md 6개 목표 100% 달성
+- `run_all_combos.py`: 1,051줄 → 717줄 (334줄 감소)
+- `COMBO_DEFINITIONS`, `combo_id`, `openai-small/large/upstage` 참조 0건
+- 레거시 인덱스 디렉토리(`qdrant_db_combo1~4`) 0건
+
+#### 5. PLAN_LOW.md 신규 작성
+- 낮은 우선순위 부채 7개 항목 (#11~#18), 5 Phase, 10 Tasks, 4 Wave 계획.
+- 파일: `PLAN_LOW.md`
+
+### Breaking Changes (이번 세션)
+- `DenseSparseStrategy(combo_id=N)` 사용 불가 → `dense_model=`, `sparse_type=` 파라미터 방식
+- `run_all_combos.py`의 `--combos`, `--skip_*` 옵션 제거, `--preset` 필수 인수로 변경
+- `COMBO_DEFINITIONS` import 불가 (`from rag_bench.strategies.dense_sparse import COMBO_DEFINITIONS`)
+- `DENSE_MODELS`에서 `openai-small`, `openai-large`, `upstage` 키 제거
+
+### 현재 미해결 기술 부채 현황
+| 우선순위 | 건수 | 비고 |
+|---------|------|------|
+| 높음 | 4건 | tests/ 없음, SSL 전역 우회, MPS 런타임 패치, force_recreate=True |
+| 낮음 | 7건 | PLAN_LOW.md 참조 (#11~#18, #15 포함) |
+| 범위 외 잔존 | 3건 | `runner.py:250` max_workers=8, `graph/nodes.py:109,120` 리터럴 4/6, `run_bench.py:68` rerank_n=20 |
+
+### 다음 세션 예정 작업
+1. `PLAN_LOW.md` 실행 (`/gsd:executor`)
+2. 높은 우선순위 부채 계획 수립 검토

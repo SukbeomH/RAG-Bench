@@ -208,17 +208,21 @@ DENSE_MODELS: Dict[str, str] = {
     "kosimcse": "BM-K/KoSimCSE-roberta-multitask",
     "e5": "intfloat/multilingual-e5-large",
     "bge-m3": "BAAI/bge-m3",
-    "minilm": "sentence-transformers/all-MiniLM-L6-v2",
+    # OpenAI API
+    "openai-large": "text-embedding-3-large",
+    # Upstage API
+    "upstage": "solar-embedding-1-query",
 }
 
 DENSE_DIMS: Dict[str, int] = {
     "BM-K/KoSimCSE-roberta-multitask": 768,
     "intfloat/multilingual-e5-large": 1024,
     "BAAI/bge-m3": 1024,
-    "sentence-transformers/all-MiniLM-L6-v2": 384,
+    "text-embedding-3-large": 3072,
+    "solar-embedding-1-query": 4096,
 }
 
-SPARSE_TYPES: List[str] = ["korean_bm25", "splade", "fastembed_bm25"]
+SPARSE_TYPES: List[str] = ["korean_bm25", "splade"]
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +239,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     사용법:
         strategy = DenseSparseStrategy(dense_model="kosimcse", sparse_type="splade")
-        strategy = DenseSparseStrategy(dense_model="BM-K/KoSimCSE-roberta-multitask", sparse_type="fastembed_bm25")
+        strategy = DenseSparseStrategy(dense_model="BM-K/KoSimCSE-roberta-multitask", sparse_type="korean_bm25")
     """
 
     def __init__(
@@ -246,7 +250,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
         device: Optional[str] = None,   # None이면 _init_dense에서 detect_device() 자동 사용
     ):
         self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
-        self._sparse_type = sparse_type or "fastembed_bm25"
+        self._sparse_type = sparse_type or "korean_bm25"
 
         if qdrant_path is not None:
             self._qdrant_path = qdrant_path
@@ -301,16 +305,26 @@ class DenseSparseStrategy(BaseRAGStrategy):
         self._use_langchain_sparse = use_langchain_sparse
 
     def _init_dense(self):
-        """Dense 임베딩 모델 초기화 (HuggingFace 로컬 모델 전용)."""
+        """Dense 임베딩 모델 초기화 (HuggingFace / OpenAI / Upstage 자동 분기)."""
         model_spec = self._dense_model
 
-        from langchain_huggingface import HuggingFaceEmbeddings
-        _device = self._device if self._device is not None else detect_device()
-        self._dense_embeddings = HuggingFaceEmbeddings(
-            model_name=model_spec,
-            model_kwargs={"device": _device, "trust_remote_code": True},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        if "text-embedding-3" in model_spec or "ada" in model_spec:
+            # OpenAI Embeddings API — device 파라미터 불필요
+            from langchain_openai import OpenAIEmbeddings
+            self._dense_embeddings = OpenAIEmbeddings(model=model_spec)
+        elif "solar-embedding" in model_spec:
+            # Upstage Solar Embeddings API — device 파라미터 불필요
+            from langchain_upstage import UpstageEmbeddings
+            self._dense_embeddings = UpstageEmbeddings(model="solar-embedding-1-query")
+        else:
+            # HuggingFace 로컬 모델
+            from langchain_huggingface import HuggingFaceEmbeddings
+            _device = self._device if self._device is not None else detect_device()
+            self._dense_embeddings = HuggingFaceEmbeddings(
+                model_name=model_spec,
+                model_kwargs={"device": _device, "trust_remote_code": True},
+                encode_kwargs={"normalize_embeddings": True},
+            )
 
         # 정적 테이블에서 차원 조회, 미등록 모델만 런타임 확인
         if model_spec in DENSE_DIMS:

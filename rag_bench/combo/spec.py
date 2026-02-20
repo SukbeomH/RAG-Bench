@@ -3,10 +3,11 @@ ComboSpec + PRESETS + generate_valid_combinations.
 
 3-Layer 조합 명세 및 프리셋 정의.
 
-지원 Dense 모델 (HuggingFace 로컬 전용):
-  kosimcse, e5, bge-m3, minilm
+지원 Dense 모델:
+  kosimcse, e5, bge-m3 (HuggingFace 로컬)
+  openai-large (OpenAI API), upstage (Upstage API)
 지원 Sparse 타입:
-  korean_bm25, splade, fastembed_bm25
+  korean_bm25, splade
 """
 
 from dataclasses import dataclass
@@ -14,9 +15,11 @@ from typing import Dict, List, Optional
 
 from rag_bench.strategies.dense_sparse import DENSE_MODELS, SPARSE_TYPES
 
-# HuggingFace 로컬 모델만 포함하는 기본 Dense 모델 목록.
-# 유료 API 모델(openai-small, openai-large, upstage)은 제외한다.
-_HF_DENSE_MODELS = ["kosimcse", "e5", "bge-m3", "minilm"]
+# HuggingFace 로컬 모델 목록.
+_HF_DENSE_MODELS = ["kosimcse", "e5", "bge-m3"]
+
+# 유료 API 모델 포함 전체 Dense 모델 목록.
+_ALL_DENSE_MODELS = _HF_DENSE_MODELS + ["openai-large", "upstage"]
 
 
 @dataclass
@@ -61,19 +64,19 @@ class ComboSpec:
 
 PRESETS: Dict[str, Dict[str, list]] = {
     "quick": {
-        "dense_models": ["bge-m3", "minilm"],
-        "sparse_models": ["fastembed_bm25"],
+        "dense_models": ["bge-m3"],
+        "sparse_models": ["korean_bm25"],
         "rerankers": [None, "flashrank"],
         "llm_support": [None],
     },
     "standard": {
-        "dense_models": _HF_DENSE_MODELS,
+        "dense_models": _ALL_DENSE_MODELS,
         "sparse_models": list(SPARSE_TYPES),
         "rerankers": [None, "flashrank"],
         "llm_support": [None],
     },
     "full": {
-        "dense_models": _HF_DENSE_MODELS,
+        "dense_models": _ALL_DENSE_MODELS,
         "sparse_models": list(SPARSE_TYPES),
         "rerankers": [None, "colbert", "flashrank"],
         "llm_support": [None, "contextual"],
