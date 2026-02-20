@@ -86,7 +86,28 @@ def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
 
     Args:
         config: PRESETS 딕셔너리 항목.
+
+    Raises:
+        ValueError: config의 dense_models 또는 sparse_models에 유효하지 않은
+            키가 포함된 경우.
     """
+    # 유효성 검증
+    valid_dense = set(DENSE_MODELS.keys())
+    invalid_dense = [d for d in config.get("dense_models", []) if d not in valid_dense]
+    if invalid_dense:
+        raise ValueError(
+            f"유효하지 않은 dense_models 키: {invalid_dense}. "
+            f"허용 값: {sorted(valid_dense)}"
+        )
+
+    valid_sparse = set(SPARSE_TYPES)
+    invalid_sparse = [s for s in config.get("sparse_models", []) if s not in valid_sparse]
+    if invalid_sparse:
+        raise ValueError(
+            f"유효하지 않은 sparse_models 값: {invalid_sparse}. "
+            f"허용 값: {sorted(valid_sparse)}"
+        )
+
     combos = []
     for d in config["dense_models"]:
         for s in config["sparse_models"]:

@@ -69,7 +69,7 @@ W4: Task 2.2, 3.2                    (마무리)
   - Done: `--combos`, `--skip_colbert`, `--skip_rerank`, `--skip_contextual`, `--skip_flashrank`, `--contextual_base` 인수 제거
   - Done: `ALL_COMBO_IDS` 상수 제거
 
-- [ ] **Task 2.2** — `dense_sparse.py`에서 유료 모델 제거
+- [x] **Task 2.2** — `dense_sparse.py`에서 유료 모델 제거
   - Done: `DENSE_MODELS`에 `openai-small`, `openai-large`, `upstage` 키 없음
   - Done: `DENSE_DIMS`에서 해당 모델 차원 제거
 
@@ -78,7 +78,7 @@ W4: Task 2.2, 3.2                    (마무리)
 - [x] **Task 3.1** — `combo/spec.py` PRESETS 정리
   - Done: `PRESETS`의 `dense_models` 목록이 `DENSE_MODELS`에 존재하는 키만 참조
 
-- [ ] **Task 3.2** — `generate_valid_combinations()` 유효성 검증
+- [x] **Task 3.2** — `generate_valid_combinations()` 유효성 검증
   - Done: 유효하지 않은 dense/sparse 키를 넘기면 `ValueError` 발생
 
 ### Phase 4
