@@ -13,7 +13,6 @@ Usage:
 """
 
 import argparse
-import json
 import sys
 
 from rag_bench.config import (
@@ -24,19 +23,8 @@ from rag_bench.config import (
 from rag_bench.evaluation import ExtendedRAGEvaluator
 from rag_bench.indexing.chunker import create_parent_child_chunks
 from rag_bench.runner import BenchmarkRunner
-
-
-def _load_qa_dataset() -> dict:
-    """_benchdata/qa_dataset.json을 로드한다."""
-    qa_path = BENCH_DATA_DIR / "qa_dataset.json"
-    if not qa_path.exists():
-        print(f"Error: QA 데이터셋이 없습니다: {qa_path}")
-        print("  먼저 실행: python -m rag_bench.scripts.generate_qa")
-        sys.exit(1)
-
-    dataset = json.loads(qa_path.read_text(encoding="utf-8"))
-    print(f"QA 데이터셋 로드: {dataset['num_qa']}개 QA")
-    return dataset
+from rag_bench.utils.qa_loader import load_qa_dataset
+from rag_bench.utils.report import print_ragas_table
 
 
 def _build_strategies(child_chunks, skip_colbert: bool) -> list:
@@ -75,34 +63,6 @@ def _build_strategies(child_chunks, skip_colbert: bool) -> list:
     return strategies
 
 
-def _print_ragas_table(scores_df):
-    """RAGAS 평가 결과를 포맷팅하여 출력한다."""
-    if scores_df is None or scores_df.empty:
-        print("RAGAS 평가 결과가 없습니다.")
-        return
-
-    print(f"\n{'=' * 80}")
-    print("RAGAS 평가 결과 비교")
-    print(f"{'=' * 80}")
-
-    # 컬럼 정렬
-    metric_cols = [c for c in scores_df.columns if c != "strategy"]
-    header = f"{'전략':<45}"
-    for col in metric_cols:
-        header += f" {col:>15}"
-    print(header)
-    print("-" * 80)
-
-    for _, row in scores_df.iterrows():
-        line = f"{row['strategy']:<45}"
-        for col in metric_cols:
-            val = row.get(col, "N/A")
-            if isinstance(val, float):
-                line += f" {val:>15.4f}"
-            else:
-                line += f" {str(val):>15}"
-        print(line)
-
 
 def main():
     parser = argparse.ArgumentParser(description="통합 벤치마크 + RAGAS 평가")
@@ -118,7 +78,7 @@ def main():
 
     # 1. QA 데이터셋 로드
     print("\n=== Step 1: QA 데이터셋 로드 ===")
-    dataset = _load_qa_dataset()
+    dataset = load_qa_dataset(BENCH_DATA_DIR)
     qa_pairs = dataset["qa_pairs"]
     queries = [qa["question"] for qa in qa_pairs]
     ground_truths = [qa["ground_truth"] for qa in qa_pairs]
@@ -158,7 +118,7 @@ def main():
     # 5. RAGAS 평가
     print("\n=== Step 5: RAGAS 평가 ===")
     scores_df = runner.evaluate(ground_truths=ground_truths)
-    _print_ragas_table(scores_df)
+    print_ragas_table(scores_df)
 
     # 6. 결과 DataFrame 저장
     results_df = runner.to_dataframe()

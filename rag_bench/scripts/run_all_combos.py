@@ -30,7 +30,6 @@ Usage:
 
 import argparse
 import gc
-import json
 import sys
 import time
 import traceback
@@ -50,6 +49,8 @@ from rag_bench.combo import (
 from rag_bench.indexing.chunker import create_parent_child_chunks
 from rag_bench.run_tracker import RunTracker, track_openai_tokens
 from rag_bench.runner import BenchmarkRunner
+from rag_bench.utils.qa_loader import load_qa_dataset
+from rag_bench.utils.report import print_ragas_table
 
 ALL_COMBO_IDS = [1, 2, 3, 4]
 
@@ -57,17 +58,6 @@ ALL_COMBO_IDS = [1, 2, 3, 4]
 # ===========================================================================
 # 레거시 빌드 함수들 (기존 --combos / --skip_* 모드)
 # ===========================================================================
-
-
-def _load_qa_dataset() -> dict:
-    qa_path = BENCH_DATA_DIR / "qa_dataset.json"
-    if not qa_path.exists():
-        print(f"Error: QA 데이터셋이 없습니다: {qa_path}")
-        print("  먼저 실행: python -m rag_bench.scripts.generate_qa")
-        sys.exit(1)
-    dataset = json.loads(qa_path.read_text(encoding="utf-8"))
-    print(f"QA 데이터셋 로드: {dataset['num_qa']}개 QA")
-    return dataset
 
 
 def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str, reindex=True):
@@ -202,49 +192,6 @@ def _safe_build(
         return None, err
 
 
-def _print_ragas_table(scores_df, scoring_profile="balanced"):
-    if scores_df is None or scores_df.empty:
-        print("RAGAS 평가 결과가 없습니다.")
-        return
-
-    from rag_bench.evaluation.evaluator import SCORING_PROFILES
-
-    print(f"\n{'═' * 100}")
-    print(f" RAGAS 평가 결과 비교 (scoring: {scoring_profile})")
-    print(f"{'═' * 100}")
-
-    metric_cols = [c for c in scores_df.columns if c != "strategy"]
-
-    # 가중 점수 계산
-    weights = SCORING_PROFILES.get(scoring_profile, SCORING_PROFILES["balanced"])
-    weighted_scores = []
-    for _, row in scores_df.iterrows():
-        ws = 0.0
-        for metric, weight in weights.items():
-            val = row.get(metric, 0.0)
-            if isinstance(val, (int, float)):
-                ws += val * weight
-        weighted_scores.append(round(ws, 4))
-
-    display_cols = metric_cols + ["weighted"]
-    header = f"  {'전략':<45}"
-    for col in display_cols:
-        header += f" {col:>14}"
-    print(header)
-    print(f"  {'─' * 45} " + " ".join("─" * 14 for _ in display_cols))
-
-    for i, (_, row) in enumerate(scores_df.iterrows()):
-        line = f"  {row['strategy']:<45}"
-        for col in metric_cols:
-            val = row.get(col, "N/A")
-            if isinstance(val, float):
-                line += f" {val:>14.4f}"
-            else:
-                line += f" {str(val):>14}"
-        line += f" {weighted_scores[i]:>14.4f}"
-        print(line)
-
-
 def _print_init_summary(results: list):
     print(f"\n{'═' * 60}")
     print(" 전략 초기화 결과")
@@ -316,7 +263,7 @@ def _run_preset_mode(args):
     print("Step 1: QA 데이터셋 로드")
     print(f"{'=' * 60}")
     with tracker.phase("qa_dataset_load"):
-        dataset = _load_qa_dataset()
+        dataset = load_qa_dataset(BENCH_DATA_DIR)
         qa_pairs = dataset["qa_pairs"]
         queries = [qa["question"] for qa in qa_pairs]
         ground_truths = [qa["ground_truth"] for qa in qa_pairs]
@@ -496,7 +443,7 @@ def _run_preset_mode(args):
                 scores_df = eval_runner.evaluate(ground_truths=ground_truths)
         if ragas_tokens.total_tokens > 0:
             tracker.record_ragas_tokens(ragas_tokens)
-        _print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
+        print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
 
         # per-sample CSV 저장 (ExtendedRAGEvaluator 사용 시)
         if eval_runner.reports:
@@ -1017,7 +964,7 @@ def _run_legacy_mode(args):
         print("Step 5: RAGAS 평가")
         print(f"{'=' * 60}")
         scores_df = runner.evaluate(ground_truths=ground_truths)
-        _print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
+        print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
 
     # ── Step 6: 결과 저장 ──
     print(f"\n{'=' * 60}")
