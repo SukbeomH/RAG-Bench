@@ -1,11 +1,8 @@
 """
 DenseSparseStrategy — Dense + Sparse 하이브리드 검색 전략
 
-노트북의 6가지 임베딩 조합을 모듈화한 구현.
 Qdrant 벡터 DB에 Dense(벡터) + Sparse(BM25/SPLADE) 하이브리드 검색을 수행한다.
-
-v2: dense_model / sparse_type 독립 파라미터화.
-    combo_id는 하위 호환용으로 유지.
+dense_model / sparse_type 독립 파라미터로 조합을 지정한다.
 """
 
 import math
@@ -20,6 +17,7 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import SparseVector
 
 from rag_bench.base import BaseRAGStrategy, StrategyRetriever
+from rag_bench.config import QDRANT_DB_PREFIX
 from rag_bench.utils.device import detect_device
 
 
@@ -230,37 +228,6 @@ DENSE_DIMS: Dict[str, int] = {
 
 SPARSE_TYPES: List[str] = ["korean_bm25", "splade", "fastembed_bm25"]
 
-# ---------------------------------------------------------------------------
-# 임베딩 조합 정의 (하위 호환용)
-# ---------------------------------------------------------------------------
-
-COMBO_DEFINITIONS = {
-    1: {
-        "name": "한국어 최적 (KoSimCSE + BM25/OKt)",
-        "dense_model": "BM-K/KoSimCSE-roberta-multitask",
-        "sparse_type": "korean_bm25",
-        "description": "한국어 문서에 최적화. KoSimCSE(의미검색) + OKt(형태소 BM25) 조합.",
-    },
-    2: {
-        "name": "다국어 균형 (E5 + SPLADE)",
-        "dense_model": "intfloat/multilingual-e5-large",
-        "sparse_type": "splade",
-        "description": "70개+ 언어 지원. E5(다국어 의미검색) + SPLADE(Term Expansion) 조합.",
-    },
-    3: {
-        "name": "올인원 통합 (BGE-M3)",
-        "dense_model": "BAAI/bge-m3",
-        "sparse_type": "fastembed_bm25",
-        "description": "단일 모델 BGE-M3로 Dense/Sparse 통합. 중국어/영어/일본어 우수.",
-    },
-    4: {
-        "name": "경량/빠른 속도 (MiniLM + BM25)",
-        "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
-        "sparse_type": "fastembed_bm25",
-        "description": "최소 리소스. MiniLM(384d) + FastEmbed BM25. 가볍고 빠름.",
-    },
-}
-
 
 # ---------------------------------------------------------------------------
 # DenseSparseStrategy
@@ -275,45 +242,25 @@ class DenseSparseStrategy(BaseRAGStrategy):
     Reranker/LLM Support 변형은 Decorator 패턴(ColBERTRerank, FlashRank, ContextualRetrieval)이 처리.
 
     사용법:
-        # 새로운 독립 파라미터 방식
         strategy = DenseSparseStrategy(dense_model="kosimcse", sparse_type="splade")
         strategy = DenseSparseStrategy(dense_model="BM-K/KoSimCSE-roberta-multitask", sparse_type="fastembed_bm25")
-
-        # 하위 호환: combo_id
-        strategy = DenseSparseStrategy(combo_id=1)
     """
 
     def __init__(
         self,
-        dense_model: Optional[str] = None,
+        dense_model: str,
         sparse_type: Optional[str] = None,
         qdrant_path: Optional[str] = None,
-        combo_id: Optional[int] = None,
         device: Optional[str] = None,   # None이면 _init_dense에서 detect_device() 자동 사용
     ):
-        if combo_id is not None:
-            if combo_id not in COMBO_DEFINITIONS:
-                raise ValueError(f"combo_id는 1~4이어야 합니다. 입력값: {combo_id}")
-            combo = COMBO_DEFINITIONS[combo_id]
-            self._dense_model = combo["dense_model"]
-            self._sparse_type = combo["sparse_type"]
-            self._combo_id: Optional[int] = combo_id
-            self._combo: Optional[dict] = combo
-        elif dense_model is not None:
-            self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
-            self._sparse_type = sparse_type or "fastembed_bm25"
-            self._combo_id = None
-            self._combo = None
-        else:
-            raise ValueError("combo_id 또는 dense_model 중 하나는 필수")
+        self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
+        self._sparse_type = sparse_type or "fastembed_bm25"
 
         if qdrant_path is not None:
             self._qdrant_path = qdrant_path
-        elif self._combo_id is not None:
-            self._qdrant_path = f"qdrant_db_combo{self._combo_id}"
         else:
             dense_short = self._dense_model.split("/")[-1]
-            self._qdrant_path = f"qdrant_db_{dense_short}_{self._sparse_type}"
+            self._qdrant_path = f"{QDRANT_DB_PREFIX}{dense_short}_{self._sparse_type}"
 
         self._collection_name = "document_child_chunks"
         self._device: Optional[str] = device   # None이면 _init_dense에서 detect_device() 사용
@@ -326,15 +273,11 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
     @property
     def name(self) -> str:
-        if self._combo_id and self._combo:
-            return f"[{self._combo_id}] {self._combo['name']}"
         dense_short = self._dense_model.split("/")[-1]
         return f"DS({dense_short}+{self._sparse_type})"
 
     @property
     def description(self) -> str:
-        if self._combo_id and self._combo:
-            return self._combo["description"]
         dense_short = self._dense_model.split("/")[-1]
         return f"Hybrid: {dense_short} (dense) + {self._sparse_type} (sparse)"
 

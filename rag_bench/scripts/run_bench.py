@@ -4,7 +4,7 @@
 QA 로드 → 청킹 → 3종 전략 인덱싱 → BenchmarkRunner.run() → ExtendedRAGEvaluator → 비교 테이블
 
 전략 3종:
-  1. DenseSparse (combo_id=4, MiniLM + BM25)  → _benchdata/qdrant_db_bench
+  1. DenseSparse (minilm + fastembed_bm25)  → _benchdata/qdrant_db_bench
   2. ColBERT (all-MiniLM-L6-v2, brute-force)  → in-memory
   3. ColBERTRerank (DenseSparse base)          → _benchdata/qdrant_db_rerank
 
@@ -18,6 +18,7 @@ import sys
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
+    QDRANT_DB_PREFIX,
     setup_ssl_bypass,
 )
 from rag_bench.evaluation import ExtendedRAGEvaluator
@@ -33,9 +34,13 @@ def _build_strategies(child_chunks, skip_colbert: bool) -> list:
 
     strategies = []
 
-    # 1. DenseSparse (combo_id=4, 경량/빠른)
-    qdrant_bench = str(BENCH_DATA_DIR / "qdrant_db_bench")
-    ds = DenseSparseStrategy(combo_id=4, qdrant_path=qdrant_bench)
+    # 1. DenseSparse (minilm + fastembed_bm25, 경량/빠른)
+    qdrant_bench = str(BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}bench")
+    ds = DenseSparseStrategy(
+        dense_model="minilm",
+        sparse_type="fastembed_bm25",
+        qdrant_path=qdrant_bench,
+    )
     strategies.append(ds)
 
     # 2. ColBERT (brute-force, in-memory)
@@ -51,8 +56,12 @@ def _build_strategies(child_chunks, skip_colbert: bool) -> list:
     # 3. ColBERTRerank (DenseSparse base)
     from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
 
-    qdrant_rerank = str(BENCH_DATA_DIR / "qdrant_db_rerank")
-    ds_rerank_base = DenseSparseStrategy(combo_id=4, qdrant_path=qdrant_rerank)
+    qdrant_rerank = str(BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}rerank")
+    ds_rerank_base = DenseSparseStrategy(
+        dense_model="minilm",
+        sparse_type="fastembed_bm25",
+        qdrant_path=qdrant_rerank,
+    )
     reranker = ColBERTRerankStrategy(
         base_strategy=ds_rerank_base,
         model_name="jinaai/jina-colbert-v2",

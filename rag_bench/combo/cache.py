@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM
+from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM, QDRANT_DB_PREFIX
 from rag_bench.combo.spec import ComboSpec
 
 
@@ -70,7 +70,7 @@ class IndexCacheManager:
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 
         key = spec.index_key
-        qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{spec.dense}_{spec.sparse}")
+        qdrant_path = str(BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}{spec.dense}_{spec.sparse}")
 
         if key in self.cache and not reindex:
             cached_strategy, _ = self.cache[key]
@@ -115,7 +115,7 @@ class IndexCacheManager:
             return self.ctx_cache[key]
 
         ctx_qdrant_path = str(
-            BENCH_DATA_DIR / f"qdrant_db_ctx_{spec.dense}_{spec.sparse}"
+            BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}ctx_{spec.dense}_{spec.sparse}"
         )
         ctx_base = DenseSparseStrategy(
             dense_model=spec.dense,

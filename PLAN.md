@@ -54,10 +54,10 @@ W4: Task 2.2, 3.2                    (마무리)
 - [x] **Task 1.1** — `config.py`에 `QDRANT_DB_PREFIX = "qdrant_db_"` 추가
   - Done: `QDRANT_DB_PREFIX` 상수가 `config.py`에 존재하고 `from rag_bench.config import QDRANT_DB_PREFIX` 가능
 
-- [ ] **Task 1.2** — `combo/cache.py` `"qdrant_db_"` → `QDRANT_DB_PREFIX` 치환
+- [x] **Task 1.2** — `combo/cache.py` `"qdrant_db_"` → `QDRANT_DB_PREFIX` 치환
   - Done: `cache.py` 내 하드코딩된 `"qdrant_db_"` 문자열이 0개
 
-- [ ] **Task 1.3** — `dense_sparse.py` `COMBO_DEFINITIONS` 및 `combo_id` 제거
+- [x] **Task 1.3** — `dense_sparse.py` `COMBO_DEFINITIONS` 및 `combo_id` 제거
   - Done: `COMBO_DEFINITIONS` 심볼이 `dense_sparse.py`에 존재하지 않음
   - Done: `DenseSparseStrategy.__init__`의 `combo_id` 파라미터가 제거됨
 
@@ -83,12 +83,12 @@ W4: Task 2.2, 3.2                    (마무리)
 
 ### Phase 4
 
-- [ ] **Task 4.1** — `scripts/cleanup_legacy_indexes.py` 생성
+- [x] **Task 4.1** — `scripts/cleanup_legacy_indexes.py` 생성
   - Done: 파일이 `scripts/cleanup_legacy_indexes.py`에 존재
   - Done: 기본 실행이 dry-run (실제 삭제 없음)
   - Done: `--execute` 플래그로만 실제 삭제 수행
 
-- [ ] **Task 4.2** — dry-run 검증
+- [x] **Task 4.2** — dry-run 검증
   - Done: `python scripts/cleanup_legacy_indexes.py` 실행 시 오류 없이 대상 목록 출력
 
 ---
