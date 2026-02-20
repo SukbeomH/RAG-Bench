@@ -289,6 +289,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
         sparse_type: Optional[str] = None,
         qdrant_path: Optional[str] = None,
         combo_id: Optional[int] = None,
+        device: Optional[str] = None,   # None이면 _init_dense에서 detect_device() 자동 사용
     ):
         if combo_id is not None:
             if combo_id not in COMBO_DEFINITIONS:
@@ -315,6 +316,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
             self._qdrant_path = f"qdrant_db_{dense_short}_{self._sparse_type}"
 
         self._collection_name = "document_child_chunks"
+        self._device: Optional[str] = device   # None이면 _init_dense에서 detect_device() 사용
 
         self._dense_embeddings: Any = None
         self._sparse_embeddings: Any = None
@@ -368,19 +370,20 @@ class DenseSparseStrategy(BaseRAGStrategy):
         model_spec = self._dense_model
 
         if "text-embedding-3" in model_spec or "ada" in model_spec:
-            # OpenAI Embeddings API
+            # OpenAI Embeddings API — device 파라미터 불필요
             from langchain_openai import OpenAIEmbeddings
             self._dense_embeddings = OpenAIEmbeddings(model=model_spec)
         elif "solar-embedding" in model_spec:
-            # Upstage Solar Embeddings API (embed_query → query모델, embed_documents → passage모델)
+            # Upstage Solar Embeddings API — device 파라미터 불필요
             from langchain_upstage import UpstageEmbeddings
             self._dense_embeddings = UpstageEmbeddings(model="solar-embedding-1-query")
         else:
             # HuggingFace 로컬 모델
             from langchain_huggingface import HuggingFaceEmbeddings
+            _device = self._device if self._device is not None else detect_device()
             self._dense_embeddings = HuggingFaceEmbeddings(
                 model_name=model_spec,
-                model_kwargs={"device": detect_device()},
+                model_kwargs={"device": _device, "trust_remote_code": True},
                 encode_kwargs={"normalize_embeddings": True},
             )
 
@@ -413,12 +416,15 @@ class DenseSparseStrategy(BaseRAGStrategy):
         print(f"  Sparse: {sparse_type}")
 
     def _init_qdrant(self):
-        """Qdrant 클라이언트 및 벡터 스토어 초기화."""
+        """Qdrant 클라이언트 및 벡터 스토어 초기화. ':memory:' 경로는 인메모리 모드로 자동 처리."""
         from langchain_qdrant import QdrantVectorStore
         from langchain_qdrant.qdrant import RetrievalMode
 
         if self._client is None:
-            self._client = QdrantClient(path=self._qdrant_path)
+            if self._qdrant_path == ":memory:":
+                self._client = QdrantClient(location=":memory:")
+            else:
+                self._client = QdrantClient(path=self._qdrant_path)
 
         # 컬렉션 생성
         if not self._client.collection_exists(self._collection_name):

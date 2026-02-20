@@ -141,3 +141,22 @@ def ensure_dirs() -> None:
     """필수 디렉토리 생성."""
     for d in (DOCS_DIR, MARKDOWN_DIR, PARENT_STORE_PATH):
         d.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# 환경변수 오버라이드 (Colab 등 외부 환경에서 경로 변경)
+# import 시점에 환경변수가 설정되어 있으면 자동으로 반영된다.
+# ---------------------------------------------------------------------------
+_raw = os.environ.get("RAG_BENCH_DATA_DIR")
+if _raw:
+    BENCH_DATA_DIR = Path(_raw)
+
+_raw = os.environ.get("RAG_BENCH_DOCS_DIR")
+if _raw:
+    BENCH_DOCS_DIR = Path(_raw)
+
+_raw = os.environ.get("RAG_BENCH_DOCS_SRC")
+if _raw:
+    DOCS_DIR = Path(_raw)
+
+del _raw

@@ -6,7 +6,7 @@ CacheConfig + IndexCacheManager.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM
 from rag_bench.combo.spec import ComboSpec
@@ -18,6 +18,7 @@ class CacheConfig:
 
     colbert_model: str = "jinaai/jina-colbert-v2"
     colbert_device: str = "cpu"
+    dense_device: Optional[str] = None   # None이면 DenseSparseStrategy 내부에서 detect_device() 자동 사용
     flashrank_model: str = "ms-marco-MultiBERT-L-12"
     flashrank_max_length: int = 512
     contextual_llm: str = DEFAULT_CONTEXTUAL_LLM
@@ -76,7 +77,10 @@ class IndexCacheManager:
             return cached_strategy
 
         strategy = DenseSparseStrategy(
-            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=qdrant_path
+            dense_model=spec.dense,
+            sparse_type=spec.sparse,
+            qdrant_path=qdrant_path,
+            device=self.config.dense_device,   # None이면 detect_device() 자동 사용
         )
 
         qdrant_dir = Path(qdrant_path)
@@ -114,7 +118,10 @@ class IndexCacheManager:
             BENCH_DATA_DIR / f"qdrant_db_ctx_{spec.dense}_{spec.sparse}"
         )
         ctx_base = DenseSparseStrategy(
-            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=ctx_qdrant_path
+            dense_model=spec.dense,
+            sparse_type=spec.sparse,
+            qdrant_path=ctx_qdrant_path,
+            device=self.config.dense_device,   # None이면 detect_device() 자동 사용
         )
 
         # 이미 캐시된 base 전략에서 Dense/Sparse 모델 객체 공유 (재로드 방지)
