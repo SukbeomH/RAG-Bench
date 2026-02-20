@@ -131,12 +131,13 @@ def _generate_qa_ragas(
                     type=NodeType.DOCUMENT,
                     properties={
                         "page_content": doc.page_content,
-                        "document": doc,
+                        "document_metadata": doc.metadata,
                     },
                 )
             )
 
         transforms = default_transforms(
+            documents=docs,
             llm=ragas_llm,
             embedding_model=ragas_embeddings,
         )
