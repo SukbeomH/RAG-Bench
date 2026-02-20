@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from rag_bench_colab.colab_config import (
+    DEFAULT_COLAB_ANSWER_LLM,
+    DEFAULT_COLAB_EVAL_LLM,
     DRIVE_BENCHDATA_DIR,
     DRIVE_CHECKPOINTS_DIR,
     DRIVE_RESULTS_DIR,
@@ -559,7 +561,7 @@ class ColabBenchmarkRunner:
             preset_enum = MetricPreset.CORE_ONLY
 
         evaluator = ExtendedRAGEvaluator(
-            llm_model="gpt-4o-nano",
+            llm_model=DEFAULT_COLAB_EVAL_LLM,
             preset=preset_enum,
         )
 
@@ -822,7 +824,7 @@ class ColabBenchmarkRunner:
             from langchain_openai import ChatOpenAI
 
             llm = ChatOpenAI(
-                model="gpt-4o-nano",
+                model=DEFAULT_COLAB_ANSWER_LLM,
                 http_client=httpx.Client(verify=False),
             )
 

@@ -50,6 +50,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_LLM_TEMPERATURE = 0
 
+# 용도별 LLM 모델 상수
+# 이 상수를 수정하면 모든 관련 컴포넌트에 일괄 적용된다.
+DEFAULT_ANSWER_LLM = "gpt-4o-mini"      # 답변 생성용 (BenchmarkRunner)
+DEFAULT_EVAL_LLM = "gpt-4o-mini"        # RAGAS 평가용 (ExtendedRAGEvaluator)
+DEFAULT_CONTEXTUAL_LLM = "gpt-4o-mini"  # Contextual Retrieval 압축용
+
 
 def setup_ssl_bypass() -> None:
     """기업 네트워크/프록시 환경을 위한 SSL 우회 설정."""

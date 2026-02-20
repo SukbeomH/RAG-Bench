@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from rag_bench.evaluation.evaluator import ExtendedRAGEvaluator
 
 from rag_bench.base import BaseRAGStrategy
+from rag_bench.config import DEFAULT_ANSWER_LLM
 from rag_bench.evaluation.evaluator import EvaluationReport
 
 
@@ -59,7 +60,7 @@ class BenchmarkRunner:
             from langchain_openai import ChatOpenAI
 
             self._generator = ChatOpenAI(
-                model="gpt-3.5-turbo", http_client=httpx.Client(verify=False)
+                model=DEFAULT_ANSWER_LLM, http_client=httpx.Client(verify=False)
             )
         except Exception:
             self._generator = None

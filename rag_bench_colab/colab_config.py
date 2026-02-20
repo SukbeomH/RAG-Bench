@@ -30,6 +30,15 @@ DRIVE_RESULTS_DIR = DRIVE_BASE / "results"
 # Qdrant: 에페메럴 (세션 내 로컬) 또는 Drive
 QDRANT_EPHEMERAL_BASE = Path("/content/qdrant_workspace")
 
+# ---------------------------------------------------------------------------
+# Colab 전용 LLM 상수
+# ---------------------------------------------------------------------------
+
+# Colab 환경에서는 비용 절감을 위해 경량 모델을 기본으로 사용한다.
+# rag_bench.config의 DEFAULT_*_LLM을 오버라이드하는 역할.
+DEFAULT_COLAB_ANSWER_LLM = "gpt-4o-mini"    # 답변 생성용 (colab_runner)
+DEFAULT_COLAB_EVAL_LLM = "gpt-4o-mini"      # RAGAS 평가용 (colab_runner)
+
 
 # ---------------------------------------------------------------------------
 # 환경 감지

@@ -11,6 +11,7 @@ import pandas as pd
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
+from rag_bench.config import DEFAULT_EVAL_LLM
 from rag_bench.evaluation.metrics import MetricPreset, create_metrics
 
 
@@ -281,7 +282,7 @@ class ExtendedRAGEvaluator:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str = DEFAULT_EVAL_LLM,
         preset: MetricPreset = MetricPreset.CORE_ONLY,
         embeddings: Optional[Any] = None,
     ):
