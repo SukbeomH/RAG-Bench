@@ -9,6 +9,7 @@ v2: dense_model / sparse_type 독립 파라미터화.
 """
 
 import math
+import threading
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
@@ -45,6 +46,7 @@ class KoreanBM25Encoder:
         self.doc_count = 0
         self.avg_doc_len = 0.0
         self._next_id = 0
+        self._vocab_lock = threading.Lock()
         print(f"KoreanBM25Encoder initialized (OKt, k1={k1}, b={b})")
 
     def _tokenize(self, text: str) -> List[str]:
@@ -55,10 +57,11 @@ class KoreanBM25Encoder:
         return tokens
 
     def _get_or_create_id(self, token: str) -> int:
-        if token not in self.vocab:
-            self.vocab[token] = self._next_id
-            self._next_id += 1
-        return self.vocab[token]
+        with self._vocab_lock:
+            if token not in self.vocab:
+                self.vocab[token] = self._next_id
+                self._next_id += 1
+            return self.vocab[token]
 
     def fit(self, documents: List[str]):
         doc_lens = []
