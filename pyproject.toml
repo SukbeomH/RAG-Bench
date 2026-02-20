@@ -17,6 +17,7 @@ dependencies = [
     "pymupdf4llm>=0.0.17",
     "konlpy>=0.6.0",
     "pandas>=2.2",
+    "psutil>=5.9",
     "fastembed>=0.4",
     "pylate>=1.0",
     "sentence-transformers>=3.1",

@@ -92,9 +92,10 @@ class _MultiPerspectiveLLM:
         n: int = 1,
         temperature: float = 1e-8,
         stop: Optional[List[str]] = None,
-        callbacks: List[Any] = [],
+        callbacks: Optional[List[Any]] = None,
     ) -> Any:
         """n>1이면 단일 구조화 호출로 n개 역질문을 생성한다."""
+        callbacks = callbacks or []
         from langchain_core.messages import HumanMessage, SystemMessage
         from langchain_core.outputs import Generation, LLMResult
 
@@ -140,9 +141,10 @@ class _MultiPerspectiveLLM:
         n: int = 1,
         temperature: float = 1e-8,
         stop: Optional[List[str]] = None,
-        callbacks: List[Any] = [],
+        callbacks: Optional[List[Any]] = None,
     ) -> Any:
         """동기 래퍼 — 이벤트 루프 중첩 방지."""
+        callbacks = callbacks or []
         import asyncio
         import concurrent.futures
 
@@ -165,9 +167,10 @@ class _MultiPerspectiveLLM:
         n: int = 1,
         temperature: Optional[float] = 0.01,
         stop: Optional[List[str]] = None,
-        callbacks: List[Any] = [],
+        callbacks: Optional[List[Any]] = None,
     ) -> Any:
         """RAGAS BaseRagasLLM.generate() 인터페이스 구현 — n 파라미터 지원."""
+        callbacks = callbacks or []
         return await self.agenerate_text(prompt, n, temperature or 1e-8, stop, callbacks)
 
     def __getattr__(self, name: str) -> Any:

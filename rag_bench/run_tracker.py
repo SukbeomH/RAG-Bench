@@ -58,6 +58,18 @@ def collect_platform_info() -> Dict[str, Any]:
                     info["ram_total_gb"] = round(int(result.stdout.strip()) / (1024 ** 3), 1)
             except Exception:
                 pass
+        elif platform.system() == "Linux":
+            try:
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            kb = int(line.split()[1])
+                            info["ram_total_gb"] = round(kb / (1024 ** 2), 1)
+                        elif line.startswith("MemAvailable:"):
+                            kb = int(line.split()[1])
+                            info["ram_available_gb"] = round(kb / (1024 ** 2), 1)
+            except Exception:
+                pass
 
     # GPU 정보
     info["gpu"] = _detect_gpu()
