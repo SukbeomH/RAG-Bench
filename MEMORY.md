@@ -550,6 +550,48 @@ bccd25b feat: 벤치마크 수행 이력 추적 시스템 구현 — RunTracker 
 2. **Colab T4 GPU 실제 테스트**
 3. **벤치마크 시각화 갱신**: 72개 조합 결과에 맞게 bench_visualize.ipynb 업데이트
 
+## 2026-02-20: 중간 우선순위 기술 부채 6종 해결 (#5, #6, #7, #9, #10, #16)
+
+### 주요 활동
+
+#### 해결된 기술 부채
+| 번호 | 항목 | 파일 |
+|------|------|------|
+| #5 | `run_all_combos.py` 레거시 `_try_build_*` 함수 5종 제거 | `rag_bench/scripts/run_all_combos.py` |
+| #6 | `DENSE_MODELS`에서 유료 모델 제거, `PRESETS` HuggingFace 전용 고정 | `dense_sparse.py`, `combo/spec.py` |
+| #7 | `COMBO_DEFINITIONS` 레거시 dict 및 `combo_id` 파라미터 제거 | `rag_bench/strategies/dense_sparse.py` |
+| #9 | `--combos`, `--skip_*`, `--contextual_base` CLI 레거시 옵션 제거 | `rag_bench/scripts/run_all_combos.py` |
+| #10 | `qdrant_db_combo1~4` 레거시 인덱스 정리 스크립트 생성 | `scripts/cleanup_legacy_indexes.py` |
+| #16 | `QDRANT_DB_PREFIX` 상수 추가 + `cache.py`, `dense_sparse.py` 치환 | `rag_bench/config.py`, `combo/cache.py` |
+
+#### Breaking Changes
+- **`--combos`, `--skip_colbert`, `--skip_rerank`, `--skip_contextual`, `--skip_flashrank`, `--contextual_base` 옵션 제거**: `run_all_combos.py`에서 제거. `--preset quick|standard|full`이 필수 인수로 변경.
+- **`DenseSparseStrategy(combo_id=N)` 생성자 제거**: `combo_id` 파라미터 없음. `dense_model="minilm", sparse_type="fastembed_bm25"` 방식 사용.
+- **`COMBO_DEFINITIONS` 제거**: `from rag_bench.strategies.dense_sparse import COMBO_DEFINITIONS` 불가.
+- **`DENSE_MODELS`에서 `openai-small`, `openai-large`, `upstage` 제거**: 유료 API 모델 키 없음.
+
+#### 신규 상수/함수
+- `rag_bench/config.py`: `QDRANT_DB_PREFIX = "qdrant_db_"` 추가
+- `rag_bench/combo/spec.py`: `_HF_DENSE_MODELS` 상수 추가
+- `rag_bench/combo/spec.py`: `generate_valid_combinations()` — 잘못된 dense/sparse 키 입력 시 `ValueError` 발생
+
+#### 레거시 인덱스 정리 방법
+```bash
+# dry-run (기본 — 실제 삭제 없음)
+python scripts/cleanup_legacy_indexes.py
+
+# 실제 삭제 (qdrant_db_combo1~4)
+python scripts/cleanup_legacy_indexes.py --execute
+```
+
+### 커밋 히스토리
+```
+2c9a129 feat(config): QDRANT_DB_PREFIX 상수 추가 (#16)
+5742f01 refactor(dense_sparse): COMBO_DEFINITIONS·combo_id 제거 + QDRANT_DB_PREFIX 치환 + 레거시 정리 스크립트 (#6, #7, #10, #16)
+9c6fc5f refactor(run_all_combos): 레거시 모드 전면 제거 + PRESETS HuggingFace 전용 고정 (#5, #6, #9)
+97b4264 refactor(dense_sparse+spec): 유료 API 모델 제거 + 조합 유효성 검증 추가 (#6, #7)
+```
+
 ## 2026-02-11: RAGHub 생태계 분석 및 프로젝트 컨텍스트 정립
 
 ### 주요 활동
