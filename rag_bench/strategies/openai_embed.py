@@ -45,17 +45,28 @@ class OpenAIEmbedStrategy(BaseRAGStrategy):
         from langchain_openai import OpenAIEmbeddings
         from langchain_qdrant import QdrantVectorStore
 
-        print(f"[{self.name}] 인덱싱 시작: {len(documents)}개 문서")
         embeddings = OpenAIEmbeddings(model=self.model)
 
         if self.qdrant_path:
-            self._vectorstore = QdrantVectorStore.from_documents(
-                documents=documents,
-                embedding=embeddings,
-                path=self.qdrant_path,
-                collection_name=self.collection_name,
-                force_recreate=True,
-            )
+            qdrant_dir = Path(self.qdrant_path)
+            index_exists = qdrant_dir.exists() and any(qdrant_dir.iterdir())
+
+            if index_exists:
+                print(f"[{self.name}] 기존 인덱스 재사용: {self.qdrant_path}")
+                self._vectorstore = QdrantVectorStore.from_existing_collection(
+                    embedding=embeddings,
+                    path=self.qdrant_path,
+                    collection_name=self.collection_name,
+                )
+            else:
+                print(f"[{self.name}] 인덱싱 시작: {len(documents)}개 문서")
+                self._vectorstore = QdrantVectorStore.from_documents(
+                    documents=documents,
+                    embedding=embeddings,
+                    path=self.qdrant_path,
+                    collection_name=self.collection_name,
+                )
+                print(f"[{self.name}] 인덱싱 완료")
         else:
             self._vectorstore = QdrantVectorStore.from_documents(
                 documents=documents,
@@ -65,7 +76,6 @@ class OpenAIEmbedStrategy(BaseRAGStrategy):
             )
 
         self._is_ready = True
-        print(f"[{self.name}] 인덱싱 완료")
 
     def retrieve(self, query: str, k: int = 3) -> List[Document]:
         """Dense 유사도 검색."""

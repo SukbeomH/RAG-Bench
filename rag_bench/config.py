@@ -88,16 +88,16 @@ def setup_ssl_bypass() -> None:
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    # MPS OOM 방지: MPS 비활성화 (CPU 강제)
-    # torch.set_default_device("cpu") 는 전역 __torch_function__ 훅을 등록해
-    # torch.no_grad() 컨텍스트 매니저 내부 set_grad_enabled/dropout 호출과 충돌함.
-    # 대신 is_available()을 False로 패치하면 모든 라이브러리가 MPS를 없다고 인식,
-    # 전역 훅 없이 CPU로 자동 폴백한다.
+    # MPS OOM 방지: 공식 환경 변수로 제어
+    # - PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0: MPS 메모리 상한 제거
+    # - PYTORCH_ENABLE_MPS_FALLBACK=1: MPS 미지원 연산을 CPU로 자동 폴백
+    # detect_device()가 이미 MPS를 제외하므로 자체 코드에서는 MPS가 선택되지 않음.
+    # 외부 라이브러리가 MPS를 시도할 경우에도 OOM 대신 CPU로 안전하게 폴백한다.
     os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     try:
         import torch
         if torch.backends.mps.is_available():
-            torch.backends.mps.is_available = lambda: False  # type: ignore[method-assign]
             torch.mps.empty_cache()
             gc.collect()
     except Exception:
