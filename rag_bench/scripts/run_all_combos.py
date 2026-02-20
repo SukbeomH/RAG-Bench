@@ -193,7 +193,10 @@ class IndexCacheManager:
         return self._flashrank_ranker
 
     def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
-        """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드."""
+        """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드.
+
+        디스크에 기존 Qdrant 인덱스가 있고 reindex=False면 재인덱싱 없이 연결만 한다.
+        """
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 
         key = spec.index_key
@@ -202,16 +205,34 @@ class IndexCacheManager:
         if key in self.cache and not reindex:
             cached_strategy, _ = self.cache[key]
             return cached_strategy
+
+        strategy = DenseSparseStrategy(
+            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=qdrant_path
+        )
+
+        qdrant_dir = Path(qdrant_path)
+        index_exists = qdrant_dir.exists() and any(qdrant_dir.iterdir())
+
+        if index_exists and not reindex:
+            print(f"  [기존 인덱스 재사용] {spec.dense}+{spec.sparse} — {qdrant_path}")
+            strategy._ensure_initialized()
+            # BM25 어휘는 디스크에 영속화되지 않으므로 동일 문서로 재fit
+            if hasattr(strategy._sparse_embeddings, "fit"):
+                texts = [doc.page_content for doc in child_chunks]
+                strategy._sparse_embeddings.fit(texts)
+            strategy._is_ready = True
         else:
-            strategy = DenseSparseStrategy(
-                dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=qdrant_path
-            )
             strategy.index(child_chunks)
-            self.cache[key] = (strategy, qdrant_path)
-            return strategy
+
+        self.cache[key] = (strategy, qdrant_path)
+        return strategy
 
     def get_or_build_contextual(self, spec: ComboSpec, child_chunks, parent_pairs, reindex=False):
-        """contextual 전략을 캐시에서 가져오거나 새로 빌드."""
+        """contextual 전략을 캐시에서 가져오거나 새로 빌드.
+
+        디스크에 기존 Contextual Qdrant 인덱스가 있고 reindex=False면
+        LLM 문맥 생성 및 재인덱싱 없이 연결만 한다.
+        """
         from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 
@@ -244,7 +265,21 @@ class IndexCacheManager:
             parent_pairs=parent_pairs,
             llm_model=self.config.contextual_llm,
         )
-        strategy.index(child_chunks)
+
+        ctx_qdrant_dir = Path(ctx_qdrant_path)
+        ctx_index_exists = ctx_qdrant_dir.exists() and any(ctx_qdrant_dir.iterdir())
+
+        if ctx_index_exists and not reindex:
+            print(f"  [기존 Contextual 인덱스 재사용] {spec.dense}+{spec.sparse} — {ctx_qdrant_path}")
+            ctx_base._ensure_initialized()
+            if hasattr(ctx_base._sparse_embeddings, "fit"):
+                texts = [doc.page_content for doc in child_chunks]
+                ctx_base._sparse_embeddings.fit(texts)
+            ctx_base._is_ready = True
+            strategy._is_ready = True
+        else:
+            strategy.index(child_chunks)
+
         self.ctx_cache[key] = strategy
         return strategy
 
