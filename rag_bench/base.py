@@ -6,7 +6,7 @@ Strategy Pattern의 핵심 인터페이스를 정의한다.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -100,7 +100,7 @@ class StrategyRetriever(BaseRetriever):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    strategy: Any
+    strategy: "BaseRAGStrategy"
     k: int = 5
 
     def _get_relevant_documents(self, query: str, *, run_manager=None) -> List[Document]:

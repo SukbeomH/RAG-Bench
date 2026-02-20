@@ -389,6 +389,21 @@ class RunTracker:
         return None
 
     # ------------------------------------------------------------------
+    # 공개 스냅샷
+    # ------------------------------------------------------------------
+
+    def get_snapshot(self) -> dict:
+        """현재까지의 기록을 dict로 반환한다 (시각화/외부 연동용).
+
+        finalize() 호출 전에도 사용 가능하며, 이 시점까지의 데이터를 스냅샷으로 반환한다.
+        """
+        rec = self._record
+        rec.strategy_timings = [asdict(t) for t in self._timings]
+        rec.phase_times = [asdict(p) for p in self._phases]
+        rec.token_usage_total = asdict(self._token_total)
+        return asdict(rec)
+
+    # ------------------------------------------------------------------
     # 마무리
     # ------------------------------------------------------------------
 

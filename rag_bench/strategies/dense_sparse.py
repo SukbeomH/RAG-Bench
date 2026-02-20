@@ -8,9 +8,10 @@ dense_model / sparse_type 독립 파라미터로 조합을 지정한다.
 import math
 import threading
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
@@ -261,9 +262,9 @@ class DenseSparseStrategy(BaseRAGStrategy):
         self._collection_name = "document_child_chunks"
         self._device: Optional[str] = device   # None이면 _init_dense에서 detect_device() 사용
 
-        self._dense_embeddings: Any = None
-        self._sparse_embeddings: Any = None
-        self._vector_store: Any = None
+        self._dense_embeddings: Optional[Embeddings] = None
+        self._sparse_embeddings: Optional[Union[KoreanBM25Encoder, "SpladeEncoder", "FastEmbedSparse"]] = None
+        self._vector_store: Optional["QdrantVectorStore"] = None
         self._client: Optional[QdrantClient] = None
         self._is_ready = False
 
