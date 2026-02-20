@@ -8,21 +8,14 @@
 
 총 유효 조합: 4 × 3 × 6 = 72개
 
-레거시 모드:
-  --combos / --skip_* 플래그 사용 시 기존 방식으로 동작.
-
-새 모드:
-  --preset quick|standard|full  프리셋 기반 조합 생성
+옵션:
+  --preset quick|standard|full  프리셋 기반 조합 생성 (필수)
   --pass1-only                  레이턴시만 측정 (RAGAS 없음)
   --top_n N                     Pass 1 후 상위 N만 RAGAS
   --dry-run                     조합 목록만 출력
   --layers                      레이어별 기여도 분석
 
 Usage:
-    # 레거시 모드
-    python -m rag_bench.scripts.run_all_combos [--k 3] [--combos 1,3,4] [--skip_colbert] [--skip_rerank] [--skip_contextual] [--skip_flashrank] [--no_ragas] [--reindex] [--contextual_base 3]
-
-    # 새 모드
     python -m rag_bench.scripts.run_all_combos --preset full --dry-run
     python -m rag_bench.scripts.run_all_combos --preset quick --pass1-only
     python -m rag_bench.scripts.run_all_combos --preset standard --top_n 10
@@ -33,13 +26,11 @@ import gc
 import sys
 import time
 import traceback
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
-    DEFAULT_CONTEXTUAL_LLM,
     setup_ssl_bypass,
 )
 from rag_bench.combo import (
@@ -51,98 +42,6 @@ from rag_bench.run_tracker import RunTracker, track_openai_tokens
 from rag_bench.runner import BenchmarkRunner
 from rag_bench.utils.qa_loader import load_qa_dataset
 from rag_bench.utils.report import print_ragas_table
-
-ALL_COMBO_IDS = [1, 2, 3, 4]
-
-
-# ===========================================================================
-# 레거시 빌드 함수들 (기존 --combos / --skip_* 모드)
-# ===========================================================================
-
-
-def _try_build_dense_sparse(combo_id: int, child_chunks, qdrant_suffix: str, reindex=True):
-    from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-    qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{qdrant_suffix}")
-    strategy = DenseSparseStrategy(combo_id=combo_id, qdrant_path=qdrant_path)
-
-    if reindex:
-        print("  [재인덱싱] 임베딩 모델 로드 + Qdrant 인덱싱...")
-        strategy.index(child_chunks)
-    else:
-        qdrant_dir = Path(qdrant_path)
-        if not qdrant_dir.exists() or not any(qdrant_dir.iterdir()):
-            print("  [기존 인덱스 없음] 재인덱싱으로 자동 전환")
-            strategy.index(child_chunks)
-        else:
-            print("  [기존 로드] 임베딩 모델 로드 중...")
-            strategy._ensure_initialized()
-            print("  [기존 로드] Qdrant 컬렉션 연결 완료")
-            from rag_bench.strategies.dense_sparse import KoreanBM25Encoder
-            if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
-                print("  [기존 로드] BM25 어휘 구축 중...")
-                texts = [doc.page_content for doc in child_chunks]
-                strategy._sparse_embeddings.fit(texts)
-            strategy._is_ready = True
-            print("  [기존 로드] 준비 완료")
-    return strategy, None
-
-
-def _try_build_colbert(child_chunks):
-    from rag_bench.strategies.colbert import ColBERTStrategy
-
-    strategy = ColBERTStrategy(
-        model_name="jinaai/jina-colbert-v2",
-        use_index=False,
-    )
-    strategy.index(child_chunks)
-    return strategy, None
-
-
-def _try_build_rerank(base_strategy, child_chunks):
-    from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
-
-    strategy = ColBERTRerankStrategy(
-        base_strategy=base_strategy,
-        model_name="jinaai/jina-colbert-v2",
-        rerank_n=20,
-    )
-    strategy._base_strategy = base_strategy
-    strategy._ensure_initialized()
-    strategy._is_ready = True
-    return strategy, None
-
-
-def _try_build_contextual(
-    base_combo_id: int, child_chunks, parent_pairs, qdrant_suffix: str, reindex=True
-):
-    from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-    from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-
-    qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{qdrant_suffix}")
-    base = DenseSparseStrategy(combo_id=base_combo_id, qdrant_path=qdrant_path)
-    strategy = ContextualRetrievalStrategy(
-        base_strategy=base,
-        parent_pairs=parent_pairs,
-        llm_model=DEFAULT_CONTEXTUAL_LLM,
-    )
-    strategy.index(child_chunks)
-    return strategy, None
-
-
-def _try_build_flashrank_rerank(base_strategy, child_chunks):
-    from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
-
-    strategy = FlashRankRerankStrategy(
-        base_strategy=base_strategy,
-        model_name="ms-marco-MultiBERT-L-12",
-        rerank_n=20,
-    )
-    strategy._base_strategy = base_strategy
-    strategy._ensure_initialized()
-    strategy._is_ready = True
-    return strategy, None
-
 
 
 def _safe_build(
@@ -779,218 +678,6 @@ def _cleanup_strategies(strategies):
 
 
 # ===========================================================================
-# 레거시 모드 (기존 --combos / --skip_* 방식)
-# ===========================================================================
-
-
-def _run_legacy_mode(args):
-    """기존 방식 실행."""
-    setup_ssl_bypass()
-
-    if args.combos:
-        combo_ids = [int(x.strip()) for x in args.combos.split(",")]
-    else:
-        combo_ids = list(ALL_COMBO_IDS)
-
-    reindex = args.reindex
-
-    print(f"대상 DenseSparse 조합: {combo_ids}")
-    print(f"ColBERT: {'OFF' if args.skip_colbert else 'ON'}")
-    print(f"ColBERTRerank: {'OFF' if args.skip_rerank else 'ON'}")
-    print(f"Contextual Retrieval: {'OFF' if args.skip_contextual else f'ON (base=combo{args.contextual_base})'}")
-    print(f"FlashRank Rerank: {'OFF' if args.skip_flashrank else 'ON'}")
-    print(f"RAGAS 평가: {'OFF' if args.no_ragas else 'ON'}")
-    print(f"인덱스 모드: {'재인덱싱' if reindex else '기존 재사용'}")
-
-    # ── Step 1: QA 로드 ──
-    print(f"\n{'=' * 60}")
-    print("Step 1: QA 데이터셋 로드")
-    print(f"{'=' * 60}")
-    dataset = _load_qa_dataset()
-    qa_pairs = dataset["qa_pairs"]
-    queries = [qa["question"] for qa in qa_pairs]
-    ground_truths = [qa["ground_truth"] for qa in qa_pairs]
-
-    # ── Step 2: 문서 청킹 ──
-    print(f"\n{'=' * 60}")
-    print("Step 2: 문서 청킹")
-    print(f"{'=' * 60}")
-    parent_store_path = BENCH_DATA_DIR / "parent_store"
-    parent_pairs, child_chunks = create_parent_child_chunks(
-        markdown_dir=str(BENCH_DOCS_DIR),
-        parent_store_path=str(parent_store_path),
-    )
-    if not child_chunks:
-        print("Error: Child 청크가 생성되지 않았습니다.")
-        sys.exit(1)
-
-    # ── Step 3: 전략 생성 ──
-    print(f"\n{'=' * 60}")
-    print("Step 3: 전략 생성 및 인덱싱")
-    print(f"{'=' * 60}")
-
-    build_results: List[Tuple[str, object, Optional[str]]] = []
-
-    total_strategies = (
-        len(combo_ids)
-        + (0 if args.skip_colbert else 1)
-        + (0 if args.skip_rerank else len(combo_ids))
-        + (0 if args.skip_contextual else 1)
-        + (0 if args.skip_flashrank else len(combo_ids))
-    )
-    current = 0
-
-    # 3-a. DenseSparse
-    ds_strategies = {}
-    for cid in combo_ids:
-        current += 1
-        label = f"DenseSparse combo={cid}"
-        strategy, err = _safe_build(
-            label, _try_build_dense_sparse, cid, child_chunks, f"combo{cid}", reindex,
-            progress=f"[{current}/{total_strategies}]",
-        )
-        build_results.append((label, strategy, err))
-        if strategy is not None:
-            ds_strategies[cid] = strategy
-
-    # 3-b. ColBERT
-    colbert_strategy = None
-    if not args.skip_colbert:
-        current += 1
-        label = "ColBERT (jina-colbert-v2, brute-force)"
-        strategy, err = _safe_build(
-            label, _try_build_colbert, child_chunks,
-            progress=f"[{current}/{total_strategies}]",
-        )
-        build_results.append((label, strategy, err))
-        colbert_strategy = strategy
-
-    # 3-c. ColBERTRerank
-    rerank_strategies = {}
-    if not args.skip_rerank:
-        for cid, ds in ds_strategies.items():
-            current += 1
-            label = f"ColBERTRerank (base=combo{cid})"
-            strategy, err = _safe_build(
-                label, _try_build_rerank, ds, child_chunks,
-                progress=f"[{current}/{total_strategies}]",
-            )
-            build_results.append((label, strategy, err))
-            if strategy is not None:
-                rerank_strategies[cid] = strategy
-
-    # 3-d. Contextual Retrieval
-    contextual_strategy = None
-    if not args.skip_contextual:
-        current += 1
-        ctx_base_id = args.contextual_base
-        label = f"Contextual Retrieval (base=combo{ctx_base_id})"
-        strategy, err = _safe_build(
-            label, _try_build_contextual, ctx_base_id, child_chunks, parent_pairs,
-            f"contextual_combo{ctx_base_id}", reindex,
-            progress=f"[{current}/{total_strategies}]",
-        )
-        build_results.append((label, strategy, err))
-        contextual_strategy = strategy
-
-    # 3-e. FlashRank Rerank
-    flashrank_strategies = {}
-    if not args.skip_flashrank:
-        for cid, ds in ds_strategies.items():
-            current += 1
-            label = f"FlashRank Rerank (base=combo{cid})"
-            strategy, err = _safe_build(
-                label, _try_build_flashrank_rerank, ds, child_chunks,
-                progress=f"[{current}/{total_strategies}]",
-            )
-            build_results.append((label, strategy, err))
-            if strategy is not None:
-                flashrank_strategies[cid] = strategy
-
-    _print_init_summary(build_results)
-
-    # ── 성공한 전략만 수집 ──
-    active_strategies = []
-    for cid in combo_ids:
-        if cid in ds_strategies:
-            active_strategies.append(ds_strategies[cid])
-    if colbert_strategy is not None:
-        active_strategies.append(colbert_strategy)
-    for cid in combo_ids:
-        if cid in rerank_strategies:
-            active_strategies.append(rerank_strategies[cid])
-    if contextual_strategy is not None:
-        active_strategies.append(contextual_strategy)
-    for cid in combo_ids:
-        if cid in flashrank_strategies:
-            active_strategies.append(flashrank_strategies[cid])
-
-    if not active_strategies:
-        print("\n성공한 전략이 없습니다. 종료합니다.")
-        sys.exit(1)
-
-    print(f"\n벤치마크 대상 전략: {len(active_strategies)}개")
-
-    # ── Step 4: 벤치마크 실행 ──
-    print(f"\n{'=' * 60}")
-    print("Step 4: 벤치마크 실행")
-    print(f"{'=' * 60}")
-    print(f"  총 검색: {len(active_strategies)}개 전략 x {len(queries)}개 쿼리 = {len(active_strategies) * len(queries)}회")
-
-    evaluator = None
-    if not args.no_ragas:
-        from rag_bench.evaluation import ExtendedRAGEvaluator
-        from rag_bench.evaluation.metrics import MetricPreset
-        try:
-            preset_enum = MetricPreset(args.metric_preset)
-            evaluator = ExtendedRAGEvaluator(preset=preset_enum)
-            print(f"  Evaluator: ExtendedRAGEvaluator (preset={args.metric_preset}, profile={args.scoring_profile})")
-        except Exception as e:
-            print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
-
-    runner = BenchmarkRunner(
-        strategies=active_strategies,
-        queries=queries,
-        k=args.k,
-        evaluator=evaluator,
-    )
-    runner.run()
-    runner.compare()
-
-    # ── Step 5: RAGAS 평가 ──
-    scores_df = None
-    if evaluator is not None:
-        print(f"\n{'=' * 60}")
-        print("Step 5: RAGAS 평가")
-        print(f"{'=' * 60}")
-        scores_df = runner.evaluate(ground_truths=ground_truths)
-        print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
-
-    # ── Step 6: 결과 저장 ──
-    print(f"\n{'=' * 60}")
-    print("Step 6: 결과 저장")
-    print(f"{'=' * 60}")
-
-    results_df = runner.to_dataframe()
-    if results_df is not None:
-        results_path = BENCH_DATA_DIR / "all_combos_results.csv"
-        results_df.to_csv(results_path, index=False, encoding="utf-8-sig")
-        print(f"  검색 결과: {results_path}")
-
-    if scores_df is not None:
-        scores_path = BENCH_DATA_DIR / "all_combos_ragas.csv"
-        scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
-        print(f"  RAGAS 점수: {scores_path}")
-
-    # ── Step 7: 클린업 ──
-    _cleanup_strategies(active_strategies)
-
-    print(f"\n{'═' * 60}")
-    print(f" 벤치마크 완료 — 전략 {len(active_strategies)}개 비교")
-    print(f"{'═' * 60}")
-
-
-# ===========================================================================
 # main
 # ===========================================================================
 
@@ -1000,13 +687,10 @@ def main():
         description="전체 조합 벤치마크 — 3-Layer 교차 조합 + 2-Pass 실행"
     )
 
-    # 공통 옵션
     parser.add_argument("--k", type=int, default=3, help="검색 결과 수 (기본: 3)")
     parser.add_argument("--no_ragas", action="store_true", help="RAGAS 평가 건너뛰기")
     parser.add_argument("--reindex", action="store_true", help="기존 인덱스 삭제 후 재인덱싱")
-
-    # 새 모드 옵션
-    parser.add_argument("--preset", type=str, default=None,
+    parser.add_argument("--preset", type=str, required=True,
                         help="프리셋 선택: quick|standard|full")
     parser.add_argument("--pass1-only", action="store_true",
                         help="레이턴시만 측정 (RAGAS 없음)")
@@ -1024,27 +708,9 @@ def main():
     parser.add_argument("--scoring-profile", type=str, default="balanced",
                         choices=["balanced", "precision_critical", "speed_critical", "comprehensive"],
                         help="스코어링 프로파일 (기본: balanced)")
-    # 레거시 모드 옵션
-    parser.add_argument("--combos", type=str, default=None,
-                        help="DenseSparse 조합 ID (쉼표 구분, 예: 1,3,4)")
-    parser.add_argument("--skip_colbert", action="store_true",
-                        help="ColBERT 단독 전략 건너뛰기")
-    parser.add_argument("--skip_rerank", action="store_true",
-                        help="ColBERTRerank 전략 건너뛰기")
-    parser.add_argument("--skip_contextual", action="store_true",
-                        help="Contextual Retrieval 전략 건너뛰기")
-    parser.add_argument("--skip_flashrank", action="store_true",
-                        help="FlashRank Rerank 전략 건너뛰기")
-    parser.add_argument("--contextual_base", type=int, default=3,
-                        help="Contextual Retrieval 기반 DenseSparse 조합 ID (기본: 3)")
 
     args = parser.parse_args()
-
-    # --preset이 지정되면 새 모드, 아니면 레거시 모드
-    if args.preset is not None:
-        _run_preset_mode(args)
-    else:
-        _run_legacy_mode(args)
+    _run_preset_mode(args)
 
 
 if __name__ == "__main__":

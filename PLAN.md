@@ -63,7 +63,7 @@ W4: Task 2.2, 3.2                    (마무리)
 
 ### Phase 2
 
-- [ ] **Task 2.1** — `run_all_combos.py` 레거시 코드 제거
+- [x] **Task 2.1** — `run_all_combos.py` 레거시 코드 제거
   - Done: `_run_legacy_mode()` 함수가 존재하지 않음
   - Done: `_try_build_dense_sparse()`, `_try_build_colbert()`, `_try_build_rerank()`, `_try_build_contextual()`, `_try_build_flashrank_rerank()` 함수 제거
   - Done: `--combos`, `--skip_colbert`, `--skip_rerank`, `--skip_contextual`, `--skip_flashrank`, `--contextual_base` 인수 제거
@@ -75,7 +75,7 @@ W4: Task 2.2, 3.2                    (마무리)
 
 ### Phase 3
 
-- [ ] **Task 3.1** — `combo/spec.py` PRESETS 정리
+- [x] **Task 3.1** — `combo/spec.py` PRESETS 정리
   - Done: `PRESETS`의 `dense_models` 목록이 `DENSE_MODELS`에 존재하는 키만 참조
 
 - [ ] **Task 3.2** — `generate_valid_combinations()` 유효성 검증
