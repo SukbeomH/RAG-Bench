@@ -258,7 +258,7 @@ class ColabBenchmarkRunner:
             raise RuntimeError("Parent 청크가 생성되지 않았습니다.")
 
         # Step 2: 유효 QA 수 계산
-        args = argparse.Namespace(sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
+        args = argparse.Namespace(num_qa=num_qa, sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
         effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
 
         # Step 3: RAGAS KG QA 생성
