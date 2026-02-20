@@ -163,7 +163,6 @@ class ColabBenchmarkRunner:
 
     def prepare_qa(
         self,
-        num_qa: int = 20,
         sample_pages: bool = False,
         page_sample_ratio: float = 0.1,
         max_sample_pages: int = 5,
@@ -178,13 +177,13 @@ class ColabBenchmarkRunner:
 
         generate_qa.py 파이프라인을 Colab 경로에 맞게 실행한다.
         patch_rag_bench_config() 호출 후 실행해야 경로가 올바르게 적용된다.
+        생성 QA 수는 청크 수 × max_qa_per_page 로 자동 결정된다.
 
         Args:
-            num_qa: 생성할 QA 수.
             sample_pages: docs/*.pdf를 페이지 샘플링하여 .md 재생성.
             page_sample_ratio: 페이지 샘플링 비율 (기본 10%).
             max_sample_pages: 최대 샘플 페이지 수.
-            max_qa_per_page: 청크당 최대 QA 수 (QA 상한 계산용).
+            max_qa_per_page: 청크당 QA 수 — 총 QA = 청크 수 × max_qa_per_page.
             force: 캐시 무시하고 재생성.
             reuse_kg: 기존 KG 파일 재사용.
             build_kg_only: KG만 구축, QA 생성 안 함.
@@ -258,7 +257,7 @@ class ColabBenchmarkRunner:
             raise RuntimeError("Parent 청크가 생성되지 않았습니다.")
 
         # Step 2: 유효 QA 수 계산
-        args = argparse.Namespace(num_qa=num_qa, sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
+        args = argparse.Namespace(sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
         effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
 
         # Step 3: RAGAS KG QA 생성

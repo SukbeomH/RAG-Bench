@@ -7,17 +7,17 @@ docs/*.pdf → (선택: 페이지 샘플링) → rag_bench/docs/*.md
            → rag_bench/_benchdata/qa_dataset.json
 
 Usage:
-    # 기본 (기존 .md 파일 사용)
-    python -m rag_bench.scripts.generate_qa --num_qa 20
+    # 기본 (기존 .md 파일 사용, 청크 수 × max_qa_per_page 만큼 생성)
+    python -m rag_bench.scripts.generate_qa
 
     # PDF 페이지 샘플링 적용 (대용량 문서 비용 절감)
-    python -m rag_bench.scripts.generate_qa --sample_pages --num_qa 20
+    python -m rag_bench.scripts.generate_qa --sample_pages --max_qa_per_page 2
 
     # KG만 사전 구축 (QA 생성 없이)
     python -m rag_bench.scripts.generate_qa --build-kg-only
 
     # 기존 KG 재사용하여 QA 생성
-    python -m rag_bench.scripts.generate_qa --num_qa 50 --reuse-kg
+    python -m rag_bench.scripts.generate_qa --reuse-kg --max_qa_per_page 3
 """
 
 import argparse
@@ -47,21 +47,12 @@ def _compute_docs_hash(docs_dir: Path) -> str:
 
 
 def _compute_effective_num_qa(args, parent_pairs: list) -> int:
-    """샘플링 설정에 따른 유효 QA 수 계산.
-
-    --sample_pages 적용 시 생성된 청크 수 기준으로 QA 수 상한을 계산한다.
-    """
-    if not args.sample_pages:
-        return args.num_qa
-
+    """청크 수 × max_qa_per_page 로 QA 생성 수를 결정한다."""
     sampled_page_count = len(parent_pairs)
-    max_qa = sampled_page_count * args.max_qa_per_page
-    effective = min(args.num_qa, max_qa)
-    if effective < args.num_qa:
-        print(
-            f"  [QA 상한] 청크 {sampled_page_count}개 × {args.max_qa_per_page}/청크 = "
-            f"최대 {max_qa}개 → {effective}개로 제한"
-        )
+    effective = sampled_page_count * args.max_qa_per_page
+    print(
+        f"  [QA 수] 청크 {sampled_page_count}개 × {args.max_qa_per_page}/청크 = {effective}개"
+    )
     return effective
 
 
@@ -91,7 +82,7 @@ def _generate_qa_ragas(
     from ragas.testset import TestsetGenerator
     from ragas.testset.graph import KnowledgeGraph
     from ragas.testset.transforms import default_transforms, apply_transforms
-    from ragas.testset.synthesizers.single_hop import SingleHopQuerySynthesizer
+    from ragas.testset.synthesizers.single_hop import SingleHopSpecificQuerySynthesizer
     from ragas.testset.synthesizers.multi_hop import (
         MultiHopAbstractQuerySynthesizer,
         MultiHopSpecificQuerySynthesizer,
@@ -163,7 +154,7 @@ def _generate_qa_ragas(
     # 5. query_distribution 설정
     if query_dist == "single_hop":
         query_distribution = [
-            (SingleHopQuerySynthesizer(llm=ragas_llm), 1.0),
+            (SingleHopSpecificQuerySynthesizer(llm=ragas_llm), 1.0),
         ]
     elif query_dist == "multi_hop":
         query_distribution = [
@@ -172,7 +163,7 @@ def _generate_qa_ragas(
         ]
     else:  # balanced
         query_distribution = [
-            (SingleHopQuerySynthesizer(llm=ragas_llm), 0.6),
+            (SingleHopSpecificQuerySynthesizer(llm=ragas_llm), 0.6),
             (MultiHopAbstractQuerySynthesizer(llm=ragas_llm), 0.2),
             (MultiHopSpecificQuerySynthesizer(llm=ragas_llm), 0.2),
         ]
@@ -224,7 +215,6 @@ def _generate_qa_ragas(
 
 def main():
     parser = argparse.ArgumentParser(description="QA 데이터셋 자동 생성 (RAGAS KG 방식)")
-    parser.add_argument("--num_qa", type=int, default=20, help="생성할 QA 수 (기본: 20)")
     parser.add_argument(
         "--sample_pages", action="store_true",
         help="docs/*.pdf를 페이지 샘플링하여 rag_bench/docs/*.md 재생성",
@@ -359,7 +349,7 @@ def main():
         pass1_only=False,
         layers=False,
         num_combos=0,
-        num_queries=args.num_qa,
+        num_queries=effective_num_qa,
         num_docs=len(child_chunks),
     )
     tracker.finalize()
