@@ -162,9 +162,14 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     Args:
         qdrant_mode: 'ephemeral' (세션 내 /content), 'drive' (Google Drive), 'memory' (인메모리)
     """
+    # 환경변수 설정 (config 모듈이 아직 import되지 않은 경우에도 자동 반영)
+    os.environ["RAG_BENCH_DATA_DIR"] = str(DRIVE_BENCHDATA_DIR)
+    os.environ["RAG_BENCH_DOCS_DIR"] = str(COLAB_DOCS_DIR)
+    os.environ["RAG_BENCH_DOCS_SRC"] = str(COLAB_PDF_DIR)
+
     import rag_bench.config as cfg
 
-    # 경로 오버라이드
+    # 이미 import된 모듈의 속성도 직접 업데이트 (하위 호환)
     cfg.DOCS_DIR = COLAB_PDF_DIR          # PDF 원본 경로 (샘플링 소스)
     cfg.BENCH_DOCS_DIR = COLAB_DOCS_DIR   # 벤치마크용 .md 파일
     cfg.BENCH_DATA_DIR = DRIVE_BENCHDATA_DIR
@@ -291,32 +296,19 @@ def _patch_hf_hub_for_colab() -> None:
 
 
 def patch_dense_device(device: str = "cuda") -> None:
-    """DenseSparseStrategy._init_dense()를 패치하여 임베딩 모델 디바이스를 변경한다."""
-    from rag_bench.strategies.dense_sparse import DenseSparseStrategy
+    """[DEPRECATED] DenseSparseStrategy(device=) 파라미터를 직접 사용하세요.
 
-    def _patched_init_dense(self):
-        from langchain_huggingface import HuggingFaceEmbeddings
-        from rag_bench.strategies.dense_sparse import DENSE_DIMS
-
-        model_spec = self._dense_model
-        # trust_remote_code=True: bge-m3 등 커스텀 코드 모델 필수
-        model_kwargs = {"device": device, "trust_remote_code": True}
-
-        self._dense_embeddings = HuggingFaceEmbeddings(
-            model_name=model_spec,
-            model_kwargs=model_kwargs,
-            encode_kwargs={"normalize_embeddings": True},
-        )
-        # 알려진 모델은 룩업 테이블 사용, 아니면 test inference
-        if model_spec in DENSE_DIMS:
-            self._embedding_dim = DENSE_DIMS[model_spec]
-        else:
-            test_vec = self._dense_embeddings.embed_query("test")
-            self._embedding_dim = len(test_vec)
-        print(f"  Dense: {model_spec} ({self._embedding_dim}d, device={device})")
-
-    DenseSparseStrategy._init_dense = _patched_init_dense  # type: ignore[method-assign]
-    print(f"[Patch] DenseSparseStrategy._init_dense → device='{device}', trust_remote_code=True")
+    이 함수는 이전 버전 호환성을 위해 유지되지만 더 이상 monkey-patch를 수행하지 않습니다.
+    CacheConfig(dense_device=device) 또는 DenseSparseStrategy(device=device)를 사용하세요.
+    """
+    import warnings
+    warnings.warn(
+        "patch_dense_device()는 deprecated입니다. "
+        "DenseSparseStrategy(device=) 파라미터를 직접 사용하세요.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print(f"[Deprecated] patch_dense_device('{device}') — DI 패턴으로 대체됨. device='{device}' 파라미터를 직접 전달하세요.")
 
 
 # ---------------------------------------------------------------------------
@@ -325,49 +317,18 @@ def patch_dense_device(device: str = "cuda") -> None:
 
 
 def patch_qdrant_memory_mode() -> None:
-    """DenseSparseStrategy._init_qdrant()를 패치하여 ':memory:' 모드를 지원한다.
+    """[DEPRECATED] DenseSparseStrategy(qdrant_path=':memory:')가 자동으로 지원됩니다.
 
-    QdrantClient(path=":memory:")는 동작하지 않으므로
-    QdrantClient(location=":memory:")로 변환한다.
+    이 함수는 이전 버전 호환성을 위해 유지되지만 더 이상 monkey-patch를 수행하지 않습니다.
     """
-    from qdrant_client import QdrantClient
-    from qdrant_client.http import models as qmodels
-    from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-    original_init_qdrant = DenseSparseStrategy._init_qdrant
-
-    def _patched_init_qdrant(self):
-        if self._qdrant_path == ":memory:":
-            from langchain_qdrant import QdrantVectorStore
-            from langchain_qdrant.qdrant import RetrievalMode
-
-            if self._client is None:
-                self._client = QdrantClient(location=":memory:")
-
-            if not self._client.collection_exists(self._collection_name):
-                self._client.create_collection(
-                    collection_name=self._collection_name,
-                    vectors_config=qmodels.VectorParams(
-                        size=self._embedding_dim,
-                        distance=qmodels.Distance.COSINE,
-                    ),
-                    sparse_vectors_config={"sparse": qmodels.SparseVectorParams()},
-                )
-                print(f"  Created in-memory collection: {self._collection_name}")
-
-            self._vector_store = QdrantVectorStore(
-                client=self._client,
-                collection_name=self._collection_name,
-                embedding=self._dense_embeddings,
-                sparse_embedding=self._sparse_embeddings,
-                retrieval_mode=RetrievalMode.HYBRID,
-                sparse_vector_name="sparse",
-            )
-        else:
-            original_init_qdrant(self)
-
-    DenseSparseStrategy._init_qdrant = _patched_init_qdrant  # type: ignore[method-assign]
-    print("[Patch] DenseSparseStrategy._init_qdrant → ':memory:' 모드 지원")
+    import warnings
+    warnings.warn(
+        "patch_qdrant_memory_mode()는 deprecated입니다. "
+        "DenseSparseStrategy(qdrant_path=':memory:')가 자동으로 지원됩니다.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print("[Deprecated] patch_qdrant_memory_mode() — _init_qdrant() 내장 처리됨.")
 
 
 # ---------------------------------------------------------------------------
@@ -375,18 +336,18 @@ def patch_qdrant_memory_mode() -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_cache_config(device: str = "cuda"):
+def get_cache_config(device: str = "cuda") -> "CacheConfig":
     """Colab 환경에 맞는 CacheConfig를 반환한다.
 
     Args:
-        device: ColBERT 디바이스 ('cuda' 또는 'cpu').
+        device: ColBERT 및 Dense 임베딩 디바이스 ('cuda' 또는 'cpu').
 
     Returns:
         CacheConfig 인스턴스.
     """
     from rag_bench.combo import CacheConfig
 
-    return CacheConfig(colbert_device=device)
+    return CacheConfig(colbert_device=device, dense_device=device)
 
 
 # ---------------------------------------------------------------------------
@@ -438,12 +399,8 @@ def init_colab(
     # HF Hub 패치 (additional_chat_templates 404 억제)
     _patch_hf_hub_for_colab()
 
-    # 디바이스 패치 (Dense 임베딩)
-    patch_dense_device(device=device)
-
-    # 인메모리 모드 패치
-    if qdrant_mode == "memory":
-        patch_qdrant_memory_mode()
+    # patch_dense_device(device)  — 제거됨 (DenseSparseStrategy 생성자 device= 파라미터로 대체)
+    # patch_qdrant_memory_mode()  — 제거됨 (_init_qdrant 내장 처리)
 
     # 한글 폰트 설정
     _setup_korean_font()
