@@ -34,302 +34,24 @@ import json
 import sys
 import time
 import traceback
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
+    DEFAULT_CONTEXTUAL_LLM,
     setup_ssl_bypass,
+)
+from rag_bench.combo import (
+    ComboSpec, PRESETS, generate_valid_combinations,
+    CacheConfig, IndexCacheManager, build_strategy_from_spec,
 )
 from rag_bench.indexing.chunker import create_parent_child_chunks
 from rag_bench.run_tracker import RunTracker, track_openai_tokens
 from rag_bench.runner import BenchmarkRunner
-from rag_bench.strategies.dense_sparse import DENSE_MODELS, SPARSE_TYPES
 
 ALL_COMBO_IDS = [1, 2, 3, 4]
-
-
-# ===========================================================================
-# ComboSpec + 조합 생성기
-# ===========================================================================
-
-
-@dataclass
-class ComboSpec:
-    """3-Layer 조합 명세."""
-
-    dense: str = ""                   # DENSE_MODELS 키 (예: "kosimcse")
-    sparse: str = ""                  # SPARSE_TYPES 값 (예: "splade")
-    reranker: Optional[str] = None    # None | "colbert" | "flashrank"
-    llm_support: Optional[str] = None # None | "contextual"
-
-    @property
-    def label(self) -> str:
-        parts = [self.dense, self.sparse]
-        if self.reranker:
-            parts.append(self.reranker)
-        if self.llm_support:
-            parts.append(self.llm_support)
-        return "+".join(parts)
-
-    @property
-    def retrieval_mode(self) -> str:
-        mode = "hybrid"
-        suffixes = []
-        if self.reranker:
-            suffixes.append(self.reranker + "_rerank")
-        if self.llm_support:
-            suffixes.append("llm_support")
-        if suffixes:
-            mode += "_with_" + "_and_".join(suffixes)
-        return mode
-
-    @property
-    def index_key(self) -> str:
-        """인덱스 캐싱 키. (dense, sparse) 쌍으로 결정."""
-        return f"{self.dense}:{self.sparse}"
-
-
-# ---------------------------------------------------------------------------
-# 프리셋
-# ---------------------------------------------------------------------------
-
-PRESETS: Dict[str, Dict[str, list]] = {
-    "quick": {
-        "dense_models": ["bge-m3", "minilm"],
-        "sparse_models": ["fastembed_bm25"],
-        "rerankers": [None, "flashrank"],
-        "llm_support": [None],
-    },
-    "standard": {
-        "dense_models": list(DENSE_MODELS.keys()),
-        "sparse_models": list(SPARSE_TYPES),
-        "rerankers": [None, "flashrank"],
-        "llm_support": [None],
-    },
-    "full": {
-        "dense_models": list(DENSE_MODELS.keys()),
-        "sparse_models": list(SPARSE_TYPES),
-        "rerankers": [None, "colbert", "flashrank"],
-        "llm_support": [None, "contextual"],
-    },
-}
-
-
-def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
-    """3-Layer 카테시안 곱으로 유효 조합 생성.
-
-    Args:
-        config: PRESETS 딕셔너리 항목.
-    """
-    combos = []
-    for d in config["dense_models"]:
-        for s in config["sparse_models"]:
-            for r in config["rerankers"]:
-                for llm_sup in config["llm_support"]:
-                    combos.append(ComboSpec(dense=d, sparse=s, reranker=r, llm_support=llm_sup))
-    return combos
-
-
-# ===========================================================================
-# CacheConfig — IndexCacheManager 하드코딩 설정 외부화
-# ===========================================================================
-
-
-@dataclass
-class CacheConfig:
-    """IndexCacheManager에서 사용하는 모델/리소스 설정."""
-
-    colbert_model: str = "jinaai/jina-colbert-v2"
-    colbert_device: str = "cpu"
-    flashrank_model: str = "ms-marco-MultiBERT-L-12"
-    flashrank_max_length: int = 512
-    contextual_llm: str = "gpt-4o-mini"
-    rerank_n: int = 20
-
-
-# ===========================================================================
-# IndexCacheManager
-# ===========================================================================
-
-
-@dataclass
-class IndexCacheManager:
-    """동일 (dense, sparse) 쌍은 같은 Qdrant 인덱스를 재사용."""
-
-    config: CacheConfig = field(default_factory=CacheConfig)
-    cache: Dict[str, Tuple[Any, str]] = field(default_factory=dict)
-    ctx_cache: Dict[str, Any] = field(default_factory=dict)  # contextual 전략 캐시
-    _colbert_model: Any = field(default=None, repr=False)     # ColBERT 싱글톤
-    _flashrank_ranker: Any = field(default=None, repr=False)  # FlashRank 싱글톤
-
-    def get_colbert_model(self):
-        """ColBERT 모델을 1회만 로드하고 이후 공유."""
-        if self._colbert_model is not None:
-            return self._colbert_model
-        from pylate import models
-        print(f"[ColBERT 캐시] 모델 최초 로드 중 (device={self.config.colbert_device})...")
-        self._colbert_model = models.ColBERT(
-            model_name_or_path=self.config.colbert_model,
-            device=self.config.colbert_device,
-            trust_remote_code=True,
-        )
-        print("[ColBERT 캐시] 모델 로드 완료.")
-        return self._colbert_model
-
-    def get_flashrank_ranker(self):
-        """FlashRank Ranker를 1회만 로드하고 이후 공유."""
-        if self._flashrank_ranker is not None:
-            return self._flashrank_ranker
-        from flashrank import Ranker
-        print("[FlashRank 캐시] Ranker 최초 로드 중 (이후 공유)...")
-        self._flashrank_ranker = Ranker(
-            model_name=self.config.flashrank_model,
-            max_length=self.config.flashrank_max_length,
-        )
-        print("[FlashRank 캐시] Ranker 로드 완료.")
-        return self._flashrank_ranker
-
-    def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
-        """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드.
-
-        디스크에 기존 Qdrant 인덱스가 있고 reindex=False면 재인덱싱 없이 연결만 한다.
-        """
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-        key = spec.index_key
-        qdrant_path = str(BENCH_DATA_DIR / f"qdrant_db_{spec.dense}_{spec.sparse}")
-
-        if key in self.cache and not reindex:
-            cached_strategy, _ = self.cache[key]
-            return cached_strategy
-
-        strategy = DenseSparseStrategy(
-            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=qdrant_path
-        )
-
-        qdrant_dir = Path(qdrant_path)
-        index_exists = qdrant_dir.exists() and any(qdrant_dir.iterdir())
-
-        if index_exists and not reindex:
-            print(f"  [기존 인덱스 재사용] {spec.dense}+{spec.sparse} — {qdrant_path}")
-            strategy._ensure_initialized()
-            # BM25 어휘는 디스크에 영속화되지 않으므로 동일 문서로 재fit
-            if hasattr(strategy._sparse_embeddings, "fit"):
-                texts = [doc.page_content for doc in child_chunks]
-                strategy._sparse_embeddings.fit(texts)
-            strategy._is_ready = True
-        else:
-            strategy.index(child_chunks)
-
-        self.cache[key] = (strategy, qdrant_path)
-        return strategy
-
-    def get_or_build_contextual(self, spec: ComboSpec, child_chunks, parent_pairs, reindex=False):
-        """contextual 전략을 캐시에서 가져오거나 새로 빌드.
-
-        디스크에 기존 Contextual Qdrant 인덱스가 있고 reindex=False면
-        LLM 문맥 생성 및 재인덱싱 없이 연결만 한다.
-        """
-        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-        key = f"ctx:{spec.index_key}"
-
-        if key in self.ctx_cache and not reindex:
-            return self.ctx_cache[key]
-
-        ctx_qdrant_path = str(
-            BENCH_DATA_DIR / f"qdrant_db_ctx_{spec.dense}_{spec.sparse}"
-        )
-        ctx_base = DenseSparseStrategy(
-            dense_model=spec.dense, sparse_type=spec.sparse, qdrant_path=ctx_qdrant_path
-        )
-
-        # 이미 캐시된 base 전략에서 Dense/Sparse 모델 객체 공유 (재로드 방지)
-        base_key = spec.index_key
-        if base_key in self.cache:
-            cached_base, _ = self.cache[base_key]
-            if cached_base._dense_embeddings is not None:
-                ctx_base.share_embeddings(
-                    dense_embeddings=cached_base._dense_embeddings,
-                    sparse_embeddings=cached_base._sparse_embeddings,
-                    embedding_dim=cached_base._embedding_dim,
-                    use_langchain_sparse=cached_base._use_langchain_sparse,
-                )
-
-        strategy = ContextualRetrievalStrategy(
-            base_strategy=ctx_base,
-            parent_pairs=parent_pairs,
-            llm_model=self.config.contextual_llm,
-        )
-
-        ctx_qdrant_dir = Path(ctx_qdrant_path)
-        ctx_index_exists = ctx_qdrant_dir.exists() and any(ctx_qdrant_dir.iterdir())
-
-        if ctx_index_exists and not reindex:
-            print(f"  [기존 Contextual 인덱스 재사용] {spec.dense}+{spec.sparse} — {ctx_qdrant_path}")
-            ctx_base._ensure_initialized()
-            if hasattr(ctx_base._sparse_embeddings, "fit"):
-                texts = [doc.page_content for doc in child_chunks]
-                ctx_base._sparse_embeddings.fit(texts)
-            ctx_base._is_ready = True
-            strategy._is_ready = True
-        else:
-            strategy.index(child_chunks)
-
-        self.ctx_cache[key] = strategy
-        return strategy
-
-
-# ===========================================================================
-# 전략 빌드 로직
-# ===========================================================================
-
-
-def build_strategy_from_spec(
-    spec: ComboSpec,
-    index_cache: IndexCacheManager,
-    child_chunks,
-    parent_pairs,
-    reindex: bool = False,
-):
-    """ComboSpec에서 전략 인스턴스 생성."""
-    # 1. Base: DenseSparse (인덱스 캐시 활용)
-    base = index_cache.get_or_build(spec, child_chunks, reindex=reindex)
-
-    # 2. LLM Support 적용 (contextual 캐시 활용)
-    if spec.llm_support == "contextual":
-        base = index_cache.get_or_build_contextual(spec, child_chunks, parent_pairs, reindex)
-
-    # 3. Reranker 적용 (Decorator)
-    cfg = index_cache.config
-    if spec.reranker == "colbert":
-        from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
-
-        shared = index_cache.get_colbert_model()
-        return ColBERTRerankStrategy(
-            base_strategy=base,
-            model_name=cfg.colbert_model,
-            rerank_n=cfg.rerank_n,
-            device=cfg.colbert_device,
-            shared_model=shared,
-        )
-    elif spec.reranker == "flashrank":
-        from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
-
-        shared = index_cache.get_flashrank_ranker()
-        return FlashRankRerankStrategy(
-            base_strategy=base,
-            model_name=cfg.flashrank_model,
-            rerank_n=cfg.rerank_n,
-            max_length=cfg.flashrank_max_length,
-            shared_ranker=shared,
-        )
-
-    return base
 
 
 # ===========================================================================
@@ -412,7 +134,7 @@ def _try_build_contextual(
     strategy = ContextualRetrievalStrategy(
         base_strategy=base,
         parent_pairs=parent_pairs,
-        llm_model="gpt-4o-mini",
+        llm_model=DEFAULT_CONTEXTUAL_LLM,
     )
     strategy.index(child_chunks)
     return strategy, None

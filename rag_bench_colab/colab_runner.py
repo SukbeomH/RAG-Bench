@@ -380,7 +380,7 @@ class ColabBenchmarkRunner:
 
     def generate_combos(self) -> list:
         """프리셋 기반 ComboSpec 목록 생성."""
-        from rag_bench.scripts.run_all_combos import PRESETS, generate_valid_combinations
+        from rag_bench.combo import PRESETS, generate_valid_combinations
 
         if self.preset not in PRESETS:
             raise ValueError(f"알 수 없는 프리셋: {self.preset}. 사용 가능: {list(PRESETS.keys())}")
@@ -407,9 +407,7 @@ class ColabBenchmarkRunner:
             레이턴시 결과 DataFrame.
         """
         from rag_bench.runner import BenchmarkRunner
-        from rag_bench.scripts.run_all_combos import (
-            IndexCacheManager,
-        )
+        from rag_bench.combo import IndexCacheManager
 
         tqdm = self._get_tqdm()
 
@@ -534,7 +532,7 @@ class ColabBenchmarkRunner:
         from rag_bench.evaluation import ExtendedRAGEvaluator
         from rag_bench.evaluation.metrics import MetricPreset
         from rag_bench.runner import BenchmarkRunner
-        from rag_bench.scripts.run_all_combos import IndexCacheManager
+        from rag_bench.combo import IndexCacheManager
 
         tqdm = self._get_tqdm()
 
@@ -772,9 +770,7 @@ class ColabBenchmarkRunner:
 
     def _build_strategy(self, spec, child_chunks, parent_pairs):
         """ComboSpec에서 전략 인스턴스 생성 (Qdrant 경로 오버라이드)."""
-        from rag_bench.scripts.run_all_combos import (
-            build_strategy_from_spec,
-        )
+        from rag_bench.combo import build_strategy_from_spec
 
         # Qdrant 경로를 Colab 모드에 맞게 오버라이드
         if self.qdrant_mode != "ephemeral":

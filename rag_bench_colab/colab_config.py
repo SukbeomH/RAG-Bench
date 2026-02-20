@@ -384,7 +384,7 @@ def get_cache_config(device: str = "cuda"):
     Returns:
         CacheConfig 인스턴스.
     """
-    from rag_bench.scripts.run_all_combos import CacheConfig
+    from rag_bench.combo import CacheConfig
 
     return CacheConfig(colbert_device=device)
 
