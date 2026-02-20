@@ -35,6 +35,7 @@ langchain-upstage>=0.3
 
 # --- Evaluation ---
 ragas>=0.4.3
+rapidfuzz>=3.0          # RAGAS OverlapScoreBuilder 의존성
 
 # --- Utils ---
 python-dotenv>=1.0
