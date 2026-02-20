@@ -82,7 +82,7 @@ def _generate_qa_ragas(
     from ragas.testset import TestsetGenerator
     from ragas.testset.graph import KnowledgeGraph
     from ragas.testset.transforms import default_transforms, apply_transforms
-    from ragas.testset.synthesizers.single_hop import SingleHopSpecificQuerySynthesizer
+    from ragas.testset.synthesizers.single_hop.specific import SingleHopSpecificQuerySynthesizer
     from ragas.testset.synthesizers.multi_hop import (
         MultiHopAbstractQuerySynthesizer,
         MultiHopSpecificQuerySynthesizer,
