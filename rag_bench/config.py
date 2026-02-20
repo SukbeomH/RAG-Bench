@@ -11,21 +11,27 @@ import warnings
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# 디렉토리 경로
+# 프로젝트 루트 + 패키지 경로
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).parent.parent
-DOCS_DIR = PROJECT_ROOT / "docs"
-MARKDOWN_DIR = PROJECT_ROOT / "markdown"
-PARENT_STORE_PATH = PROJECT_ROOT / "parent_store"
-QDRANT_BASE_PATH = PROJECT_ROOT  # qdrant_db_<strategy> 접두사로 사용
+PACKAGE_ROOT = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
-# 패키지 내부 경로 (rag_bench/ 패키지를 독립 공유할 때 사용)
+# 패키지 내부 경로 — BENCH_DATA_DIR 기준으로 통합
+#
+# 모든 벤치마크 산출물(인덱스, 마크다운, parent_store 등)은
+# BENCH_DATA_DIR (_benchdata/) 하위에 배치하여 경로 기준을 단일화한다.
 # ---------------------------------------------------------------------------
-PACKAGE_ROOT = Path(__file__).parent
-BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"      # 벤치마크 대상 markdown 문서
-BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"  # 벤치마크 중간 산출물
-MODELS_DIR = PACKAGE_ROOT / "_models"         # 로컬 모델 캐시
+BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"   # 벤치마크 중간 산출물 (기준점)
+BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"         # 벤치마크 대상 markdown 문서
+MODELS_DIR = PACKAGE_ROOT / "_models"          # 로컬 모델 캐시
+MARKDOWN_DIR = BENCH_DATA_DIR / "markdown"     # 변환된 마크다운 저장 경로
+PARENT_STORE_PATH = BENCH_DATA_DIR / "parent_store"  # Parent 청크 저장 경로
+
+# ---------------------------------------------------------------------------
+# 레거시 참조용 별칭 (하위 호환)
+# ---------------------------------------------------------------------------
+DOCS_DIR = PROJECT_ROOT / "docs"
 
 # ---------------------------------------------------------------------------
 # Qdrant 인덱스 경로 접두사
