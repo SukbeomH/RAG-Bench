@@ -15,9 +15,8 @@ from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from pydantic import ConfigDict
 
-from rag_bench.base import BaseRAGStrategy
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
 
 
 class UpstageEmbedStrategy(BaseRAGStrategy):
@@ -90,8 +89,7 @@ class UpstageEmbedStrategy(BaseRAGStrategy):
     def get_retriever(self, k: int = 3) -> BaseRetriever:
         if not self._is_ready or self._vectorstore is None:
             raise RuntimeError(f"{self.name}: 인덱싱이 필요합니다.")
-        # 쿼리 모델이 분리되므로 커스텀 retriever 반환
-        return _UpstageRetriever(strategy=self, k=k)
+        return StrategyRetriever(strategy=self, k=k)
 
     @property
     def is_ready(self) -> bool:
@@ -105,15 +103,3 @@ class UpstageEmbedStrategy(BaseRAGStrategy):
             p = Path(self.qdrant_path)
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
-
-
-class _UpstageRetriever(BaseRetriever):
-    """UpstageEmbedStrategy용 LangChain Retriever 래퍼."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    strategy: UpstageEmbedStrategy
-    k: int = 3
-
-    def _get_relevant_documents(self, query: str, *, run_manager=None) -> List[Document]:
-        return self.strategy.retrieve(query, k=self.k)

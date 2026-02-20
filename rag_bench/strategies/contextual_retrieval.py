@@ -28,13 +28,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from pydantic import ConfigDict
 
-from rag_bench.base import BaseRAGStrategy
-from rag_bench.config import BENCH_DATA_DIR
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
+from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM
 
 # Anthropic 공식 프롬프트 (원문 유지, 한국어 응답 유도)
 _CONTEXT_PROMPT = """\
@@ -49,25 +47,6 @@ Please give a short succinct context to situate this chunk within the \
 overall document for the purposes of improving search retrieval of the chunk. \
 Answer only with the succinct context and nothing else. \
 Respond in the same language as the document."""
-
-
-# ---------------------------------------------------------------------------
-# LangChain Retriever 래퍼
-# ---------------------------------------------------------------------------
-
-
-class ContextualRetrievalRetriever(BaseRetriever):
-    """ContextualRetrievalStrategy를 LangChain Retriever 인터페이스로 래핑."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    strategy: Any
-    k: int = 5
-
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> List[Document]:
-        return self.strategy.retrieve(query, k=self.k)
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +73,7 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
         self,
         base_strategy: BaseRAGStrategy,
         parent_pairs: List[Tuple[str, Document]],
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str = DEFAULT_CONTEXTUAL_LLM,
         max_context_tokens: int = 4000,
         cache_dir: Optional[str] = None,
     ):
@@ -320,7 +299,7 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
 
     def get_retriever(self, k: int = 5) -> BaseRetriever:
         """LangChain 호환 Retriever 객체를 반환한다."""
-        return ContextualRetrievalRetriever(strategy=self, k=k)
+        return StrategyRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
         """base_strategy 리소스 정리."""
