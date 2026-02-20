@@ -6,10 +6,11 @@ Strategy Pattern의 핵심 인터페이스를 정의한다.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from pydantic import ConfigDict
 
 
 class BaseRAGStrategy(ABC):
@@ -88,3 +89,19 @@ class BaseRAGStrategy(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}: {self.name}>"
+
+
+class StrategyRetriever(BaseRetriever):
+    """BaseRAGStrategy를 LangChain Retriever 인터페이스로 래핑하는 제네릭 클래스.
+
+    각 전략 파일마다 동일 패턴의 Retriever 클래스를 정의하는 중복을 방지한다.
+    모든 전략의 get_retriever()는 이 클래스 하나를 반환하면 된다.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    strategy: Any
+    k: int = 5
+
+    def _get_relevant_documents(self, query: str, *, run_manager=None) -> List[Document]:
+        return self.strategy.retrieve(query, k=self.k)

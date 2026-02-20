@@ -26,31 +26,10 @@ Usage:
 
 from typing import Any, List, Optional
 
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from pydantic import ConfigDict
 
-from rag_bench.base import BaseRAGStrategy
-
-
-# ---------------------------------------------------------------------------
-# FlashRankRerankRetriever — LangChain BaseRetriever 래퍼
-# ---------------------------------------------------------------------------
-
-
-class FlashRankRerankRetriever(BaseRetriever):
-    """FlashRankRerankStrategy를 LangChain Retriever 인터페이스로 래핑."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    strategy: Any
-    k: int = 5
-
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> List[Document]:
-        return self.strategy.retrieve(query, k=self.k)
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +150,7 @@ class FlashRankRerankStrategy(BaseRAGStrategy):
 
     def get_retriever(self, k: int = 5) -> BaseRetriever:
         """LangChain 호환 Retriever 객체를 반환한다."""
-        return FlashRankRerankRetriever(strategy=self, k=k)
+        return StrategyRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
         """base_strategy 리소스 정리 (공유 Ranker는 유지)."""

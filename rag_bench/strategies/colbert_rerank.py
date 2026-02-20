@@ -16,31 +16,11 @@ ColBERT를 검색 자체에 쓰는 ColBERTStrategy와 달리,
 
 from typing import Any, List, Optional
 
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from pydantic import ConfigDict
 
-from rag_bench.base import BaseRAGStrategy
-
-
-# ---------------------------------------------------------------------------
-# ColBERTRerankRetriever — LangChain BaseRetriever 래퍼
-# ---------------------------------------------------------------------------
-
-
-class ColBERTRerankRetriever(BaseRetriever):
-    """ColBERTRerankStrategy를 LangChain Retriever 인터페이스로 래핑."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    strategy: Any
-    k: int = 5
-
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> List[Document]:
-        return self.strategy.retrieve(query, k=self.k)
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
+from rag_bench.utils.device import detect_device
 
 
 # ---------------------------------------------------------------------------
@@ -94,14 +74,6 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
     def is_ready(self) -> bool:
         return self._is_ready
 
-    def _detect_device(self) -> str:
-        """CUDA → CPU 자동 감지 (MPS는 OOM 위험으로 사용하지 않음)."""
-        import torch
-
-        if torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-
     def _ensure_initialized(self) -> None:
         """ColBERT 모델만 lazy 로드 (문서 인코딩 없음)."""
         if self._model is not None:
@@ -110,7 +82,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         from pylate import models
 
         if self._device is None:
-            self._device = self._detect_device()
+            self._device = detect_device()
 
         print(f"\n[{self.name}] ColBERT 리랭커 초기화 중...")
         print(f"  모델: {self._model_name}")
@@ -191,7 +163,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
 
     def get_retriever(self, k: int = 5) -> BaseRetriever:
         """LangChain 호환 Retriever 객체를 반환한다."""
-        return ColBERTRerankRetriever(strategy=self, k=k)
+        return StrategyRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
         """base_strategy 리소스 정리 (공유 모델은 유지)."""

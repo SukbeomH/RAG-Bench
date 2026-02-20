@@ -9,31 +9,11 @@ PyLate(Sentence Transformers 기반)를 백엔드로 사용하여
 
 from typing import Any, Dict, List, Optional
 
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from pydantic import ConfigDict
 
-from rag_bench.base import BaseRAGStrategy
-
-
-# ---------------------------------------------------------------------------
-# ColBERTRetriever — LangChain BaseRetriever 래퍼
-# ---------------------------------------------------------------------------
-
-
-class ColBERTRetriever(BaseRetriever):
-    """ColBERTStrategy를 LangChain Retriever 인터페이스로 래핑."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    strategy: Any
-    k: int = 5
-
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> List[Document]:
-        return self.strategy.retrieve(query, k=self.k)
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
+from rag_bench.utils.device import detect_device
 
 
 # ---------------------------------------------------------------------------
@@ -91,14 +71,6 @@ class ColBERTStrategy(BaseRAGStrategy):
     def is_ready(self) -> bool:
         return self._is_ready
 
-    def _detect_device(self) -> str:
-        """CUDA → CPU 자동 감지 (MPS는 OOM 위험으로 사용하지 않음)."""
-        import torch
-
-        if torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-
     def _ensure_initialized(self) -> None:
         """필요 시 ColBERT 모델 로드 (lazy)."""
         if self._model is not None:
@@ -107,7 +79,7 @@ class ColBERTStrategy(BaseRAGStrategy):
         from pylate import models
 
         if self._device is None:
-            self._device = self._detect_device()
+            self._device = detect_device()
 
         print(f"\n[{self.name}] 초기화 중...")
         print(f"  모델: {self._model_name}")
@@ -208,7 +180,7 @@ class ColBERTStrategy(BaseRAGStrategy):
 
     def get_retriever(self, k: int = 5) -> BaseRetriever:
         """LangChain 호환 Retriever 객체를 반환한다."""
-        return ColBERTRetriever(strategy=self, k=k)
+        return StrategyRetriever(strategy=self, k=k)
 
     def cleanup(self) -> None:
         """메모리 및 인덱스 파일 정리."""

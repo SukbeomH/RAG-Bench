@@ -19,7 +19,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import SparseVector
 
-from rag_bench.base import BaseRAGStrategy
+from rag_bench.base import BaseRAGStrategy, StrategyRetriever
+from rag_bench.utils.device import detect_device
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +380,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
             from langchain_huggingface import HuggingFaceEmbeddings
             self._dense_embeddings = HuggingFaceEmbeddings(
                 model_name=model_spec,
-                model_kwargs={"device": "cpu"},
+                model_kwargs={"device": detect_device()},
                 encode_kwargs={"normalize_embeddings": True},
             )
 
