@@ -471,12 +471,24 @@ class ColabBenchmarkRunner:
             except Exception as e:
                 print(f"\n  [Error] {spec.label}: {e}")
 
-            # Reranker 래핑 전략만 cleanup (base strategy는 캐시에 보존)
+            # Reranker 래핑 전략만 cleanup
+            # ctx_cache에 있는 ContextualRetrieval 또는 그것을 base로 가진 전략은
+            # cleanup cascade를 금지 (_is_ready가 False로 오염되는 것 방지)
             if strategy is not None and hasattr(strategy, '_base_strategy'):
-                try:
-                    strategy.cleanup()
-                except Exception:
-                    pass
+                ctx_values = (
+                    set(id(v) for v in self._index_cache.ctx_cache.values())
+                    if self._index_cache else set()
+                )
+                base = getattr(strategy, '_base_strategy', None)
+                is_cached = (
+                    id(strategy) in ctx_values
+                    or (base is not None and id(base) in ctx_values)
+                )
+                if not is_cached:
+                    try:
+                        strategy.cleanup()
+                    except Exception:
+                        pass
 
             release_memory()
 
