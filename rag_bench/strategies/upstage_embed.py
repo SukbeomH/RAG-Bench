@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from pydantic import ConfigDict
 
 from rag_bench.base import BaseRAGStrategy
 
@@ -109,7 +110,6 @@ class UpstageEmbedStrategy(BaseRAGStrategy):
 class _UpstageRetriever(BaseRetriever):
     """UpstageEmbedStrategy용 LangChain Retriever 래퍼."""
 
-    from pydantic import ConfigDict
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     strategy: UpstageEmbedStrategy
