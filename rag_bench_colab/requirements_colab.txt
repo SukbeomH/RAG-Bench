@@ -25,6 +25,7 @@ transformers>=4.40
 # torch: Colab 사전 설치 버전 사용 (CUDA 호환성 유지, 재설치 금지)
 flashrank>=0.2
 einops>=0.8.2
+# flash-attn: --no-build-isolation 필요 → Cell 1.2에서 별도 설치
 
 # --- PDF 처리 ---
 pymupdf>=1.24          # fitz — PDF 페이지 샘플링 (pdfs_to_markdowns)
