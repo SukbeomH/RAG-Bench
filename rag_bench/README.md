@@ -82,6 +82,46 @@ API 호출을 86% 절감하면서도 의미 있는 상위권 전략의 품질을
 └────────────────────────────────────────────────────────────────┘
 ```
 
+### 전체 실행 흐름
+
+```
+  docs/*.pdf                                 QA 데이터셋
+      │                                           │
+      │ [--sample_pages]                          │
+      ▼                                           │
+  pdfs_to_markdowns()  ──→  rag_bench/docs/*.md  │
+                                    │             │
+                                    ▼             │
+                       create_parent_child_chunks()│
+                                    │             │
+                                    ▼             │
+                       effective_num_qa 산출       │
+                                    │             │
+                                    ▼             │
+                       RAGAS KG 구축 + QA 생성     │
+                                    │             │
+                                    ▼             ▼
+                            qa_dataset.json ──────┤
+                                                  │
+                    ┌─────────────────────────────┘
+                    │
+                    ▼
+              run_all_combos.py
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+       Pass 1              Pass 2
+   (72개 전략            (top_n 전략
+    레이턴시 측정)         RAGAS 평가)
+          │                   │
+          └─────────┬─────────┘
+                    ▼
+        all_combos_latency.csv
+        all_combos_ragas.csv
+        e2e_report.md
+        benchmark_report.html
+```
+
 ### 문서 처리 흐름
 
 ```
@@ -650,6 +690,39 @@ Reranker:
   --reuse-kg                기존 KG 파일 재사용
   --query-dist DIST         쿼리 분포: single_hop | multi_hop | balanced (기본: balanced)
   --num-personas N          자동 페르소나 수 (기본: 3)
+```
+
+#### QA 생성 파이프라인 흐름
+
+```
+generate_qa.py main()
+│
+├─ [Step 0 — --sample_pages 시]
+│    docs/*.pdf
+│        │  pdfs_to_markdowns(
+│        │      sample_pages=True,
+│        │      page_sample_ratio=0.1,  # 10%
+│        │      max_sample_pages=5
+│        │  )
+│        ▼
+│    rag_bench/docs/*.md  (샘플링된 텍스트)
+│
+├─ [Step 1] create_parent_child_chunks(BENCH_DOCS_DIR)
+│    └─→ parent_pairs: List[(parent_doc, [child_docs])]
+│
+├─ [Step 2] _compute_effective_num_qa(args, parent_pairs)
+│    └─→ effective = min(args.num_qa, len(parent_pairs) × args.max_qa_per_page)
+│
+├─ [Step 3] _generate_qa_ragas(parent_pairs, num_qa=effective, ...)
+│    ├─ KnowledgeGraph 구축 (저장: KG_SAVE_PATH)
+│    │    또는 --reuse-kg 시 기존 KG 파일 로드
+│    ├─ TestsetGenerator(llm, embeddings)
+│    └─ generator.generate(num_qa, query_distribution=[...])
+│         └─→ qa_pairs: List[{"question": ..., "ground_truth": ...}]
+│
+└─ [Step 4] 저장
+     └─→ _benchdata/qa_dataset.json
+          {"qa_pairs": [...], "num_qa": N, "sampled_pages": bool}
 ```
 
 ### run_bench.py

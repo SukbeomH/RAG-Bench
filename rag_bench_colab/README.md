@@ -11,7 +11,58 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
 3. Colab Secrets에 `OPENAI_API_KEY` 등록
 4. 노트북 셀 순서대로 실행
 
-### 실행 흐름
+### 실행 흐름 다이어그램
+
+```
+  Google Colab 세션
+  │
+  ├─ [Step 1] init_colab(qdrant_mode="ephemeral")
+  │    ├─ Google Drive 마운트 (/content/drive)
+  │    ├─ Colab Secrets → OPENAI_API_KEY 로드
+  │    ├─ HF_HOME = Drive/models (영속 캐시)
+  │    ├─ patch_rag_bench_config()  ← 경로 오버라이드
+  │    │    ├─ cfg.DOCS_DIR      → /content/RAG-Bench/docs
+  │    │    ├─ cfg.BENCH_DOCS_DIR → colab/data/docs
+  │    │    ├─ cfg.BENCH_DATA_DIR → Drive/_benchdata
+  │    │    └─ gqa.* 모듈 변수 패치 (import-time 바인딩 대응)
+  │    ├─ patch_dense_device(device="cuda")
+  │    └─ _setup_korean_font()
+  │
+  ├─ [Step 2] ColabBenchmarkRunner(preset, k, top_n, ...)
+  │
+  ├─ [Step 3] runner.prepare_qa(num_qa, sample_pages, ...)
+  │    ├─ 캐시 확인: Drive/_benchdata/qa_dataset.json 존재 시 스킵
+  │    ├─ [sample_pages=True 시]
+  │    │    pdfs_to_markdowns(/content/RAG-Bench/docs/*.pdf
+  │    │        → colab/data/docs/*.md, ratio=10%, max=5pages)
+  │    ├─ create_parent_child_chunks(colab/data/docs)
+  │    ├─ effective_num_qa = min(num_qa, chunks × max_qa_per_page)
+  │    ├─ KG_SAVE_PATH 임시 오버라이드 → Drive/_benchdata/ragas_kg.json
+  │    ├─ _generate_qa_ragas(parent_pairs, num_qa=effective)
+  │    │    └─ RAGAS KnowledgeGraph + TestsetGenerator
+  │    └─ 저장: Drive/_benchdata/qa_dataset.json
+  │
+  ├─ [Step 4] runner.prepare_data()
+  │    └─ qa_dataset.json 로드 → (child_chunks, parent_pairs, queries, gts)
+  │
+  ├─ [Step 5] runner.generate_combos() + run_pass1()
+  │    ├─ 프리셋별 조합 수: quick=4, standard=24, full=72
+  │    ├─ 각 전략 × 쿼리 → 레이턴시 측정
+  │    ├─ 체크포인트: Drive/checkpoints/ (세션 재시작 시 복구)
+  │    └─ → lat_df (레이턴시 결과 DataFrame)
+  │
+  ├─ [Step 6] runner.run_pass2(lat_df, ...)
+  │    ├─ lat_df 상위 top_n 전략 선별
+  │    ├─ Pass 1 결과 inject_results()로 재사용 (검색 생략)
+  │    └─ → ragas_df (RAGAS 점수 DataFrame)
+  │
+  └─ [Step 7] runner.export_results(lat_df, ragas_df)
+       ├─ Drive/results/latency_*.csv
+       ├─ Drive/results/ragas_*.csv
+       └─ Drive/results/benchmark_report_*.html
+```
+
+### 코드 실행 예시
 
 ```python
 # 1. 환경 초기화 (Drive 마운트 + config 패치 + CUDA 디바이스)
