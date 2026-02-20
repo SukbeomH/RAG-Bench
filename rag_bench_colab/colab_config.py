@@ -17,7 +17,8 @@ from typing import Optional
 
 COLAB_PROJECT_ROOT = Path("/content/RAG-Bench")
 COLAB_DATA_DIR = COLAB_PROJECT_ROOT / "rag_bench_colab" / "data"
-COLAB_DOCS_DIR = COLAB_DATA_DIR / "docs"
+COLAB_DOCS_DIR = COLAB_DATA_DIR / "docs"   # 벤치마크용 .md 파일 위치
+COLAB_PDF_DIR = COLAB_PROJECT_ROOT / "docs"  # PDF 원본 파일 위치 (샘플링 소스)
 
 # Google Drive 경로 (영속 저장)
 DRIVE_BASE = Path("/content/drive/MyDrive/rag_bench_colab")
@@ -149,7 +150,8 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     import rag_bench.config as cfg
 
     # 경로 오버라이드
-    cfg.BENCH_DOCS_DIR = COLAB_DOCS_DIR
+    cfg.DOCS_DIR = COLAB_PDF_DIR          # PDF 원본 경로 (샘플링 소스)
+    cfg.BENCH_DOCS_DIR = COLAB_DOCS_DIR   # 벤치마크용 .md 파일
     cfg.BENCH_DATA_DIR = DRIVE_BENCHDATA_DIR
     cfg.MODELS_DIR = DRIVE_MODELS_DIR
 
@@ -177,7 +179,19 @@ def patch_rag_bench_config(qdrant_mode: str = "ephemeral") -> None:
     except ImportError:
         pass  # 아직 로드되지 않았으면 무시 (이후 import 시 cfg 값 사용)
 
+    # generate_qa 모듈의 import-time 복사 변수도 패치
+    try:
+        import rag_bench.scripts.generate_qa as gqa
+
+        gqa.BENCH_DATA_DIR = DRIVE_BENCHDATA_DIR
+        gqa.BENCH_DOCS_DIR = COLAB_DOCS_DIR
+        gqa.DOCS_DIR = COLAB_PDF_DIR
+        gqa.KG_SAVE_PATH = DRIVE_BENCHDATA_DIR / "ragas_knowledge_graph.json"
+    except ImportError:
+        pass  # 이후 import 시 cfg 값 사용
+
     print("[Patch] rag_bench.config 패치 완료:")
+    print(f"  DOCS_DIR       → {cfg.DOCS_DIR}")
     print(f"  BENCH_DOCS_DIR → {cfg.BENCH_DOCS_DIR}")
     print(f"  BENCH_DATA_DIR → {cfg.BENCH_DATA_DIR}")
     print(f"  MODELS_DIR     → {cfg.MODELS_DIR}")

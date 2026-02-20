@@ -155,6 +155,148 @@ class ColabBenchmarkRunner:
         except ImportError:
             self._tracker = None
 
+    # ------------------------------------------------------------------
+    # QA 데이터셋 생성
+    # ------------------------------------------------------------------
+
+    def prepare_qa(
+        self,
+        num_qa: int = 20,
+        sample_pages: bool = False,
+        page_sample_ratio: float = 0.1,
+        max_sample_pages: int = 5,
+        max_qa_per_page: int = 2,
+        force: bool = False,
+        reuse_kg: bool = False,
+        build_kg_only: bool = False,
+        num_personas: int = 3,
+        query_dist: str = "balanced",
+    ) -> Path:
+        """QA 데이터셋 생성 — PDF 샘플링 → 청킹 → RAGAS KG → Drive 저장.
+
+        generate_qa.py 파이프라인을 Colab 경로에 맞게 실행한다.
+        patch_rag_bench_config() 호출 후 실행해야 경로가 올바르게 적용된다.
+
+        Args:
+            num_qa: 생성할 QA 수.
+            sample_pages: docs/*.pdf를 페이지 샘플링하여 .md 재생성.
+            page_sample_ratio: 페이지 샘플링 비율 (기본 10%).
+            max_sample_pages: 최대 샘플 페이지 수.
+            max_qa_per_page: 청크당 최대 QA 수 (QA 상한 계산용).
+            force: 캐시 무시하고 재생성.
+            reuse_kg: 기존 KG 파일 재사용.
+            build_kg_only: KG만 구축, QA 생성 안 함.
+            num_personas: RAGAS 자동 페르소나 수.
+            query_dist: 쿼리 분포 (single_hop|multi_hop|balanced).
+
+        Returns:
+            생성된 qa_dataset.json 경로.
+        """
+        import argparse
+
+        from rag_bench.indexing.chunker import create_parent_child_chunks
+        from rag_bench.indexing.pdf_converter import pdfs_to_markdowns
+        from rag_bench.scripts.generate_qa import (
+            _compute_effective_num_qa,
+            _generate_qa_ragas,
+        )
+        from rag_bench_colab.colab_config import (
+            COLAB_DOCS_DIR,
+            COLAB_PDF_DIR,
+            DRIVE_BENCHDATA_DIR,
+        )
+
+        qa_path = DRIVE_BENCHDATA_DIR / "qa_dataset.json"
+
+        # 캐시 확인
+        if qa_path.exists() and not force and not build_kg_only:
+            existing = json.loads(qa_path.read_text(encoding="utf-8"))
+            print(f"[QA] 캐시된 데이터셋 사용: {len(existing['qa_pairs'])}개")
+            print("  재생성하려면 force=True를 사용하세요.")
+            return qa_path
+
+        # Step 0: PDF 페이지 샘플링 → .md 재생성 (sample_pages=True 시)
+        if sample_pages:
+            pdf_files = list(COLAB_PDF_DIR.glob("*.pdf"))
+            if pdf_files:
+                print(f"\n[QA Step 0] PDF 페이지 샘플링 ({len(pdf_files)}개 파일)")
+                COLAB_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+                pdfs_to_markdowns(
+                    docs_dir=str(COLAB_PDF_DIR),
+                    output_dir=str(COLAB_DOCS_DIR),
+                    sample_pages=True,
+                    page_sample_ratio=page_sample_ratio,
+                    max_sample_pages=max_sample_pages,
+                )
+            else:
+                print(f"[QA] PDF 없음 ({COLAB_PDF_DIR}), 기존 .md 파일을 사용합니다.")
+
+        # .md 파일 확인
+        md_files = list(COLAB_DOCS_DIR.glob("*.md"))
+        if not md_files:
+            raise FileNotFoundError(
+                f"{COLAB_DOCS_DIR}에 .md 파일이 없습니다. "
+                "docs/*.pdf 파일이 있다면 sample_pages=True로 재시도하세요."
+            )
+        print(f"\n[QA Step 1] 문서: {len(md_files)}개 ({COLAB_DOCS_DIR})")
+
+        # Step 1: Parent-Child 청킹
+        parent_store_path = DRIVE_BENCHDATA_DIR / "parent_store"
+        parent_store_path.mkdir(parents=True, exist_ok=True)
+        parent_pairs, child_chunks = create_parent_child_chunks(
+            markdown_dir=str(COLAB_DOCS_DIR),
+            parent_store_path=str(parent_store_path),
+        )
+        print(f"[QA Step 1] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+
+        if not parent_pairs:
+            raise RuntimeError("Parent 청크가 생성되지 않았습니다.")
+
+        # Step 2: 유효 QA 수 계산
+        args = argparse.Namespace(sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
+        effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
+
+        # Step 3: RAGAS KG QA 생성
+        # KG_SAVE_PATH를 Drive 경로로 임시 오버라이드
+        import rag_bench.scripts.generate_qa as _gqa_mod
+        _orig_kg_path = _gqa_mod.KG_SAVE_PATH
+        _gqa_mod.KG_SAVE_PATH = DRIVE_BENCHDATA_DIR / "ragas_knowledge_graph.json"
+
+        print(f"\n[QA Step 2] RAGAS KG QA 생성 (n={effective_num_qa}, dist={query_dist})")
+        try:
+            qa_pairs = _generate_qa_ragas(
+                parent_pairs=parent_pairs,
+                num_qa=effective_num_qa,
+                reuse_kg=reuse_kg,
+                build_kg_only=build_kg_only,
+                num_personas=num_personas,
+                query_dist=query_dist,
+            )
+        finally:
+            _gqa_mod.KG_SAVE_PATH = _orig_kg_path
+
+        if qa_pairs is None:
+            # --build_kg_only
+            print("[QA] KG 구축만 완료. QA 생성 없이 종료.")
+            return qa_path
+
+        # Step 4: 저장
+        dataset = {
+            "num_qa": len(qa_pairs),
+            "method": "ragas",
+            "query_distribution": query_dist,
+            "sampled_pages": sample_pages,
+            "qa_pairs": qa_pairs,
+        }
+        qa_path.parent.mkdir(parents=True, exist_ok=True)
+        qa_path.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n[QA] 완료: {len(qa_pairs)}개 → {qa_path}")
+        return qa_path
+
+    # ------------------------------------------------------------------
+    # 데이터 준비
+    # ------------------------------------------------------------------
+
     def prepare_data(self) -> Tuple[list, list, list, list]:
         """QA 데이터셋 로드 + Parent-Child 청킹.
 
@@ -178,7 +320,11 @@ class ColabBenchmarkRunner:
                 qa_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, qa_path)
             else:
-                raise FileNotFoundError(f"QA 데이터셋을 찾을 수 없습니다: {qa_path}")
+                raise FileNotFoundError(
+                    f"QA 데이터셋을 찾을 수 없습니다: {qa_path}\n"
+                    "  → runner.prepare_qa()를 먼저 실행하여 QA를 생성하세요.\n"
+                    "  → PDF가 있다면: runner.prepare_qa(sample_pages=True)"
+                )
 
         dataset = json.loads(qa_path.read_text(encoding="utf-8"))
         qa_pairs = dataset["qa_pairs"]
