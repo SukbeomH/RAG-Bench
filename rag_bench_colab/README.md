@@ -2,7 +2,7 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/RAG-Bench/blob/main/rag_bench_colab/rag_benchmark.ipynb)
 
-Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
+Google Colab T4 GPU에서 60개 RAG 전략 조합을 벤치마크합니다.
 
 ## Quick Start
 
@@ -25,8 +25,7 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
   │    │    ├─ cfg.BENCH_DOCS_DIR → colab/data/docs
   │    │    ├─ cfg.BENCH_DATA_DIR → Drive/_benchdata
   │    │    └─ gqa.* 모듈 변수 패치 (import-time 바인딩 대응)
-  │    ├─ patch_dense_device(device="cuda")
-  │    └─ _setup_korean_font()
+  │    └─ _setup_korean_font()  (device= 파라미터는 DenseSparseStrategy()에 직접 전달)
   │
   ├─ [Step 2] ColabBenchmarkRunner(preset, k, top_n, ...)
   │
@@ -46,7 +45,7 @@ Google Colab T4 GPU에서 72개 RAG 전략 조합을 벤치마크합니다.
   │    └─ qa_dataset.json 로드 → (child_chunks, parent_pairs, queries, gts)
   │
   ├─ [Step 5] runner.generate_combos() + run_pass1()
-  │    ├─ 프리셋별 조합 수: quick=4, standard=24, full=72
+  │    ├─ 프리셋별 조합 수: quick=2, standard=20, full=60
   │    ├─ 각 전략 × 쿼리 → 레이턴시 측정
   │    ├─ 체크포인트: Drive/checkpoints/ (세션 재시작 시 복구)
   │    └─ → lat_df (레이턴시 결과 DataFrame)
@@ -94,11 +93,11 @@ runner.export_results(lat_df, ragas_df)
 
 ## 프리셋
 
-| 프리셋 | 조합 수 | 예상 시간 | API 비용 |
-|--------|---------|----------|---------|
-| `quick` | 4 | ~15분 | ~$0.5 |
-| `standard` | 24 | ~50분 | ~$2 |
-| `full` | 72 | ~3시간 | ~$5 |
+| 프리셋 | 조합 수 | Dense | Sparse | 예상 시간 | API 비용 |
+|--------|---------|-------|--------|----------|---------|
+| `quick` | 2 | bge-m3 (1종) | korean_bm25 (1종) | ~10분 | ~$0.3 |
+| `standard` | 20 | HF 3종 + 유료 2종 | 2종 | ~45분 | ~$2 |
+| `full` | 60 | 5종 | 2종 | ~3시간 | ~$5 |
 
 ## 주요 파라미터
 
@@ -186,6 +185,18 @@ rag_bench_colab/
 | `ephemeral` | `/content/qdrant_workspace` (로컬) | 세션 종료 시 삭제 |
 | `drive` | Google Drive 저장 | 영속 |
 | `memory` | 인메모리 (`:memory:`) | 세션 종료 시 삭제 |
+
+## Cell 1.2 설치 최적화 (uv + flash-attn wheel 캐시)
+
+세션 시작 시 패키지 설치 시간을 크게 단축하는 두 가지 최적화가 적용되어 있습니다:
+
+| 최적화 | 효과 | 상세 |
+|--------|------|------|
+| **uv 패키지 매니저** | requirements 설치 ~8배 빠름 | pip 대비 고속. Drive에 `UV_CACHE_DIR` 설정으로 세션 간 캐시 재사용 |
+| **flash-attn 사전 빌드 wheel** | 설치 30초 (소스 빌드 30~120분 → ~30초) | CUDA/Python/torch 버전 조합으로 wheel 파일명 자동 구성, GitHub에서 다운로드 |
+| **Drive wheel 캐시** | 2회차부터 ~5초 | 다운로드한 wheel을 Drive에 저장, 재시작 시 즉시 재사용 |
+
+**설치 우선순위:** ① Drive 캐시 wheel → ② GitHub wheel 다운로드 → ③ 소스 빌드 (fallback)
 
 ## rag_bench 최적화 적용 내역
 

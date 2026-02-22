@@ -4,9 +4,9 @@
 
 한국어 문서(PDF)를 대상으로 다양한 RAG 파이프라인 성능을 정량 평가하는 프로젝트입니다.
 
-Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 72개 전략 조합을 통일된 인터페이스로 비교합니다. Google Colab T4 GPU에서도 체크포인트 기반 벤치마크를 실행할 수 있습니다.
+Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 60개 전략 조합을 통일된 인터페이스로 비교합니다. Google Colab T4 GPU에서도 체크포인트 기반 벤치마크를 실행할 수 있습니다.
 
-> **최근 변경**: GraphRAG(LightRAG) 제거 + OpenAI/Upstage 임베딩 전략 추가 + HTML 벤치마크 보고서 자동 생성
+> **최근 변경**: Dense 5종(HF 3 + OpenAI-large + Upstage) × Sparse 2종(korean_bm25, splade) × 6 Mode = 60개 조합으로 재편 + Colab Cell 1.2 uv + flash-attn wheel 캐시 최적화
 
 ## 전체 흐름도
 
@@ -42,7 +42,7 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 │       │                                                                      │
 │       ▼                                                                      │
 │  ┌─ Pass 1 ─────────────────────────────────────────────────────────────┐   │
-│  │  72개 전략 × N 쿼리 → 레이턴시 측정 (API 비용 없음)                  │   │
+│  │  60개 전략 × N 쿼리 → 레이턴시 측정 (API 비용 없음)                  │   │
 │  │  결과: all_combos_latency.csv  →  상위 top_n 전략 선별               │   │
 │  └──────────────────────────────────┬─────────────────────────────────── ┘   │
 │                                     ▼                                       │
@@ -56,7 +56,7 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 │  ③ 결과 산출물                                                               │
 │                                                                              │
 │  _benchdata/                                                                 │
-│  ├── all_combos_latency.csv    (72개 전략 레이턴시)                          │
+│  ├── all_combos_latency.csv    (60개 전략 레이턴시)                          │
 │  ├── all_combos_ragas.csv      (top_n 전략 RAGAS 점수)                      │
 │  ├── e2e_report.md             (텍스트 요약 보고서)                          │
 │  └── benchmark_report.html    (인터랙티브 HTML 보고서)                       │
@@ -74,19 +74,20 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
       ├─────────────┤  │  ├───────────────┤  ││                  │
       │  e5         │  │  │ splade        │  │├──────────────────┤
       │  (다국어)    │──┼──│ (학습 희소)   │──┼│ +colbert_rerank  │
-      ├─────────────┤  │  ├───────────────┤  ││ (2-stage 리랭킹) │
-      │  bge-m3     │  │  │ fastembed_bm25│  │├──────────────────┤
-      │  (올인원)    │──┼──│ (네이티브)    │──┼│ +flashrank       │
-      ├─────────────┤  │  └───────────────┘  ││ (ONNX 경량)      │
-      │  minilm     │  │       3종           │├──────────────────┤
-      │  (경량)      │──┘                    ┘│ +contextual      │
-      └─────────────┘                         │ (LLM 문맥 부착)  │
-           4종                                ├──────────────────┤
-                                              │ +colbert+ctx     │
-        ─── × ──────── × ───────────────────→ ├──────────────────┤
-        4개    3개        6개 = 72개 조합      │ +flashrank+ctx   │
-                                              └──────────────────┘
-                                                    6종
+      ├─────────────┤  │  └───────────────┘  ││ (2-stage 리랭킹) │
+      │  bge-m3     │  │       2종           │├──────────────────┤
+      │  (올인원)    │──┤                    ┤│ +flashrank       │
+      ├─────────────┤  │                    ││ (ONNX 경량)      │
+      │  openai-large│  │                    │├──────────────────┤
+      │  (유료 API)  │──┤                    │ +contextual      │
+      ├─────────────┤  │                    │ (LLM 문맥 부착)  │
+      │  upstage    │  │                    │├──────────────────┤
+      │  (유료 API)  │──┘                    │ +colbert+ctx     │
+      └─────────────┘                        ├──────────────────┤
+           5종                               │ +flashrank+ctx   │
+                                             └──────────────────┘
+        ─── × ──── × ───────────────────→         6종
+        5개    2개   6개 = 60개 조합
 ```
 
 ## 2-Pass 실행 전략
@@ -94,21 +95,21 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 ```
 ┌─ Pass 1 ─────────────────────────────────────────────────────────────┐
 │                                                                      │
-│  72개 전략 × 20 쿼리 = 1,440회 검색                                   │
+│  60개 전략 × 20 쿼리 = 1,200회 검색                                   │
 │  ─────────────────────────────────────────                           │
 │  측정 항목: 레이턴시 (ms)                                              │
-│  API 비용: $0 (로컬 검색만)                                            │
+│  API 비용: $0 (로컬 검색만, HF 모델 기준)                              │
 │                                                                      │
 │  결과: all_combos_latency.csv                                        │
 │        ┌──────────────────────────────────────────┐                  │
-│        │ #1 minilm+fastembed_bm25       0.045s    │ ─┐              │
-│        │ #2 minilm+fastembed_bm25+flash 0.052s    │  │              │
-│        │ #3 kosimcse+fastembed_bm25     0.089s    │  │ 상위 10개    │
+│        │ #1 kosimcse+korean_bm25        0.089s    │ ─┐              │
+│        │ #2 kosimcse+korean_bm25+flash  0.102s    │  │              │
+│        │ #3 bge-m3+korean_bm25          0.234s    │  │ 상위 10개    │
 │        │ ...                                      │  │ 선별         │
-│        │ #10 bge-m3+splade+flashrank    0.234s    │ ─┘              │
+│        │ #10 bge-m3+splade+flashrank    0.456s    │ ─┘              │
 │        │ ─────── 여기서 컷 ────────              │                  │
 │        │ #11 ... (RAGAS 평가 안 함)               │                  │
-│        │ #72 ...                                  │                  │
+│        │ #60 ...                                  │                  │
 │        └──────────────────────────────────────────┘                  │
 └──────────────────────────────────────────────────────────────────────┘
                               │
@@ -133,9 +134,9 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 ### 핵심 설계 원칙
 
 1. **Strategy Pattern**: 모든 RAG 전략이 `BaseRAGStrategy` ABC를 구현. 새 전략 추가 시 인터페이스만 맞추면 자동으로 벤치마크에 편입.
-2. **3-Layer 교차 조합**: Dense Model(4종) × Sparse Model(3종) × Retrieval Mode(6종) = 72개 조합을 체계적으로 탐색.
+2. **3-Layer 교차 조합**: Dense Model(5종) × Sparse Model(2종) × Retrieval Mode(6종) = 60개 조합을 체계적으로 탐색.
 3. **2-Pass 실행**: Pass 1(레이턴시 스크리닝) → Pass 2(상위 N개만 RAGAS 평가)로 API 비용을 90% 절감.
-4. **인덱스 캐싱**: 동일 (Dense, Sparse) 쌍은 Qdrant 인덱스를 재사용하여 72개 중 실제 인덱싱은 12회만 수행.
+4. **인덱스 캐싱**: 동일 (Dense, Sparse) 쌍은 Qdrant 인덱스를 재사용하여 60개 중 실제 인덱싱은 10회만 수행.
 
 ## 현재 구현 상태
 
@@ -143,17 +144,17 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 
 | 구분 | 항목 | 상태 |
 |------|------|:----:|
-| **전략** | DenseSparse 4종 (KoSimCSE, E5, BGE-M3, MiniLM) | 완료 |
+| **전략** | DenseSparse 5종 (KoSimCSE, E5, BGE-M3, OpenAI-large, Upstage) | 완료 |
 | **전략** | ColBERT Late Interaction (PyLate) | 완료 |
 | **전략** | ColBERT 2-stage Reranking | 완료 |
 | **전략** | FlashRank 경량 Reranking (ONNX) | 완료 |
 | **전략** | Contextual Retrieval (LLM 문맥 부착) | 완료 |
-| **전략** | OpenAI Embedding (text-embedding-3-small/large) | 완료 |
-| **전략** | Upstage Embedding (solar-embedding-1-large) | 완료 |
+| **전략** | OpenAI Embedding (text-embedding-3-large) | 완료 |
+| **전략** | Upstage Embedding (solar-embedding-1-query) | 완료 |
 | **파이프라인** | PDF → Markdown 변환 | 완료 |
 | **파이프라인** | Parent-Child 청킹 | 완료 |
 | **파이프라인** | QA 데이터셋 자동 생성 (GPT-4o-mini / RAGAS KG) | 완료 |
-| **벤치마크** | 72개 3-Layer 교차 조합 파이프라인 | 완료 |
+| **벤치마크** | 60개 3-Layer 교차 조합 파이프라인 | 완료 |
 | **벤치마크** | 2-Pass 실행 (레이턴시 → RAGAS) | 완료 |
 | **벤치마크** | 레이어별 기여도 분석 | 완료 |
 | **보고서** | HTML 벤치마크 보고서 자동 생성 (차트 + Bootstrap) | 완료 |
@@ -167,9 +168,9 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 ### 3-Layer 조합 구조
 
 ```
-Layer 1: Dense Model ──── kosimcse │ e5 │ bge-m3 │ minilm        (4종)
-Layer 2: Sparse Model ─── korean_bm25 │ splade │ fastembed_bm25  (3종)
-Layer 3: Retrieval Mode ─ hybrid × reranker × llm_support        (6종)
+Layer 1: Dense Model ──── kosimcse │ e5 │ bge-m3 │ openai-large │ upstage  (5종)
+Layer 2: Sparse Model ─── korean_bm25 │ splade                              (2종)
+Layer 3: Retrieval Mode ─ hybrid × reranker × llm_support                   (6종)
                            ├── hybrid (기본)
                            ├── hybrid + contextual
                            ├── hybrid + colbert_rerank
@@ -177,17 +178,18 @@ Layer 3: Retrieval Mode ─ hybrid × reranker × llm_support        (6종)
                            ├── hybrid + flashrank_rerank
                            └── hybrid + flashrank_rerank + contextual
 
-총 유효 조합: 4 × 3 × 6 = 72개
+총 유효 조합: 5 × 2 × 6 = 60개
 ```
 
 ## 비교 대상 임베딩 모델
 
-| # | 임베딩 모델 | 특징 | 차원 | 한국어 |
-|---|-----------|------|------|:------:|
-| 1 | BM-K/KoSimCSE-roberta-multitask | 한국어 특화 SimCSE | 768 | ★★★ |
-| 2 | intfloat/multilingual-e5-large | 다국어 균형 | 1024 | ★★ |
-| 3 | BAAI/bge-m3 | 올인원 통합 (Dense+Sparse) | 1024 | ★★ |
-| 4 | sentence-transformers/all-MiniLM-L6-v2 | 경량/빠름 | 384 | ★ |
+| # | 임베딩 모델 | 특징 | 차원 | 한국어 | 비고 |
+|---|-----------|------|------|:------:|------|
+| 1 | BM-K/KoSimCSE-roberta-multitask | 한국어 특화 SimCSE | 768 | ★★★ | HF |
+| 2 | intfloat/multilingual-e5-large | 다국어 균형 | 1024 | ★★ | HF |
+| 3 | BAAI/bge-m3 | 올인원 통합 (Dense+Sparse) | 1024 | ★★ | HF |
+| 4 | text-embedding-3-large | OpenAI 고품질 | 3072 | ★★ | 유료 API |
+| 5 | solar-embedding-1-query | Upstage 한국어 특화 | 4096 | ★★★ | 유료 API |
 
 추가로 BM25(한국어 토크나이저), SPLADE, Hybrid Retrieval, ColBERT Rerank, FlashRank Rerank, Contextual Retrieval 조합을 교차 비교합니다.
 
@@ -240,10 +242,10 @@ uv run python -m rag_bench.scripts.generate_qa --num_qa 50 --reuse-kg
 
 ### Step 3: 벤치마크 실행
 
-#### A. 72개 조합 전체 벤치마크 (권장)
+#### A. 60개 조합 전체 벤치마크 (권장)
 
 ```bash
-# dry-run: 72개 조합 목록 미리보기
+# dry-run: 60개 조합 목록 미리보기
 uv run python -m rag_bench.scripts.run_all_combos --preset full --dry-run
 
 # 실제 실행: Pass 1(레이턴시) → Pass 2(상위 10개 RAGAS)
@@ -254,7 +256,7 @@ uv run python -m rag_bench.scripts.run_all_combos \
     --layers
 ```
 
-#### B. 빠른 검증 (4개 조합)
+#### B. 빠른 검증 (2개 조합)
 
 ```bash
 uv run python -m rag_bench.scripts.run_all_combos --preset quick --pass1-only
@@ -316,11 +318,11 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 ### Colab 프리셋
 
-| 프리셋 | 조합 수 | 예상 시간 | API 비용 |
-|--------|---------|----------|---------|
-| `quick` | 4 | ~15분 | ~$0.5 |
-| `standard` | 24 | ~50분 | ~$2 |
-| `full` | 72 | ~3시간 | ~$5 |
+| 프리셋 | 조합 수 | Dense | Sparse | 예상 시간 | API 비용 |
+|--------|---------|-------|--------|----------|---------|
+| `quick` | 2 | bge-m3 (1종) | korean_bm25 (1종) | ~10분 | ~$0.3 |
+| `standard` | 20 | HF 3종 + 유료 2종 | 2종 | ~45분 | ~$2 |
+| `full` | 60 | 5종 | 2종 | ~3시간 | ~$5 |
 
 ### Colab 특징
 
@@ -332,10 +334,10 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 ## 벤치마크 설정
 
-### run_all_combos.py — 새 모드 (3-Layer 조합)
+### run_all_combos.py — 3-Layer 조합 모드
 
 ```
---preset PRESET      프리셋 선택: quick(4) | standard(24) | full(72)
+--preset PRESET      프리셋 선택: quick(2) | standard(20) | full(60)
 --top_n N            Pass 1 후 상위 N 조합만 RAGAS 평가
 --pass1-only         레이턴시만 측정 (RAGAS 없음)
 --dry-run            조합 목록만 출력 (실행 안 함)
@@ -345,17 +347,6 @@ uv run python -m rag_bench.scripts.prefetch_models
 --reindex            기존 인덱스 삭제 후 재인덱싱
 ```
 
-### run_all_combos.py — 레거시 모드
-
-```
---combos 1,3,4       DenseSparse 조합 ID 지정
---skip_colbert       ColBERT 단독 전략 건너뛰기
---skip_rerank        ColBERTRerank 전략 건너뛰기
---skip_contextual    Contextual Retrieval 건너뛰기
---skip_flashrank     FlashRank Rerank 건너뛰기
---contextual_base N  Contextual Retrieval 기반 조합 ID (기본: 3)
-```
-
 ## 산출물
 
 벤치마크 실행 후 `rag_bench/_benchdata/`에 생성되는 파일:
@@ -363,7 +354,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 | 파일 | 설명 |
 |------|------|
 | `qa_dataset.json` | QA 데이터셋 (질문-정답 쌍) |
-| `all_combos_latency.csv` | 72개 전략 레이턴시 측정 결과 |
+| `all_combos_latency.csv` | 60개 전략 레이턴시 측정 결과 |
 | `all_combos_ragas.csv` | 상위 N개 RAGAS 평가 점수 |
 | `e2e_report.md` | 종합 리포트 (레이턴시 Top 10 + RAGAS + 실행 환경 + 비중%) |
 | `benchmark_report.html` | HTML 벤치마크 보고서 (차트 인라인, 브라우저에서 바로 열기) |
@@ -376,23 +367,23 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 | 전략 | 평균 레이턴시 |
 |------|------------|
-| DS4 MiniLM+BM25 | 60.8ms |
-| DS1 KoSimCSE+BM25 | 197.5ms |
-| DS3 BGE-M3 | 443.2ms |
-| DS2 E5+SPLADE | 488.6ms |
+| kosimcse+korean_bm25 | 197.5ms |
+| bge-m3+korean_bm25 | 443.2ms |
+| e5+splade | 488.6ms |
+| bge-m3+splade+flashrank | 512.3ms |
 | ColBERT | 669.8ms |
 
 **RAGAS 품질 (상위 5):**
 
 | 전략 | Faithfulness | Answer Rel. | Context Prec. | Context Recall |
 |------|:-:|:-:|:-:|:-:|
-| Rerank-DS3 (BGE-M3) | **0.7592** | 0.7639 | 0.9500 | **1.0000** |
-| DS3 BGE-M3 | 0.7317 | **0.8647** | 0.9250 | 0.9250 |
-| Rerank-DS1 | 0.7258 | 0.8161 | 0.9500 | 0.9250 |
-| Rerank-DS4 | 0.6917 | 0.7632 | 0.8000 | 0.8750 |
-| Rerank-DS2 | 0.6275 | 0.7240 | **0.9917** | 0.9750 |
+| bge-m3+korean_bm25+colbert | **0.7592** | 0.7639 | 0.9500 | **1.0000** |
+| bge-m3+korean_bm25 | 0.7317 | **0.8647** | 0.9250 | 0.9250 |
+| kosimcse+korean_bm25+colbert | 0.7258 | 0.8161 | 0.9500 | 0.9250 |
+| e5+splade+flashrank | 0.6917 | 0.7632 | 0.8000 | 0.8750 |
+| e5+splade+colbert | 0.6275 | 0.7240 | **0.9917** | 0.9750 |
 
-**인사이트:** BGE-M3 + ColBERT Rerank 조합이 최고 품질 (context_recall 완벽). MiniLM+BM25는 속도 최강이나 한국어 품질 약함.
+**인사이트:** BGE-M3 + korean_bm25 + ColBERT Rerank 조합이 최고 품질 (context_recall 완벽). 유료 API 모델(openai-large, upstage)은 HF 모델 대비 품질 우위 여부를 full 프리셋으로 검증 가능.
 
 ## 프로젝트 구조
 
@@ -494,9 +485,9 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 | 최적화 | 효과 |
 |--------|------|
-| **인덱스 캐싱** | 동일 (Dense, Sparse) 쌍은 Qdrant 인덱스를 재사용. 72개 중 실제 인덱싱 12회 |
-| **ColBERT 싱글톤** | 72개 전략이 단일 ColBERT 모델 인스턴스를 공유 |
-| **FlashRank 싱글톤** | 24회 → 1회 ONNX 모델 로드 |
+| **인덱스 캐싱** | 동일 (Dense, Sparse) 쌍은 Qdrant 인덱스를 재사용. 60개 중 실제 인덱싱 10회 |
+| **ColBERT 싱글톤** | 60개 전략이 단일 ColBERT 모델 인스턴스를 공유 |
+| **FlashRank 싱글톤** | 20회 → 1회 ONNX 모델 로드 |
 | **Pass 1→2 결과 재사용** | Pass 2에서 재검색 없이 Pass 1 결과 직접 주입 |
 | **Answer 생성 병렬화** | `ThreadPoolExecutor(max_workers=8)` + lazy LLM 초기화 |
 | **SPLADE 배치 처리** | `batch_size=32` 일괄 인코딩 |

@@ -2,7 +2,7 @@
 
 Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스로 비교 벤치마크하는 LangChain/LangGraph 통합 패키지.
 
-> **최근 변경**: GraphRAG 제거 + OpenAI/Upstage 임베딩 전략 추가 + HTML 보고서 생성 + PDF 페이지 샘플링
+> **최근 변경**: Dense 5종(HF 3 + openai-large + upstage) × Sparse 2종(korean_bm25, splade) = 60개 조합으로 재편 + HTML 보고서 생성 + PDF 페이지 샘플링
 
 > 이 디렉토리 단독으로 공유 가능합니다. `pyproject.toml`, `uv.lock`이 포함되어 있습니다.
 
@@ -40,14 +40,14 @@ Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스�
 
 ### 왜 2-Pass 실행인가
 
-72개 조합 전부에 RAGAS를 돌리면 OpenAI API 비용이 과도합니다.
+60개 조합 전부에 RAGAS를 돌리면 OpenAI API 비용이 과도합니다.
 
 ```
-Pass 1: 72개 전략 × 20 쿼리 = 1,440회 검색  → 레이턴시만 (API 비용 $0)
+Pass 1: 60개 전략 × 20 쿼리 = 1,200회 검색  → 레이턴시만 (API 비용 $0)
 Pass 2: 상위 10개 전략 × 20 쿼리 = 200회 평가 → RAGAS (API 비용 ~$2-5)
 ```
 
-API 호출을 86% 절감하면서도 의미 있는 상위권 전략의 품질을 평가할 수 있습니다.
+API 호출을 83% 절감하면서도 의미 있는 상위권 전략의 품질을 평가할 수 있습니다.
 
 ## 아키텍처
 
@@ -111,7 +111,7 @@ API 호출을 86% 절감하면서도 의미 있는 상위권 전략의 품질을
           ┌─────────┴─────────┐
           ▼                   ▼
        Pass 1              Pass 2
-   (72개 전략            (top_n 전략
+   (60개 전략            (top_n 전략
     레이턴시 측정)         RAGAS 평가)
           │                   │
           └─────────┬─────────┘
@@ -191,8 +191,9 @@ API 호출을 86% 절감하면서도 의미 있는 상위권 전략의 품질을
           │                 │ │                 │
           │  KoSimCSE 768d  │ │  BM25+OKt       │
           │  or E5 1024d    │ │  or SPLADE      │
-          │  or BGE-M3      │ │  or FastEmbed   │
-          │  or MiniLM 384d │ │                 │
+          │  or BGE-M3      │ │                 │
+          │  or OpenAI 3072d│ │                 │
+          │  or Upstage 4096│ │                 │
           └────────┬────────┘ └────────┬────────┘
                    │                   │
                    ▼                   ▼
@@ -257,7 +258,7 @@ rag_bench/
 │
 ├── strategies/              # RAG 전략 구현체 (7종)
 │   ├── __init__.py          # 전략 클래스 일괄 export
-│   ├── dense_sparse.py      # ★ Dense+Sparse Hybrid (4종 임베딩 + 3종 희소 검색)
+│   ├── dense_sparse.py      # ★ Dense+Sparse Hybrid (5종 임베딩 + 2종 희소 검색)
 │   ├── colbert.py           # ColBERT Late Interaction (PyLate, MaxSim)
 │   ├── colbert_rerank.py    # ColBERT 2-stage Reranking (Decorator Pattern)
 │   ├── flashrank_rerank.py  # FlashRank 경량 ONNX Reranking (Decorator)
@@ -288,7 +289,7 @@ rag_bench/
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성 (RAGAS KG, PDF 페이지 샘플링 통합)
 │   ├── generate_html_report.py  # ★ HTML 벤치마크 보고서 생성 (Python API, 차트 인라인, Bootstrap)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
-│   ├── run_all_combos.py    # ★ 72개 3-Layer 교차 조합 벤치마크 (2-Pass)
+│   ├── run_all_combos.py    # ★ 60개 3-Layer 교차 조합 벤치마크 (2-Pass)
 │   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
 │
 ├── docs/                    # 벤치마크 대상 Markdown 문서
@@ -332,22 +333,22 @@ class BaseRAGStrategy(ABC):
 
 Qdrant 벡터 DB 기반 Dense+Sparse Hybrid 검색. 프로젝트의 핵심 전략.
 
-**Dense 모델 4종:**
+**Dense 모델 5종:**
 
-| 키 | 모델 | 차원 | 한국어 | 속도 |
-|----|------|------|:------:|:----:|
-| `kosimcse` | KoSimCSE-roberta-multitask | 768 | ★★★ | ★★ |
-| `e5` | multilingual-e5-large | 1024 | ★★ | ★ |
-| `bge-m3` | BGE-M3 | 1024 | ★★ | ★ |
-| `minilm` | all-MiniLM-L6-v2 | 384 | ★ | ★★★ |
+| 키 | 모델 | 차원 | 한국어 | 비고 |
+|----|------|------|:------:|------|
+| `kosimcse` | KoSimCSE-roberta-multitask | 768 | ★★★ | HF |
+| `e5` | multilingual-e5-large | 1024 | ★★ | HF |
+| `bge-m3` | BGE-M3 | 1024 | ★★ | HF |
+| `openai-large` | text-embedding-3-large | 3072 | ★★ | 유료 API |
+| `upstage` | solar-embedding-1-query | 4096 | ★★★ | 유료 API |
 
-**Sparse 모델 3종:**
+**Sparse 모델 2종:**
 
 | 키 | 방식 | 특징 |
 |----|------|------|
 | `korean_bm25` | BM25 + KoNLPy OKt | 한국어 형태소 분석 기반, 최고 한국어 성능 |
 | `splade` | SPLADE (learned sparse) | 학습된 희소 표현, 다국어 지원 |
-| `fastembed_bm25` | FastEmbed BM25 | Qdrant 네이티브, 설치 간편 |
 
 **동작 흐름:**
 1. Dense 임베딩 + Sparse 임베딩 동시 생성
@@ -510,7 +511,7 @@ echo "OPENAI_API_KEY=sk-..." > .env
 echo "UPSTAGE_API_KEY=up_..." >> .env
 ```
 
-### 1. 72개 조합 벤치마크 (권장)
+### 1. 60개 조합 벤치마크 (권장)
 
 ```bash
 # Step 1: QA 데이터셋 생성
@@ -534,8 +535,8 @@ from rag_bench import BenchmarkRunner
 from rag_bench.strategies import DenseSparseStrategy
 
 strategies = [
-    DenseSparseStrategy(combo_id=1),  # 한국어 최적 (KoSimCSE + BM25/OKt)
-    DenseSparseStrategy(combo_id=4),  # 경량 (MiniLM + BM25)
+    DenseSparseStrategy(dense="kosimcse", sparse_type="korean_bm25"),
+    DenseSparseStrategy(dense="bge-m3", sparse_type="splade"),
 ]
 
 queries = ["AI 산업 동향은?", "생성형 AI의 주요 활용 분야는?"]
@@ -559,7 +560,7 @@ parents, children = create_parent_child_chunks(
     parent_store_path="parent_store",
 )
 
-strategy = DenseSparseStrategy(combo_id=1)
+strategy = DenseSparseStrategy(dense="kosimcse", sparse_type="korean_bm25")
 strategy.index(children)
 ```
 
@@ -600,13 +601,13 @@ chat.clear()  # 세션 초기화
 
 | 프리셋 | Dense | Sparse | Reranker | LLM Support | 조합 수 |
 |--------|:-----:|:------:|:--------:|:-----------:|:-------:|
-| `quick` | 2 (bge-m3, minilm) | 1 (fastembed_bm25) | 2 (none, flashrank) | 1 (none) | **4** |
-| `standard` | 4 | 3 | 2 (none, flashrank) | 1 (none) | **24** |
-| `full` | 4 | 3 | 3 (none, colbert, flashrank) | 2 (none, contextual) | **72** |
+| `quick` | 1 (bge-m3) | 1 (korean_bm25) | 2 (none, flashrank) | 1 (none) | **2** |
+| `standard` | 5 (HF 3 + 유료 2) | 2 | 2 (none, flashrank) | 1 (none) | **20** |
+| `full` | 5 | 2 | 3 (none, colbert, flashrank) | 2 (none, contextual) | **60** |
 
 ### 인덱스 캐싱 메커니즘
 
-72개 조합이지만, 실제 인덱싱이 필요한 건 (Dense, Sparse) 쌍의 수 = 4×3 = 12개뿐.
+60개 조합이지만, 실제 인덱싱이 필요한 건 (Dense, Sparse) 쌍의 수 = 5×2 = 10개뿐.
 
 ```
 kosimcse+korean_bm25   ← 인덱스 1회 생성
@@ -623,8 +624,8 @@ kosimcse+korean_bm25   ← 인덱스 1회 생성
 ```
 Step 1: QA 데이터셋 로드 (20쌍)
 Step 2: 문서 청킹 (Parent-Child)
-Step 3: 72개 전략 생성 + 인덱싱 (12개 고유 인덱스)
-Step 4: Pass 1 — 72개 전략 × 20 쿼리 = 1,440회 검색 → 레이턴시
+Step 3: 60개 전략 생성 + 인덱싱 (10개 고유 인덱스)
+Step 4: Pass 1 — 60개 전략 × 20 쿼리 = 1,200회 검색 → 레이턴시
 Step 5: Pass 2 — 상위 10개 전략 × 20 쿼리 = 200회 검색 → RAGAS 평가
 Step 6: 리포트 생성 (e2e_report.md)
 ```
@@ -635,20 +636,20 @@ Step 6: 리포트 생성 (e2e_report.md)
 
 ```
 Dense Model:
-  kosimcse    → 0.234s (n=18)
-  e5          → 0.456s (n=18)
-  bge-m3      → 0.345s (n=18)
-  minilm      → 0.123s (n=18)
+  kosimcse     → 0.234s (n=12)
+  e5           → 0.456s (n=12)
+  bge-m3       → 0.345s (n=12)
+  openai-large → 0.512s (n=12)
+  upstage      → 0.498s (n=12)
 
 Sparse Model:
-  korean_bm25    → 0.312s (n=24)
-  splade         → 0.289s (n=24)
-  fastembed_bm25 → 0.198s (n=24)
+  korean_bm25 → 0.312s (n=30)
+  splade      → 0.289s (n=30)
 
 Reranker:
-  none       → 0.156s (n=24)
-  colbert    → 0.523s (n=24)
-  flashrank  → 0.178s (n=24)
+  none       → 0.156s (n=20)
+  colbert    → 0.523s (n=20)
+  flashrank  → 0.178s (n=20)
 ```
 
 ## 벤치마크 CLI 옵션 전체
@@ -661,20 +662,12 @@ Reranker:
   --no_ragas           RAGAS 평가 건너뛰기
   --reindex            기존 인덱스 삭제 후 재인덱싱
 
-새 모드 (--preset 사용 시):
-  --preset PRESET      quick | standard | full
+3-Layer 조합 모드 (--preset 사용):
+  --preset PRESET      quick(2) | standard(20) | full(60)
   --pass1-only         레이턴시만 (RAGAS 없음)
   --top_n N            상위 N개만 RAGAS 평가
   --dry-run            조합 목록만 출력
   --layers             레이어별 기여도 분석
-
-레거시 모드 (--preset 미사용 시):
-  --combos 1,3,4       DenseSparse 조합 ID 지정
-  --skip_colbert       ColBERT 전략 건너뛰기
-  --skip_rerank        ColBERTRerank 건너뛰기
-  --skip_contextual    Contextual Retrieval 건너뛰기
-  --skip_flashrank     FlashRank Rerank 건너뛰기
-  --contextual_base N  Contextual 기반 조합 ID (기본: 3)
 ```
 
 ### generate_qa.py
