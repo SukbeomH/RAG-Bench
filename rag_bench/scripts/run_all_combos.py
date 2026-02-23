@@ -271,6 +271,21 @@ def _run_preset_mode(args):
         num_docs=len(child_chunks),
     )
 
+    # ── Step 2.5: Contextual 청크 사전 생성 (해당 조합이 있을 때만) ──
+    _has_contextual = any(s.llm_support == "contextual" for s in combos)
+    pre_enriched_chunks = None
+    if _has_contextual:
+        print(f"\n{'=' * 60}")
+        print("Step 2.5: Contextual Retrieval 청크 사전 생성")
+        print(f"{'=' * 60}")
+        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+        _ctx_prep = ContextualRetrievalStrategy(
+            base_strategy=None,
+            parent_pairs=parent_pairs,
+        )
+        pre_enriched_chunks = _ctx_prep.enrich_only(child_chunks)
+        print(f"  사전 생성 완료: {len(pre_enriched_chunks)}개 enriched 청크")
+
     # ── Step 3: 전략 생성 (인덱스 캐싱) ──
     print(f"\n{'=' * 60}")
     print("Step 3: 전략 생성 및 인덱싱")
@@ -290,7 +305,10 @@ def _run_preset_mode(args):
             strategy, err = _safe_build(
                 label,
                 lambda s=spec: (
-                    build_strategy_from_spec(s, index_cache, child_chunks, parent_pairs, reindex),
+                    build_strategy_from_spec(
+                        s, index_cache, child_chunks, parent_pairs, reindex,
+                        pre_enriched=pre_enriched_chunks,
+                    ),
                     None,
                 ),
                 progress=progress,
@@ -426,11 +444,15 @@ def _run_preset_mode(args):
             print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
     if evaluator is not None:
+        pass2_workers = getattr(args, "pass2_workers", 0)
+        if pass2_workers > 1:
+            print(f"  [병렬 평가] pass2-workers={pass2_workers}")
         eval_runner = BenchmarkRunner(
             strategies=[s for _, s in eval_strategies],
             queries=queries,
             k=args.k,
             evaluator=evaluator,
+            parallel_eval=pass2_workers,
         )
         # Pass 1 결과 재사용 (재검색 방지)
         eval_runner.inject_results(runner._results)
@@ -962,6 +984,8 @@ def main():
                         help="레이턴시만 측정 (RAGAS 없음)")
     parser.add_argument("--pass1-workers", type=int, default=0,
                         help="Pass 1 전략 병렬 워커 수 (기본: 0=순차). 예: --pass1-workers 4")
+    parser.add_argument("--pass2-workers", type=int, default=0,
+                        help="Pass 2 전략 병렬 평가 워커 수 (기본: 0=순차). 예: --pass2-workers 4")
     parser.add_argument("--top_n", type=int, default=None,
                         help="Pass 1 후 상위 N 조합만 RAGAS 평가")
     parser.add_argument("--dry-run", action="store_true",

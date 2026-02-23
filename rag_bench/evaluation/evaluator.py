@@ -367,7 +367,12 @@ class ExtendedRAGEvaluator:
         dataset = EvaluationDataset(samples=samples)
 
         t0 = time.time()
-        results = evaluate(dataset=dataset, metrics=self._metrics)
+        from ragas import RunConfig
+        results = evaluate(
+            dataset=dataset,
+            metrics=self._metrics,
+            run_config=RunConfig(max_workers=16, timeout=180),
+        )
         elapsed = time.time() - t0
 
         self.cost_tracker.record()

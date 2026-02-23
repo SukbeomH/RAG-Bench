@@ -40,6 +40,7 @@ class BenchmarkRunner:
         evaluator: Optional["ExtendedRAGEvaluator"] = None,
         parallel_queries: int = 0,
         parallel_strategies: int = 0,
+        parallel_eval: int = 0,
     ):
         self.strategies = strategies
         self.queries = queries
@@ -47,6 +48,7 @@ class BenchmarkRunner:
         self.evaluator = evaluator
         self.parallel_queries = parallel_queries or int(os.environ.get("RAG_BENCH_PARALLEL", "0"))
         self.parallel_strategies = parallel_strategies or int(os.environ.get("RAG_BENCH_PARALLEL_STRATEGIES", "0"))
+        self.parallel_eval = parallel_eval or int(os.environ.get("RAG_BENCH_PARALLEL_EVAL", "0"))
         self._results: Dict[str, List[dict]] = {}
         self._reports: Dict[str, "EvaluationReport"] = {}
         self._eval_times: Dict[str, float] = {}  # 전략별 RAGAS 평가 소요 시간 (초)
@@ -220,7 +222,10 @@ class BenchmarkRunner:
 
         all_scores = []
 
-        for name, query_results in self._results.items():
+        self._ensure_generator()
+
+        def _eval_one(name: str, query_results: List[dict]) -> Optional[Dict[str, Any]]:
+            """단일 전략 평가 — 병렬 호출 가능."""
             print(f"Evaluating {name}...")
             _t_strat = time.time()
 
@@ -228,9 +233,8 @@ class BenchmarkRunner:
             contexts = [[d["content"] for d in r["results"]] for r in query_results]
 
             # Generate answers if not present (병렬 LLM 호출)
-            self._ensure_generator()
             answers: List[Optional[str]] = [None] * len(query_results)
-            pending: List[tuple] = []  # (index, prompt) 튜플
+            pending: List[tuple] = []
 
             for i, r in enumerate(query_results):
                 if "answer" in r:
@@ -260,12 +264,8 @@ class BenchmarkRunner:
                         answers[idx] = ans
                         query_results[idx]["answer"] = ans
 
-            # Prepare ground truths
-            gts = None
-            if ground_truths:
-                gts = ground_truths
+            gts = ground_truths if ground_truths else None
 
-            # Evaluate
             try:
                 result = self.evaluator.evaluate(
                     questions=questions,
@@ -273,23 +273,40 @@ class BenchmarkRunner:
                     answers=answers,  # type: ignore[arg-type]
                     ground_truths=gts,  # type: ignore[arg-type]
                 )
-
                 result.strategy_name = name
                 scores_dict: Dict[str, Any] = {
                     k: round(v, 4) for k, v in result.aggregate_dict.items()
                     if isinstance(v, (int, float))
                 }
                 self._reports[name] = result
-
                 scores_dict["strategy"] = name
-                all_scores.append(scores_dict)
                 self._eval_times[name] = round(time.time() - _t_strat, 2)
-
                 print(f"  -> {scores_dict}")
-
+                return scores_dict
             except Exception as e:
                 self._eval_times[name] = round(time.time() - _t_strat, 2)
                 print(f"Evaluation failed for {name}: {e}")
+                return None
+
+        items = list(self._results.items())
+
+        if self.parallel_eval > 1:
+            workers = min(self.parallel_eval, len(items))
+            print(f"  [병렬 평가] parallel_eval={workers}")
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(_eval_one, name, qr): name
+                    for name, qr in items
+                }
+                for future in as_completed(futures):
+                    scores_dict = future.result()
+                    if scores_dict is not None:
+                        all_scores.append(scores_dict)
+        else:
+            for name, query_results in items:
+                scores_dict = _eval_one(name, query_results)
+                if scores_dict is not None:
+                    all_scores.append(scores_dict)
 
         return pd.DataFrame(all_scores)
 
