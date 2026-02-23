@@ -110,92 +110,44 @@ def _print_init_summary(results: list):
 
 
 # ===========================================================================
-# 새 모드: 4-Layer 조합 실행
+# 새 모드: 4-Layer 조합 실행 — 파이프라인 Step 헬퍼 함수
 # ===========================================================================
 
 
-def _run_preset_mode(args):
-    """--preset 기반 새 4-Layer 조합 실행."""
-    setup_ssl_bypass()
-
-    preset_name = args.preset
-    if preset_name not in PRESETS:
-        print(f"Error: 알 수 없는 프리셋: {preset_name}")
-        print(f"  사용 가능: {list(PRESETS.keys())}")
-        sys.exit(1)
-
-    config = PRESETS[preset_name]
-    combos = generate_valid_combinations(config)
-
-    # --dense-filter: 특정 dense 모델만 실행
-    if getattr(args, "dense_filter", None):
-        filter_models = [m.strip() for m in args.dense_filter.split(",")]
-        combos = [c for c in combos if c.dense in filter_models]
-        if not combos:
-            print(f"Error: --dense-filter '{args.dense_filter}'에 해당하는 조합이 없습니다.")
-            sys.exit(1)
-
-    print(f"\n{'═' * 60}")
-    print(f" 4-Layer 조합 벤치마크 — 프리셋: {preset_name}")
-    print(f"{'═' * 60}")
-    print(f"  Dense Models: {config['dense_models']}")
-    print(f"  Sparse Models: {config['sparse_models']}")
-    print(f"  Rerankers: {config['rerankers']}")
-    print(f"  LLM Support: {config['llm_support']}")
-    print(f"  총 조합: {len(combos)}개")
-
-    # --dry-run: 조합 목록만 출력
-    if args.dry_run:
-        print(f"\n{'─' * 80}")
-        print(f" {'#':>3}  {'Label':<40} {'Retrieval Mode':<50}")
-        print(f"{'─' * 80}")
-        for i, spec in enumerate(combos, 1):
-            print(f" {i:>3}  {spec.label:<40} {spec.retrieval_mode:<50}")
-        print(f"{'─' * 80}")
-        print(f" 합계: {len(combos)}개 유효 조합")
-
-        # 인덱스 키 요약
-        unique_keys = set(spec.index_key for spec in combos)
-        print(f" 고유 인덱스: {len(unique_keys)}개 (실제 인덱싱 횟수)")
+def _step0_sample_pdfs(args) -> None:
+    """Step 0: PDF 페이지 샘플링 → Markdown 재생성."""
+    print(f"\n{'=' * 60}")
+    print("Step 0: PDF 페이지 샘플링 → Markdown 변환")
+    print(f"{'=' * 60}")
+    pdf_files = list(DOCS_DIR.glob("*.pdf"))
+    if not pdf_files:
+        print(f"[Warning] {DOCS_DIR}에 PDF 없음 — 기존 .md 파일을 사용합니다.")
         return
+    ratio = getattr(args, "page_sample_ratio", 0.1)
+    max_p = getattr(args, "max_sample_pages", 5)
+    print(f"  PDF: {len(pdf_files)}개  비율: {ratio:.0%}  최대: {max_p}페이지")
+    BENCH_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    pdfs_to_markdowns(
+        docs_dir=str(DOCS_DIR),
+        output_dir=str(BENCH_DOCS_DIR),
+        sample_pages=True,
+        page_sample_ratio=ratio,
+        max_sample_pages=max_p,
+    )
+    print(f"  샘플링된 .md → {BENCH_DOCS_DIR}")
 
-    # --layers 분석 (dry-run 모드에서만)
-    if args.layers and args.dry_run:
-        _print_layer_analysis_preview(combos, config)
-        return
 
-    # ── RunTracker 초기화 ──
-    tracker = RunTracker(output_dir=BENCH_DATA_DIR)
+def _step1_load_qa(args, tracker) -> Tuple[List[str], List[str]]:
+    """Step 1: QA 데이터셋 로드 또는 재생성.
 
-    # ── Step 0: PDF 페이지 샘플링 → Markdown 재생성 (--sample-pages 시) ──
-    if getattr(args, "sample_pages", False):
-        print(f"\n{'=' * 60}")
-        print("Step 0: PDF 페이지 샘플링 → Markdown 변환")
-        print(f"{'=' * 60}")
-        pdf_files = list(DOCS_DIR.glob("*.pdf"))
-        if not pdf_files:
-            print(f"[Warning] {DOCS_DIR}에 PDF 없음 — 기존 .md 파일을 사용합니다.")
-        else:
-            ratio = getattr(args, "page_sample_ratio", 0.1)
-            max_p = getattr(args, "max_sample_pages", 5)
-            print(f"  PDF: {len(pdf_files)}개  비율: {ratio:.0%}  최대: {max_p}페이지")
-            BENCH_DOCS_DIR.mkdir(parents=True, exist_ok=True)
-            pdfs_to_markdowns(
-                docs_dir=str(DOCS_DIR),
-                output_dir=str(BENCH_DOCS_DIR),
-                sample_pages=True,
-                page_sample_ratio=ratio,
-                max_sample_pages=max_p,
-            )
-            print(f"  샘플링된 .md → {BENCH_DOCS_DIR}")
-
-    # ── Step 1: QA 로드 또는 재생성 ──
+    Returns:
+        (queries, ground_truths)
+    """
     print(f"\n{'=' * 60}")
     print("Step 1: QA 데이터셋 로드")
     print(f"{'=' * 60}")
     with tracker.phase("qa_dataset_load"):
         if getattr(args, "regenerate_qa", False) or getattr(args, "sample_pages", False):
-            # 샘플링된 문서 기준으로 QA 재생성
             from rag_bench.scripts.generate_qa import (
                 _compute_effective_num_qa,
                 _generate_qa_ragas,
@@ -205,7 +157,6 @@ def _run_preset_mode(args):
                 sample_pages=getattr(args, "sample_pages", False),
                 max_qa_per_page=getattr(args, "max_qa_per_page", 2),
             )
-            # 청킹 먼저 (QA 수 결정에 필요)
             _tmp_parent_pairs, _ = create_parent_child_chunks(
                 markdown_dir=str(BENCH_DOCS_DIR),
                 parent_store_path=str(BENCH_DATA_DIR / "parent_store"),
@@ -221,7 +172,6 @@ def _run_preset_mode(args):
             if _qa_tokens.total_tokens > 0:
                 tracker.add_tokens_breakdown(_qa_tokens, "qa_generation", "openai")
             if qa_pairs_raw:
-                # qa_dataset.json 저장
                 import json as _json, hashlib as _hl
                 _docs_hash = _hl.md5(
                     "".join(sorted(str(p) for p in BENCH_DOCS_DIR.glob("*.md"))).encode()
@@ -244,8 +194,15 @@ def _run_preset_mode(args):
             qa_pairs = dataset["qa_pairs"]
         queries = [qa["question"] for qa in qa_pairs]
         ground_truths = [qa["ground_truth"] for qa in qa_pairs]
+    return queries, ground_truths
 
-    # ── Step 2: 문서 청킹 ──
+
+def _step2_chunk_docs(tracker) -> Tuple[List, List]:
+    """Step 2: 문서 청킹.
+
+    Returns:
+        (parent_pairs, child_chunks)
+    """
     print(f"\n{'=' * 60}")
     print("Step 2: 문서 청킹")
     print(f"{'=' * 60}")
@@ -258,50 +215,52 @@ def _run_preset_mode(args):
         if not child_chunks:
             print("Error: Child 청크가 생성되지 않았습니다.")
             sys.exit(1)
+    return parent_pairs, child_chunks
 
-    # 트래커에 설정 기록
-    tracker.set_config(
-        preset=preset_name,
-        k=args.k,
-        top_n=args.top_n,
-        pass1_only=args.pass1_only,
-        layers=args.layers,
-        num_combos=len(combos),
-        num_queries=len(queries),
-        num_docs=len(child_chunks),
+
+def _step25_enrich_contextual(combos, parent_pairs, child_chunks) -> Optional[List]:
+    """Step 2.5: Contextual 청크 사전 생성 (해당 조합이 있을 때만).
+
+    Returns:
+        pre_enriched_chunks 또는 None (contextual 조합 없을 때)
+    """
+    if not any(s.llm_support == "contextual" for s in combos):
+        return None
+    print(f"\n{'=' * 60}")
+    print("Step 2.5: Contextual Retrieval 청크 사전 생성")
+    print(f"{'=' * 60}")
+    from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+    _ctx_prep = ContextualRetrievalStrategy(
+        base_strategy=None,
+        parent_pairs=parent_pairs,
     )
+    pre_enriched_chunks = _ctx_prep.enrich_only(child_chunks)
+    print(f"  사전 생성 완료: {len(pre_enriched_chunks)}개 enriched 청크")
+    return pre_enriched_chunks
 
-    # ── Step 2.5: Contextual 청크 사전 생성 (해당 조합이 있을 때만) ──
-    _has_contextual = any(s.llm_support == "contextual" for s in combos)
-    pre_enriched_chunks = None
-    if _has_contextual:
-        print(f"\n{'=' * 60}")
-        print("Step 2.5: Contextual Retrieval 청크 사전 생성")
-        print(f"{'=' * 60}")
-        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-        _ctx_prep = ContextualRetrievalStrategy(
-            base_strategy=None,
-            parent_pairs=parent_pairs,
-        )
-        pre_enriched_chunks = _ctx_prep.enrich_only(child_chunks)
-        print(f"  사전 생성 완료: {len(pre_enriched_chunks)}개 enriched 청크")
 
-    # ── Step 3: 전략 생성 (인덱스 캐싱) ──
+def _step3_build_strategies(
+    args, combos, index_cache, child_chunks, parent_pairs, pre_enriched_chunks, tracker
+) -> Tuple[List[Tuple], List]:
+    """Step 3: 전략 생성 및 인덱싱.
+
+    Returns:
+        (strategies, active_strategies)
+        strategies: List[Tuple[ComboSpec, strategy]]
+        active_strategies: List[strategy] (전략 객체만)
+    """
     print(f"\n{'=' * 60}")
     print("Step 3: 전략 생성 및 인덱싱")
     print(f"{'=' * 60}")
 
-    index_cache = IndexCacheManager()
-    strategies: List[Tuple[ComboSpec, Any]] = []  # (spec, strategy)
+    strategies: List[Tuple[ComboSpec, Any]] = []
     build_results: List[Tuple[str, object, Optional[str]]] = []
-
     reindex = args.reindex
 
     with tracker.phase("strategy_build_and_indexing"):
         for i, spec in enumerate(combos, 1):
             progress = f"[{i}/{len(combos)}]"
             label = spec.label
-
             strategy, err = _safe_build(
                 label,
                 lambda s=spec: (
@@ -328,8 +287,18 @@ def _run_preset_mode(args):
 
     active_strategies = [s for _, s in strategies]
     print(f"\n벤치마크 대상 전략: {len(active_strategies)}개")
+    return strategies, active_strategies
 
-    # ── Step 4: Pass 1 — 레이턴시 측정 ──
+
+def _step4_pass1(
+    args, active_strategies, strategies, queries, tracker
+) -> Tuple[Any, Optional[Any], bool]:
+    """Step 4: Pass 1 — 레이턴시 측정.
+
+    Returns:
+        (runner, summary_df, pass1_done)
+        pass1_done=True이면 --pass1-only 조기 종료 신호.
+    """
     print(f"\n{'=' * 60}")
     print("Step 4: Pass 1 — 레이턴시 측정")
     print(f"{'=' * 60}")
@@ -349,7 +318,6 @@ def _run_preset_mode(args):
         runner.run()
     runner.compare()
 
-    # 레이턴시 결과 저장
     latency_df = runner.to_dataframe()
     summary_df = None
     if latency_df is not None:
@@ -357,20 +325,17 @@ def _run_preset_mode(args):
         if getattr(args, "append_results", False) and latency_path.exists():
             import pandas as pd
             existing = pd.read_csv(latency_path)
-            # 기존에 같은 전략명이 있으면 덮어쓰기 (재실행 대비)
             new_strategies = latency_df["strategy"].unique()
             existing = existing[~existing["strategy"].isin(new_strategies)]
             merged = pd.concat([existing, latency_df], ignore_index=True)
             merged.to_csv(latency_path, index=False, encoding="utf-8-sig")
             print(f"  레이턴시 결과 병합(append): {latency_path} (기존 {len(existing)}행 + 신규 {len(latency_df)}행)")
-            latency_df = merged  # 이후 summary 계산에 병합본 사용
+            latency_df = merged
         else:
             latency_df.to_csv(latency_path, index=False, encoding="utf-8-sig")
             print(f"  레이턴시 결과: {latency_path}")
-        # 전략별 요약 DataFrame (avg_latency 등)
         summary_df = _build_latency_summary(latency_df)
 
-        # 트래커에 쿼리 레이턴시 통계 기록
         for spec, strat in strategies:
             timing = tracker.find_timing(spec.label)
             if timing is None:
@@ -383,7 +348,6 @@ def _run_preset_mode(args):
             error_count = int(strat_rows["error"].notna().sum())
             tracker.record_query_stats(timing, valid_lats, error_count)
 
-    # 레이어별 기여도 분석 (레이턴시 기반, Layer 4는 기존 build_s 데이터 활용)
     if args.layers and summary_df is not None:
         _timing_for_layers = None
         _timing_csv = BENCH_DATA_DIR / "combo_timing.csv"
@@ -395,32 +359,33 @@ def _run_preset_mode(args):
                 pass
         _print_layer_contribution(strategies, summary_df, timing_df=_timing_for_layers)
 
-    # --pass1-only: 여기서 종료
     if args.pass1_only:
         print(f"\n{'═' * 60}")
         print(f" Pass 1 완료 — {len(active_strategies)}개 전략 레이턴시 측정")
         print(f"{'═' * 60}")
-        tracker.finalize()
-        _cleanup_strategies(active_strategies)
-        return
+        return runner, summary_df, True
 
-    # ── Step 5: Pass 2 — RAGAS 평가 (상위 N 또는 전체) ──
+    return runner, summary_df, False
+
+
+def _step5_pass2(
+    args, strategies, queries, ground_truths, runner, summary_df, tracker
+) -> Tuple[Optional[Any], Optional[Any], Optional[Any], List]:
+    """Step 5: Pass 2 — RAGAS 평가 (상위 N 또는 전체).
+
+    Returns:
+        (scores_df, evaluator, eval_runner, eval_strategies)
+    """
     top_n = args.top_n or len(strategies)
     if top_n < len(strategies):
-        # 레이턴시 기준 상위 N 선별
         print(f"\n{'=' * 60}")
         print(f"Step 5: Pass 2 — 상위 {top_n}개 RAGAS 평가")
         print(f"{'=' * 60}")
-
-        # 평균 레이턴시로 정렬
         if summary_df is not None and "avg_latency" in summary_df.columns:
             strategy_latencies = []
             for spec, strat in strategies:
                 mask = summary_df["strategy"] == strat.name
-                if mask.any():
-                    avg_lat = summary_df.loc[mask, "avg_latency"].values[0]
-                else:
-                    avg_lat = float("inf")
+                avg_lat = summary_df.loc[mask, "avg_latency"].values[0] if mask.any() else float("inf")
                 strategy_latencies.append((spec, strat, avg_lat))
             strategy_latencies.sort(key=lambda x: x[2])
             eval_strategies = [(sp, st) for sp, st, _ in strategy_latencies[:top_n]]
@@ -443,6 +408,8 @@ def _run_preset_mode(args):
         except Exception as e:
             print(f"ExtendedRAGEvaluator 초기화 실패 (RAGAS 평가 건너뜀): {e}")
 
+    scores_df = None
+    eval_runner = None
     if evaluator is not None:
         pass2_workers = getattr(args, "pass2_workers", 0)
         if pass2_workers > 1:
@@ -454,7 +421,6 @@ def _run_preset_mode(args):
             evaluator=evaluator,
             parallel_eval=pass2_workers,
         )
-        # Pass 1 결과 재사용 (재검색 방지)
         eval_runner.inject_results(runner._results)
         with tracker.phase("pass2_ragas"):
             with track_openai_tokens() as ragas_tokens:
@@ -463,15 +429,15 @@ def _run_preset_mode(args):
             tracker.record_ragas_tokens(ragas_tokens)
         print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
 
-        # per-sample CSV 저장 (ExtendedRAGEvaluator 사용 시)
         if eval_runner.reports:
             per_sample_dir = BENCH_DATA_DIR / "per_sample"
             per_sample_dir.mkdir(parents=True, exist_ok=True)
             for strat_name, report in eval_runner.reports.items():
                 if not report.per_sample_df.empty:
                     safe_name = strat_name.replace("/", "_").replace(" ", "_")
-                    csv_path = per_sample_dir / f"{safe_name}.csv"
-                    report.per_sample_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    report.per_sample_df.to_csv(
+                        per_sample_dir / f"{safe_name}.csv", index=False, encoding="utf-8-sig"
+                    )
             print(f"  per-sample 결과: {per_sample_dir}/")
 
         if scores_df is not None:
@@ -488,10 +454,8 @@ def _run_preset_mode(args):
                 scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
                 print(f"  RAGAS 점수: {scores_path}")
 
-            # 트래커에 RAGAS 점수 기록
             for _, row in scores_df.iterrows():
                 strat_name = row["strategy"]
-                # eval_strategies에서 매칭되는 spec 찾기
                 for spec, strat in eval_strategies:
                     if strat.name == strat_name:
                         timing = tracker.find_timing(spec.label)
@@ -505,11 +469,20 @@ def _run_preset_mode(args):
                             tracker.record_ragas(timing, scores)
                         break
 
-        # 레이어별 기여도 (RAGAS 기반)
         if args.layers and scores_df is not None:
             _print_layer_contribution_ragas(eval_strategies, scores_df)
 
-    # ── Step 6: 조합별 전체 소요 시간 집계 ──
+    return scores_df, evaluator, eval_runner, eval_strategies
+
+
+def _step6_timing(
+    args, strategies, eval_strategies, tracker, summary_df, evaluator, eval_runner, queries
+) -> Optional[Any]:
+    """Step 6: 조합별 전체 소요 시간 집계.
+
+    Returns:
+        timing_df 또는 None
+    """
     timing_df = _build_combo_timing_df(
         strategies=strategies,
         tracker=tracker,
@@ -531,19 +504,23 @@ def _run_preset_mode(args):
         print_qa_scaling_table(
             timing_df=timing_df,
             n_strategies=len(strategies),
-            n_eval_strategies=len(eval_strategies) if not args.pass1_only else 0,
+            n_eval_strategies=len(eval_strategies),
         )
+    return timing_df
 
-    # ── Step 7: 리포트 생성 ──
+
+def _step7_report(args, summary_df, scores_df, combos, evaluator, tracker, timing_df) -> None:
+    """Step 7: Markdown 리포트 생성."""
     if summary_df is not None:
         _generate_report(
             summary_df, scores_df if evaluator else None,
             combos, BENCH_DATA_DIR, tracker=tracker, timing_df=timing_df,
         )
 
-    # ── Upstage 토큰 breakdown 집계 ──
+
+def _collect_upstage_tokens(strategies, tracker) -> None:
+    """Upstage 임베딩 토큰 breakdown 집계."""
     from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
-    from rag_bench.run_tracker import TokenUsage as _TU
     for _spec, _strat in strategies:
         _base = getattr(_strat, "_base_strategy", _strat)
         if isinstance(_base, UpstageEmbedStrategy):
@@ -554,10 +531,100 @@ def _run_preset_mode(args):
             if _qry.total_tokens > 0:
                 tracker.add_tokens_breakdown(_qry, "embedding_query", "upstage")
 
-    # ── 수행 이력 저장 ──
-    tracker.finalize()
 
-    # ── Cleanup ──
+# ===========================================================================
+# 새 모드: 4-Layer 조합 실행 — 오케스트레이터
+# ===========================================================================
+
+
+def _run_preset_mode(args):
+    """--preset 기반 새 4-Layer 조합 실행."""
+    setup_ssl_bypass()
+
+    preset_name = args.preset
+    if preset_name not in PRESETS:
+        print(f"Error: 알 수 없는 프리셋: {preset_name}")
+        print(f"  사용 가능: {list(PRESETS.keys())}")
+        sys.exit(1)
+
+    config = PRESETS[preset_name]
+    combos = generate_valid_combinations(config)
+
+    if getattr(args, "dense_filter", None):
+        filter_models = [m.strip() for m in args.dense_filter.split(",")]
+        combos = [c for c in combos if c.dense in filter_models]
+        if not combos:
+            print(f"Error: --dense-filter '{args.dense_filter}'에 해당하는 조합이 없습니다.")
+            sys.exit(1)
+
+    print(f"\n{'═' * 60}")
+    print(f" 4-Layer 조합 벤치마크 — 프리셋: {preset_name}")
+    print(f"{'═' * 60}")
+    print(f"  Dense Models: {config['dense_models']}")
+    print(f"  Sparse Models: {config['sparse_models']}")
+    print(f"  Rerankers: {config['rerankers']}")
+    print(f"  LLM Support: {config['llm_support']}")
+    print(f"  총 조합: {len(combos)}개")
+
+    if args.dry_run:
+        print(f"\n{'─' * 80}")
+        print(f" {'#':>3}  {'Label':<40} {'Retrieval Mode':<50}")
+        print(f"{'─' * 80}")
+        for i, spec in enumerate(combos, 1):
+            print(f" {i:>3}  {spec.label:<40} {spec.retrieval_mode:<50}")
+        print(f"{'─' * 80}")
+        print(f" 합계: {len(combos)}개 유효 조합")
+        unique_keys = set(spec.index_key for spec in combos)
+        print(f" 고유 인덱스: {len(unique_keys)}개 (실제 인덱싱 횟수)")
+        if args.layers:
+            _print_layer_analysis_preview(combos, config)
+        return
+
+    tracker = RunTracker(output_dir=BENCH_DATA_DIR)
+
+    if getattr(args, "sample_pages", False):
+        _step0_sample_pdfs(args)
+
+    queries, ground_truths = _step1_load_qa(args, tracker)
+    parent_pairs, child_chunks = _step2_chunk_docs(tracker)
+
+    tracker.set_config(
+        preset=preset_name,
+        k=args.k,
+        top_n=args.top_n,
+        pass1_only=args.pass1_only,
+        layers=args.layers,
+        num_combos=len(combos),
+        num_queries=len(queries),
+        num_docs=len(child_chunks),
+    )
+
+    pre_enriched_chunks = _step25_enrich_contextual(combos, parent_pairs, child_chunks)
+
+    index_cache = IndexCacheManager()
+    strategies, active_strategies = _step3_build_strategies(
+        args, combos, index_cache, child_chunks, parent_pairs, pre_enriched_chunks, tracker
+    )
+
+    runner, summary_df, pass1_done = _step4_pass1(
+        args, active_strategies, strategies, queries, tracker
+    )
+    if pass1_done:
+        tracker.finalize()
+        _cleanup_strategies(active_strategies)
+        return
+
+    scores_df, evaluator, eval_runner, eval_strategies = _step5_pass2(
+        args, strategies, queries, ground_truths, runner, summary_df, tracker
+    )
+
+    timing_df = _step6_timing(
+        args, strategies, eval_strategies, tracker, summary_df, evaluator, eval_runner, queries
+    )
+
+    _step7_report(args, summary_df, scores_df, combos, evaluator, tracker, timing_df)
+    _collect_upstage_tokens(strategies, tracker)
+    tracker.finalize()
     _cleanup_strategies(active_strategies)
 
     print(f"\n{'═' * 60}")
