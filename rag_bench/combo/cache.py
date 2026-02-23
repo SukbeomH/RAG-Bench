@@ -160,7 +160,9 @@ class IndexCacheManager:
             print(f"  [기존 Contextual 인덱스 재사용] {spec.dense}+{spec.sparse} — {ctx_qdrant_path}")
             ctx_base._ensure_initialized()
             if hasattr(ctx_base._sparse_embeddings, "fit"):
-                texts = [doc.page_content for doc in child_chunks]
+                # pre_enriched 있으면 enriched 텍스트 기준으로 BM25 fit (인덱스와 어휘 일치)
+                fit_docs = pre_enriched if pre_enriched is not None else child_chunks
+                texts = [doc.page_content for doc in fit_docs]
                 ctx_base._sparse_embeddings.fit(texts)
             ctx_base._is_ready = True
             strategy._is_ready = True
