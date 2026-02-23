@@ -2,7 +2,7 @@
 
 Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스로 비교 벤치마크하는 LangChain/LangGraph 통합 패키지.
 
-> **최근 변경**: Dense 5종(HF 3 + openai-large + upstage) × Sparse 2종(korean_bm25, splade) = 60개 조합으로 재편 + HTML 보고서 생성 + PDF 페이지 샘플링
+> **최근 변경**: HTML 보고서 고도화 — Executive Summary 추천 카드, 레이어별 기여도 분석 표, Contextual ON/OFF 탭 분리 RAGAS 테이블, IQR 이상치 감지 + 중앙값 부표시, 최고 vs 최저 레이더 비교, 산점도 ColBERT/non-ColBERT 색상 분리 + 3s 기준선 추가
 
 > 이 디렉토리 단독으로 공유 가능합니다. `pyproject.toml`, `uv.lock`이 포함되어 있습니다.
 
@@ -292,7 +292,7 @@ rag_bench/
 ├── scripts/                 # 벤치마크 실행 스크립트
 │   ├── __init__.py
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성 (RAGAS KG, PDF 페이지 샘플링 통합)
-│   ├── generate_html_report.py  # ★ HTML 벤치마크 보고서 생성 (Python API, 차트 인라인, Bootstrap)
+│   ├── generate_html_report.py  # ★ HTML 벤치마크 보고서 생성 (Bootstrap, 차트 인라인, Executive Summary 추천 카드, 레이어 기여도 분석, Contextual ON/OFF 탭)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
 │   ├── run_all_combos.py    # ★ 60개 4-Layer 교차 조합 벤치마크 (2-Pass)
 │   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
@@ -581,9 +581,18 @@ generate_html_report(
     latency_df,
     ragas_df,
     output_path="_benchdata/benchmark_report.html",
+    history_dir="_benchdata/run_history",  # 수행 이력 비교 활성화 (선택)
 )
 # → 브라우저에서 바로 열 수 있는 독립 HTML 파일 생성
 ```
+
+**HTML 보고서 주요 섹션:**
+- **Executive Summary**: RAGAS 가중 점수 1위 전략 자동 추천 + 선정 이유 + 레이턴시 배지
+- **레이어별 기여도 분석**: Reranker(없음/ColBERT/FlashRank), Contextual(ON/OFF) 그룹별 평균 점수 + 향상폭(Δ) + 동일 base 전략 1:1 순수 효과 비교
+- **RAGAS 테이블**: Contextual OFF / ON 탭으로 분리 (Bootstrap 탭 UI)
+- **레이턴시 테이블**: IQR×1.5 이상치 감지 시 ⚠️ 배지 + 중앙값 부표시
+- **산점도**: 품질 상위 10개 전략, ColBERT(파란색) / non-ColBERT(녹색) 색상 분리, 실용 한계 3s 기준선
+- **레이더 차트**: 최고 전략(파란색) vs 최저 전략(빨간색) 1:1 비교
 
 ### 5. Agentic RAG 대화
 

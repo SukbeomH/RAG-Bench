@@ -7,6 +7,7 @@ HTML 벤치마크 보고서 자동 생성.
 
 import base64
 import io
+import json
 import time
 from typing import Optional
 
@@ -62,19 +63,49 @@ def _fig_to_base64(fig) -> str:
 
 
 def _agg_latency(latency_df: pd.DataFrame) -> pd.DataFrame:
-    """per-query 행을 전략별로 집계하여 avg_latency_ms 컬럼을 생성한다."""
+    """per-query 행을 전략별로 집계하여 avg_latency_ms 컬럼을 생성한다.
+
+    ★ 이상치 강건성: 주 정렬·표시 지표로 중앙값(median)을 사용한다.
+      avg_latency_ms = median (정렬·차트·순위의 기준값)
+      mean_latency_ms = 산술 평균 (참고용 — 이상치에 민감)
+
+    추가 통계:
+    - has_outlier: IQR×1.5 초과 쿼리가 1개 이상 존재하면 True
+    - cv_pct: 변동계수(std/mean×100). 높을수록 샘플 간 편차가 큼.
+    """
     if latency_df is None or latency_df.empty:
         return latency_df
     if "avg_latency_ms" in latency_df.columns or "avg_latency" in latency_df.columns:
         return latency_df  # 이미 집계됨
     if "latency_ms" in latency_df.columns and "strategy" in latency_df.columns:
+        def _has_outlier(x):
+            """IQR×1.5 기준으로 이상치 존재 여부 반환."""
+            if len(x) < 3:
+                return False
+            q1, q3 = x.quantile(0.25), x.quantile(0.75)
+            iqr = q3 - q1
+            return bool(((x < q1 - 1.5 * iqr) | (x > q3 + 1.5 * iqr)).any())
+
         agg = (
             latency_df.groupby("strategy")["latency_ms"]
-            .agg(avg_latency_ms="mean", min_latency_ms="min", max_latency_ms="max",
-                 p50_latency_ms=lambda x: x.quantile(0.5))
+            .agg(
+                # avg_latency_ms = median (이상치 강건 지표, 정렬 기준)
+                avg_latency_ms=lambda x: x.quantile(0.5),
+                mean_latency_ms="mean",
+                min_latency_ms="min",
+                max_latency_ms="max",
+                std_latency_ms="std",
+                n_queries="count",
+                has_outlier=_has_outlier,
+            )
             .reset_index()
         )
         agg["avg_latency_ms"] = agg["avg_latency_ms"].round(1)
+        agg["mean_latency_ms"] = agg["mean_latency_ms"].round(1)
+        # CV(변동계수): std/mean×100 — 샘플 간 편차 상대 지표
+        agg["cv_pct"] = (
+            agg["std_latency_ms"].fillna(0) / agg["mean_latency_ms"].replace(0, float("nan")) * 100
+        ).round(1)
         return agg
     return latency_df
 
@@ -123,8 +154,8 @@ def _build_latency_chart(latency_df: pd.DataFrame) -> str:
         bars = ax.barh(df["strategy"], df[sort_col], color=colors)
 
         unit = "s" if sort_col == "avg_latency" else "ms"
-        ax.set_xlabel(f"평균 레이턴시 ({unit})")
-        ax.set_title("전략별 평균 레이턴시 (낮을수록 우수)")
+        ax.set_xlabel(f"중앙값 레이턴시 ({unit})")
+        ax.set_title("전략별 중앙값 레이턴시 (낮을수록 우수)")
         ax.invert_yaxis()
 
         for bar, val in zip(bars, df[sort_col]):
@@ -179,12 +210,19 @@ def _build_ragas_heatmap(ragas_df: pd.DataFrame) -> str:
         return ""
 
 
-def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame) -> str:
-    """레이턴시 vs 품질 산점도 → base64 PNG."""
+def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame, top_n: int = 10) -> str:
+    """레이턴시 vs 품질 산점도 → base64 PNG. 상위 top_n개 전략만 표시.
+
+    개선:
+    - ColBERT 포함 전략: 파란색 (#2196F3), non-ColBERT: 녹색 (#4CAF50)
+    - x축에 실용 레이턴시 기준선 3000ms 수직 점선 추가 (빨간색)
+    - 범례에 ColBERT / non-ColBERT 구분 추가
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
 
         latency_df = _agg_latency(latency_df)
         sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
@@ -205,8 +243,24 @@ def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame) -> st
         if merged.empty:
             return ""
 
+        # 품질 기준 상위 top_n개만 추출
+        merged = merged.nlargest(top_n, "quality").reset_index(drop=True)
+
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.scatter(merged[sort_col], merged["quality"], alpha=0.7, s=80, color="#4CAF50")
+
+        # ColBERT 포함 여부로 색상 분리
+        colbert_mask = merged["strategy"].str.contains("ColBERT", case=False, na=False)
+        colbert_df = merged[colbert_mask]
+        non_colbert_df = merged[~colbert_mask]
+
+        scatter_colbert = ax.scatter(
+            colbert_df[sort_col], colbert_df["quality"],
+            alpha=0.8, s=90, color="#2196F3", zorder=5
+        )
+        scatter_non = ax.scatter(
+            non_colbert_df[sort_col], non_colbert_df["quality"],
+            alpha=0.8, s=90, color="#4CAF50", zorder=5
+        )
 
         for _, row in merged.iterrows():
             ax.annotate(
@@ -217,10 +271,26 @@ def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame) -> st
             )
 
         unit = "s" if sort_col == "avg_latency" else "ms"
-        ax.set_xlabel(f"평균 레이턴시 ({unit})")
+
+        # 실용 레이턴시 기준선: ms 단위면 3000ms, s 단위면 3s
+        threshold = 3.0 if sort_col == "avg_latency" else 3000.0
+        ax.axvline(x=threshold, color="red", linestyle="--", linewidth=1.5, alpha=0.8, zorder=4)
+        y_max = ax.get_ylim()[1] if ax.get_ylim()[1] > 0 else 1.0
+        ax.text(
+            threshold + (threshold * 0.01), y_max * 0.97,
+            "실용 한계 3s",
+            color="red", fontsize=8, va="top", ha="left"
+        )
+
+        ax.set_xlabel(f"중앙값 레이턴시 ({unit})")
         ax.set_ylabel("평균 품질 점수 (RAGAS 메트릭 평균)")
         ax.set_title("레이턴시 vs 품질 분포")
         ax.grid(True, alpha=0.3)
+
+        # 범례: ColBERT / non-ColBERT 구분
+        patch_colbert = mpatches.Patch(color="#2196F3", label="ColBERT 포함 전략")
+        patch_non = mpatches.Patch(color="#4CAF50", label="non-ColBERT 전략")
+        ax.legend(handles=[patch_colbert, patch_non], loc="lower right", fontsize=8)
 
         plt.tight_layout()
         img = _fig_to_base64(fig)
@@ -231,7 +301,13 @@ def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame) -> st
 
 
 def _build_radar_chart(ragas_df: pd.DataFrame, top_n: int = 5) -> str:
-    """상위 N개 전략 레이더 차트 → base64 PNG."""
+    """Best 1 vs Worst 1 전략 레이더 차트 → base64 PNG.
+
+    개선:
+    - top_n 인자는 유지하되 Best 1 vs Worst 1 비교로 변경
+    - Best: weighted score 1위, Worst: weighted score 최하위
+    - 범례에 "최고 전략" / "최저 전략" 표시
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -242,26 +318,39 @@ def _build_radar_chart(ragas_df: pd.DataFrame, top_n: int = 5) -> str:
         if len(metric_cols) < 3:
             return ""
 
-        top_df = ragas_df.head(min(top_n, len(ragas_df)))
+        # weighted score 계산 후 Best/Worst 선택
+        scores = _compute_weighted_scores(ragas_df)
+        ragas_copy = ragas_df.copy()
+        ragas_copy["_score"] = scores
+
+        best_row = ragas_copy.loc[ragas_copy["_score"].idxmax()]
+        worst_row = ragas_copy.loc[ragas_copy["_score"].idxmin()]
+
         N = len(metric_cols)
         angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
         angles += angles[:1]
 
         fig, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(polar=True))
-        colors = ["#2196F3", "#4CAF50", "#FF5722", "#9C27B0", "#FF9800"]
 
-        for i, (_, row) in enumerate(top_df.iterrows()):
-            vals = [float(row.get(m, 0)) for m in metric_cols]
-            vals += vals[:1]
-            ax.plot(angles, vals, color=colors[i % len(colors)], linewidth=2,
-                    label=_shorten_name(row["strategy"]))
-            ax.fill(angles, vals, color=colors[i % len(colors)], alpha=0.1)
+        # Best: 파란색
+        best_vals = [float(best_row.get(m, 0)) for m in metric_cols]
+        best_vals += best_vals[:1]
+        ax.plot(angles, best_vals, color="#2196F3", linewidth=2.5,
+                label=f"최고 전략: {_shorten_name(best_row['strategy'])}")
+        ax.fill(angles, best_vals, color="#2196F3", alpha=0.2)
+
+        # Worst: 빨간색
+        worst_vals = [float(worst_row.get(m, 0)) for m in metric_cols]
+        worst_vals += worst_vals[:1]
+        ax.plot(angles, worst_vals, color="#F44336", linewidth=2.5,
+                label=f"최저 전략: {_shorten_name(worst_row['strategy'])}")
+        ax.fill(angles, worst_vals, color="#F44336", alpha=0.2)
 
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(metric_cols, fontsize=9)
         ax.set_ylim(0, 1)
-        ax.set_title(f"상위 {len(top_df)}개 전략 레이더 차트", pad=20)
-        ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=8)
+        ax.set_title("최고 vs 최저 전략 레이더 비교", pad=20)
+        ax.legend(loc="upper right", bbox_to_anchor=(1.45, 1.15), fontsize=8)
 
         plt.tight_layout()
         img = _fig_to_base64(fig)
@@ -277,11 +366,30 @@ def _build_radar_chart(ragas_df: pd.DataFrame, top_n: int = 5) -> str:
 
 
 def _compute_weighted_scores(ragas_df: pd.DataFrame) -> pd.Series:
-    """단순 메트릭 평균으로 가중 점수 계산."""
+    """단순 메트릭 평균으로 가중 점수 계산 (NaN skipna=True).
+
+    주의: pandas mean(axis=1, skipna=True) 기본 동작으로 NaN 메트릭은 제외 후 평균.
+    예) faithfulness=NaN, 나머지 3개=0.7 → score=0.7 (4개 기준이면 0.525)
+    과대평가 가능성이 있으므로 NaN 포함 전략은 별도 주석으로 표기 권장.
+    """
     metric_cols = [c for c in ragas_df.columns if c not in ("strategy",)]
     if not metric_cols:
         return pd.Series(dtype=float)
     return ragas_df[metric_cols].mean(axis=1)
+
+
+def _compute_weighted_scores_nan_penalized(ragas_df: pd.DataFrame) -> pd.Series:
+    """NaN을 0으로 대체한 후 전체 메트릭 수 기준으로 평균 계산 (보수적 점수).
+
+    NaN skipna=True 방식 대비 과대평가를 방지한다.
+    """
+    metric_cols = [c for c in ragas_df.columns if c not in ("strategy",)]
+    if not metric_cols:
+        return pd.Series(dtype=float)
+    filled = ragas_df[metric_cols].copy()
+    for col in metric_cols:
+        filled[col] = pd.to_numeric(filled[col], errors="coerce").fillna(0.0)
+    return filled.mean(axis=1)
 
 
 def _compute_radar_areas(ragas_df: pd.DataFrame) -> pd.DataFrame:
@@ -356,17 +464,17 @@ def _radar_area_rank_html(ragas_df: pd.DataFrame, top_n: int = 5) -> str:
 
 def _ragas_table_html(ragas_df: pd.DataFrame) -> str:
     """RAGAS 메트릭 테이블 HTML (색상 코딩)."""
+    import math
     metric_cols = [c for c in ragas_df.columns if c not in ("strategy",)]
     if not metric_cols:
         return "<p>RAGAS 데이터 없음</p>"
 
     rows_html = ""
     for _, row in ragas_df.iterrows():
-        cells = f"<td>{row['strategy']}</td>"
+        cells = f"<td style='font-size:0.78rem'>{row['strategy']}</td>"
         for col in metric_cols:
             val = row.get(col, 0.0)
             if isinstance(val, float):
-                import math
                 if math.isnan(val):
                     cells += '<td style="text-align:center;color:#aaa">N/A</td>'
                 else:
@@ -384,8 +492,53 @@ def _ragas_table_html(ragas_df: pd.DataFrame) -> str:
     </table>"""
 
 
+def _ragas_split_tables_html(ragas_df: pd.DataFrame) -> str:
+    """Contextual 포함/제외 기준으로 RAGAS 테이블을 Bootstrap 탭으로 분리."""
+    if ragas_df is None or ragas_df.empty:
+        return "<p>데이터 없음</p>"
+
+    no_ctx = ragas_df[~ragas_df["strategy"].str.contains("Contextual", case=False, na=False)]
+    ctx    = ragas_df[ ragas_df["strategy"].str.contains("Contextual", case=False, na=False)]
+
+    tbl_no_ctx = _ragas_table_html(no_ctx) if not no_ctx.empty else "<p class='text-muted'>데이터 없음</p>"
+    tbl_ctx    = _ragas_table_html(ctx)    if not ctx.empty    else "<p class='text-muted'>데이터 없음</p>"
+
+    n_off = len(no_ctx)
+    n_on  = len(ctx)
+
+    return f"""
+    <ul class="nav nav-tabs mb-0" id="ragasTab" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="ragas-tab-off" data-bs-toggle="tab"
+                data-bs-target="#ragas-off" type="button" role="tab">
+          <span class="badge bg-secondary me-1">OFF</span>Contextual OFF
+          <span class="badge bg-light text-dark ms-1">{n_off}</span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ragas-tab-on" data-bs-toggle="tab"
+                data-bs-target="#ragas-on" type="button" role="tab">
+          <span class="badge bg-success me-1">ON</span>Contextual ON
+          <span class="badge bg-light text-dark ms-1">{n_on}</span>
+        </button>
+      </li>
+    </ul>
+    <div class="tab-content border border-top-0 p-3 bg-white rounded-bottom">
+      <div class="tab-pane fade show active" id="ragas-off" role="tabpanel">
+        <div class="table-responsive">{tbl_no_ctx}</div>
+      </div>
+      <div class="tab-pane fade" id="ragas-on" role="tabpanel">
+        <div class="table-responsive">{tbl_ctx}</div>
+      </div>
+    </div>"""
+
+
 def _latency_table_html(latency_df: pd.DataFrame) -> str:
-    """레이턴시 요약 테이블 HTML."""
+    """레이턴시 요약 테이블 HTML.
+
+    이상치(IQR×1.5) 감지 시 ⚠️ 마킹 + 중앙값(p50) 부표시.
+    소규모 샘플(5개 이하)에서는 단일 이상치가 평균을 크게 왜곡할 수 있음을 주석으로 명시.
+    """
     latency_df = _agg_latency(latency_df)
     sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
     if sort_col not in latency_df.columns:
@@ -394,17 +547,64 @@ def _latency_table_html(latency_df: pd.DataFrame) -> str:
     df = latency_df.sort_values(sort_col).head(20)
     unit = "s" if sort_col == "avg_latency" else "ms"
 
+    has_outlier_col = "has_outlier" in df.columns
+    has_mean = "mean_latency_ms" in df.columns  # 참고용 평균(이상치 민감)
+    has_cv = "cv_pct" in df.columns
+    has_n = "n_queries" in df.columns
+
     rows_html = ""
+    any_outlier = False
     for i, (_, row) in enumerate(df.iterrows(), 1):
         val = row[sort_col]
-        badge = ' <span class="badge bg-warning">TOP3</span>' if i <= 3 else ""
-        rows_html += f"<tr><td>{i}</td><td>{row['strategy']}{badge}</td><td>{val:.3f}{unit}</td></tr>"
+        badge = ' <span class="badge bg-warning text-dark">TOP3</span>' if i <= 3 else ""
+
+        # 이상치 경고 배지
+        outlier_warn = ""
+        if has_outlier_col and row.get("has_outlier", False):
+            any_outlier = True
+            cv = row.get("cv_pct", "") if has_cv else ""
+            cv_str = f"CV={cv:.0f}%" if isinstance(cv, float) and not pd.isna(cv) else ""
+            outlier_warn = (
+                f' <span style="color:#e65100;font-size:0.72rem;cursor:help" '
+                f'title="이상치 쿼리 포함 가능성 ({cv_str}) — 중앙값 참조 권장">⚠️이상치</span>'
+            )
+
+        # 평균 부표시 (중앙값이 주 지표이므로 평균을 참고용으로 표시)
+        median_str = ""
+        if has_mean and sort_col == "avg_latency_ms":
+            mean_val = row.get("mean_latency_ms", None)
+            if mean_val is not None and not (isinstance(mean_val, float) and pd.isna(mean_val)):
+                median_str = f'<br><span style="font-size:0.71rem;color:#888">평균: {mean_val:.1f}{unit}</span>'
+
+        rows_html += (
+            f"<tr>"
+            f"<td>{i}</td>"
+            f"<td style='font-size:0.82rem'>{row['strategy']}{badge}{outlier_warn}{median_str}</td>"
+            f"<td style='white-space:nowrap'>{val:.1f}{unit}</td>"
+            f"</tr>"
+        )
+
+    # 이상치 주석 (이상치 전략이 하나라도 있을 때)
+    n_val = int(df["n_queries"].iloc[0]) if has_n and not df.empty else 0
+    outlier_note = ""
+    if any_outlier:
+        sample_warn = (
+            f" 특히 이 벤치마크는 <strong>{n_val}개 쿼리</strong> 기준이므로 단일 이상치가 평균에 미치는 영향이 큽니다."
+            if n_val > 0 else ""
+        )
+        outlier_note = f"""
+    <div class="mt-2 p-2 rounded" style="background:#fff3cd;border-left:3px solid #ffc107;font-size:0.75rem;color:#664d03;">
+      ⚠️ <strong>이상치 경고</strong>: IQR×1.5 기준 이상치 쿼리가 포함된 전략입니다.{sample_warn}
+      표시된 값은 <strong>중앙값(Median)</strong>이므로 이상치 영향을 최소화했습니다. 참고용 평균은 각 전략 아래에 표시됩니다.
+    </div>"""
 
     return f"""
     <table class="table table-sm table-hover">
-      <thead class="table-secondary"><tr><th>#</th><th>전략</th><th>평균 레이턴시</th></tr></thead>
+      <thead class="table-secondary">
+        <tr><th>#</th><th>전략</th><th>중앙값 레이턴시</th></tr>
+      </thead>
       <tbody>{rows_html}</tbody>
-    </table>"""
+    </table>{outlier_note}"""
 
 
 def _recommendations_html(ragas_df: pd.DataFrame, latency_df: pd.DataFrame) -> str:
@@ -520,6 +720,445 @@ def _summary_cards_html(
         </div>
       </div>
     </div>"""
+
+
+def _executive_summary_html(
+    ragas_df: pd.DataFrame,
+    latency_df: Optional[pd.DataFrame],
+) -> str:
+    """최적 전략 추천 Executive Summary 카드.
+
+    _compute_weighted_scores로 1위 전략을 산출하고,
+    전략 이름에서 특성(ColBERT/Contextual/BM25/SPLADE 등)을 파싱해
+    한줄 이유를 자동 생성합니다.
+    """
+    if ragas_df is None or ragas_df.empty:
+        return ""
+
+    try:
+        scores = _compute_weighted_scores(ragas_df)
+        ragas_copy = ragas_df.copy()
+        ragas_copy["_score"] = scores
+        best_idx = ragas_copy["_score"].idxmax()
+        best_row = ragas_copy.loc[best_idx]
+        best_name = best_row["strategy"]
+        best_score = best_row["_score"]
+
+        # 레이턴시 정보 가져오기
+        lat_str = "N/A"
+        lat_badge_color = "#6c757d"
+        if latency_df is not None:
+            agg_lat = _agg_latency(latency_df)
+            sort_col = (
+                "avg_latency_ms" if "avg_latency_ms" in agg_lat.columns
+                else ("avg_latency" if "avg_latency" in agg_lat.columns else None)
+            )
+            if sort_col:
+                lat_row = agg_lat[agg_lat["strategy"] == best_name]
+                if not lat_row.empty:
+                    lat_val = lat_row[sort_col].values[0]
+                    unit = "s" if sort_col == "avg_latency" else "ms"
+                    lat_str = f"{lat_val:.1f}{unit}"
+                    # 레이턴시 색상: 3000ms 기준
+                    ms_val = lat_val * 1000 if sort_col == "avg_latency" else lat_val
+                    lat_badge_color = "#4CAF50" if ms_val <= 3000 else "#FF9800"
+
+        # 전략 이름에서 특성 파싱 → 한줄 이유 생성
+        reasons = []
+        name_lower = best_name.lower()
+        if "contextual" in name_lower:
+            reasons.append("Contextual Retrieval로 청크 문맥 품질 강화")
+        if "colbert" in name_lower:
+            reasons.append("ColBERT Late-Interaction 리랭킹으로 정밀도 향상")
+        elif "flashrank" in name_lower:
+            reasons.append("FlashRank 경량 리랭킹으로 속도·품질 균형")
+        if "splade" in name_lower:
+            reasons.append("SPLADE Sparse 검색으로 유의어 확장 강점")
+        elif "bm25" in name_lower:
+            reasons.append("Korean BM25로 정확한 키워드 매칭")
+        if not reasons:
+            reasons.append("4개 RAGAS 지표 균형 최우수")
+
+        reason_text = " · ".join(reasons)
+
+        # 메트릭별 점수 배지
+        metric_cols = [c for c in ragas_df.columns if c not in ("strategy",)]
+        metric_badges = ""
+        for m in metric_cols:
+            val = best_row.get(m, None)
+            if val is not None:
+                try:
+                    fval = float(val)
+                    color = "#4CAF50" if fval >= 0.7 else ("#FF9800" if fval >= 0.5 else "#F44336")
+                    metric_badges += (
+                        f'<span style="background:{color};color:#fff;border-radius:12px;'
+                        f'padding:3px 10px;font-size:0.78rem;margin:2px;display:inline-block;">'
+                        f'{m}: {fval:.4f}</span>'
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+        return f"""
+    <div style="
+      background: linear-gradient(135deg, #0d1b2a 0%, #1a3a5c 50%, #0d1b2a 100%);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 28px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+      color: #ffffff;
+      border: 1px solid rgba(33,150,243,0.3);
+    ">
+      <div class="d-flex align-items-center mb-3">
+        <span style="font-size:2rem;margin-right:12px;">🏆</span>
+        <h4 style="margin:0;font-weight:800;letter-spacing:0.5px;color:#e3f2fd;">
+          최적 전략 추천
+        </h4>
+        <span style="margin-left:auto;font-size:0.8rem;color:#90caf9;opacity:0.8;">
+          RAGAS 가중 점수 기준
+        </span>
+      </div>
+
+      <div style="
+        background: rgba(33,150,243,0.15);
+        border: 1px solid rgba(33,150,243,0.4);
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+      ">
+        <div style="font-size:0.82rem;color:#90caf9;margin-bottom:4px;">1위 전략</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#ffffff;word-break:break-all;">
+          {best_name}
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          <div style="
+            background:rgba(255,255,255,0.08);
+            border-radius:8px;
+            padding:12px 16px;
+            text-align:center;
+          ">
+            <div style="font-size:0.78rem;color:#90caf9;margin-bottom:4px;">종합 RAGAS 점수</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#4fc3f7;">{best_score:.4f}</div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div style="
+            background:rgba(255,255,255,0.08);
+            border-radius:8px;
+            padding:12px 16px;
+            text-align:center;
+          ">
+            <div style="font-size:0.78rem;color:#90caf9;margin-bottom:4px;">중앙값 레이턴시</div>
+            <div style="font-size:1.6rem;font-weight:800;color:{lat_badge_color};">{lat_str}</div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div style="
+            background:rgba(255,255,255,0.08);
+            border-radius:8px;
+            padding:12px 16px;
+            text-align:center;
+          ">
+            <div style="font-size:0.78rem;color:#90caf9;margin-bottom:4px;">평가 전략 수</div>
+            <div style="font-size:1.6rem;font-weight:800;color:#aed6f1;">{len(ragas_df)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-size:0.8rem;color:#90caf9;margin-bottom:6px;">선정 이유</div>
+        <div style="
+          background:rgba(255,255,255,0.07);
+          border-left:3px solid #2196F3;
+          border-radius:0 8px 8px 0;
+          padding:10px 14px;
+          font-size:0.88rem;
+          color:#e3f2fd;
+          line-height:1.6;
+        ">{reason_text}</div>
+      </div>
+
+      <div>
+        <div style="font-size:0.8rem;color:#90caf9;margin-bottom:6px;">메트릭별 점수</div>
+        <div>{metric_badges}</div>
+      </div>
+    </div>"""
+    except Exception:
+        return ""
+
+
+def _layer_contribution_html(ragas_df: pd.DataFrame) -> str:
+    """레이어별 기여도 요약표 HTML.
+
+    ragas_df를 입력받아 레이어 조합별 평균 RAGAS 점수 차이를 분석합니다.
+    - Reranker 효과: None vs ColBERT vs FlashRank
+    - Contextual 효과: OFF vs ON
+    각 그룹의 평균 weighted score + 향상폭(Delta) 표시.
+    """
+    if ragas_df is None or ragas_df.empty:
+        return ""
+
+    try:
+        scores = _compute_weighted_scores(ragas_df)
+        ragas_copy = ragas_df.copy()
+        ragas_copy["_score"] = scores
+
+        # --- Reranker 효과 분석 ---
+        def _reranker_group(name: str) -> str:
+            if "ColBERT Rerank" in name or "ColBERT Reranker" in name or "colbert" in name.lower():
+                return "ColBERT"
+            elif "FlashRank" in name:
+                return "FlashRank"
+            else:
+                return "없음"
+
+        ragas_copy["_reranker"] = ragas_copy["strategy"].apply(_reranker_group)
+        reranker_agg = (
+            ragas_copy.groupby("_reranker")["_score"]
+            .agg(mean_score="mean", count="count")
+            .reset_index()
+            .rename(columns={"_reranker": "group"})
+        )
+        # 기준: Reranker 없음
+        base_reranker = reranker_agg.loc[reranker_agg["group"] == "없음", "mean_score"]
+        base_reranker_val = base_reranker.values[0] if not base_reranker.empty else None
+
+        reranker_order = ["없음", "ColBERT", "FlashRank"]
+        reranker_rows_html = ""
+        for grp in reranker_order:
+            row = reranker_agg[reranker_agg["group"] == grp]
+            if row.empty:
+                continue
+            score = row["mean_score"].values[0]
+            cnt = int(row["count"].values[0])
+            if base_reranker_val is not None and grp != "없음":
+                delta = score - base_reranker_val
+                delta_str = f'+{delta:.4f}' if delta >= 0 else f'{delta:.4f}'
+                delta_color = "#4CAF50" if delta >= 0 else "#F44336"
+            else:
+                delta_str = "기준"
+                delta_color = "#6c757d"
+            bar_pct = int(score * 100)
+            reranker_rows_html += f"""
+            <tr>
+              <td><strong>{grp}</strong></td>
+              <td class="text-center">{cnt}</td>
+              <td class="text-center">{score:.4f}</td>
+              <td>
+                <div class="progress" style="height:10px">
+                  <div class="progress-bar bg-primary" style="width:{bar_pct}%"></div>
+                </div>
+              </td>
+              <td class="text-center fw-bold" style="color:{delta_color};">{delta_str}</td>
+            </tr>"""
+
+        # --- Contextual 효과 분석 ---
+        ragas_copy["_contextual"] = ragas_copy["strategy"].apply(
+            lambda n: "ON" if "Contextual" in n else "OFF"
+        )
+        ctx_agg = (
+            ragas_copy.groupby("_contextual")["_score"]
+            .agg(mean_score="mean", count="count")
+            .reset_index()
+            .rename(columns={"_contextual": "group"})
+        )
+        base_ctx = ctx_agg.loc[ctx_agg["group"] == "OFF", "mean_score"]
+        base_ctx_val = base_ctx.values[0] if not base_ctx.empty else None
+
+        ctx_rows_html = ""
+        for grp in ["OFF", "ON"]:
+            row = ctx_agg[ctx_agg["group"] == grp]
+            if row.empty:
+                continue
+            score = row["mean_score"].values[0]
+            cnt = int(row["count"].values[0])
+            if base_ctx_val is not None and grp == "ON":
+                delta = score - base_ctx_val
+                delta_str = f'+{delta:.4f}' if delta >= 0 else f'{delta:.4f}'
+                delta_color = "#4CAF50" if delta >= 0 else "#F44336"
+            else:
+                delta_str = "기준"
+                delta_color = "#6c757d"
+            bar_pct = int(score * 100)
+            ctx_rows_html += f"""
+            <tr>
+              <td><strong>Contextual {grp}</strong></td>
+              <td class="text-center">{cnt}</td>
+              <td class="text-center">{score:.4f}</td>
+              <td>
+                <div class="progress" style="height:10px">
+                  <div class="progress-bar bg-success" style="width:{bar_pct}%"></div>
+                </div>
+              </td>
+              <td class="text-center fw-bold" style="color:{delta_color};">{delta_str}</td>
+            </tr>"""
+
+        # --- 순수 Contextual 효과: 동일 base 전략 1:1 쌍 비교 ---
+        # OFF 전략 이름에서 DS(...) 핵심 부분 추출 → ON 짝 찾기
+        # OFF 패턴: "DS(X)", "ColBERT Rerank (DS(X))", "FlashRank Rerank (DS(X))"
+        # ON  패턴: "Contextual Retrieval (DS(X))", "ColBERT Rerank (Contextual Retrieval (DS(X)))", ...
+        import re as _re
+
+        def _extract_base_key(name: str):
+            """전략명에서 (Reranker종류, DS(X)) 형태의 base key 추출."""
+            # ColBERT Rerank (Contextual Retrieval (DS(X))) → ("ColBERT", "X")
+            m = _re.match(r"ColBERT Rerank \(Contextual Retrieval \(DS\((.+)\)\)\)", name)
+            if m:
+                return ("ColBERT", m.group(1))
+            # FlashRank Rerank (Contextual Retrieval (DS(X))) → ("FlashRank", "X")
+            m = _re.match(r"FlashRank Rerank \(Contextual Retrieval \(DS\((.+)\)\)\)", name)
+            if m:
+                return ("FlashRank", m.group(1))
+            # Contextual Retrieval (DS(X)) → ("None", "X")
+            m = _re.match(r"Contextual Retrieval \(DS\((.+)\)\)", name)
+            if m:
+                return ("None", m.group(1))
+            # ColBERT Rerank (DS(X)) → ("ColBERT", "X")
+            m = _re.match(r"ColBERT Rerank \(DS\((.+)\)\)", name)
+            if m:
+                return ("ColBERT", m.group(1))
+            # FlashRank Rerank (DS(X)) → ("FlashRank", "X")
+            m = _re.match(r"FlashRank Rerank \(DS\((.+)\)\)", name)
+            if m:
+                return ("FlashRank", m.group(1))
+            # DS(X) → ("None", "X")
+            m = _re.match(r"DS\((.+)\)", name)
+            if m:
+                return ("None", m.group(1))
+            return None
+
+        ragas_copy["_base_key"] = ragas_copy["strategy"].apply(_extract_base_key)
+        off_df = ragas_copy[ragas_copy["_contextual"] == "OFF"][["_base_key", "_score"]].dropna(subset=["_base_key"])
+        on_df  = ragas_copy[ragas_copy["_contextual"] == "ON"][["_base_key", "_score"]].dropna(subset=["_base_key"])
+        # key를 문자열로 변환하여 merge
+        off_df = off_df.copy(); off_df["_key_str"] = off_df["_base_key"].astype(str)
+        on_df  = on_df.copy();  on_df["_key_str"]  = on_df["_base_key"].astype(str)
+        paired = off_df.merge(on_df, on="_key_str", suffixes=("_off", "_on"))
+        paired["_pure_delta"] = paired["_score_on"] - paired["_score_off"]
+
+        pure_delta_html = ""
+        if not paired.empty:
+            pure_mean  = paired["_pure_delta"].mean()
+            n_pairs    = len(paired)
+            pos_pairs  = int((paired["_pure_delta"] > 0).sum())
+            neg_pairs  = int((paired["_pure_delta"] < 0).sum())
+            zero_pairs = n_pairs - pos_pairs - neg_pairs
+            pure_color = "#4CAF50" if pure_mean >= 0 else "#F44336"
+            pure_str   = f'+{pure_mean:.4f}' if pure_mean >= 0 else f'{pure_mean:.4f}'
+            pure_delta_html = f"""
+        <div class="mt-2 p-2 rounded" style="background:#e8f5e9;border-left:3px solid #4CAF50;font-size:0.78rem;color:#1b5e20;">
+          🔬 <strong>순수 Contextual 효과 (동일 base 전략 {n_pairs}쌍 1:1 비교)</strong>:
+          평균 Delta = <strong style="color:{pure_color};">{pure_str}</strong>
+          &nbsp;|&nbsp; 향상: {pos_pairs}쌍 / 동일: {zero_pairs}쌍 / 하락: {neg_pairs}쌍<br>
+          <span style="font-size:0.72rem;color:#388e3c;">
+            Contextual ON/OFF 전체 그룹 평균 Delta와 부호가 다를 수 있습니다 — 그룹 평균은 Reranker 종류 등 다른 레이어 효과를 포함하기 때문입니다.
+          </span>
+        </div>"""
+
+        # --- NaN 감지 + 과대평가 폭 계산 ---
+        metric_cols_local = [c for c in ragas_df.columns if c not in ("strategy",)]
+        n_metrics = len(metric_cols_local)
+        nan_notes = []
+        for grp_name, grp_key, grp_col in [
+            ("FlashRank", "FlashRank", "_reranker"),
+            ("ColBERT", "ColBERT", "_reranker"),
+            ("없음", "없음", "_reranker"),
+        ]:
+            grp = ragas_copy[ragas_copy[grp_col] == grp_key]
+            for m in metric_cols_local:
+                nan_rows = grp[grp[m].isna()]
+                nan_cnt = len(nan_rows)
+                if nan_cnt > 0:
+                    # skipna=True 점수 vs NaN=0 점수 비교
+                    overest_parts = []
+                    for _, nan_row in nan_rows.iterrows():
+                        # metric/strategy 컬럼만 남겨 추가된 _reranker/_score 등 제거
+                        orig_cols = ["strategy"] + metric_cols_local
+                        row_df = nan_row[orig_cols].to_frame().T.reset_index(drop=True)
+                        skipna_score_raw = _compute_weighted_scores(row_df).iloc[0]
+                        penalized_score_raw = _compute_weighted_scores_nan_penalized(row_df).iloc[0]
+                        # 전체 NaN(skipna_score=NaN)이면 과대평가 계산 불가
+                        if pd.isna(skipna_score_raw):
+                            overest_parts.append(
+                                f"<em>{str(nan_row['strategy'])[:60]}…</em>: "
+                                f"모든 메트릭 NaN — 가중 점수 계산 불가 "
+                                f"(<strong style='color:#c62828'>순위 집계에서 제외 권장</strong>)"
+                            )
+                            continue
+                        skipna_score = float(skipna_score_raw)
+                        penalized_score = float(penalized_score_raw)
+                        gap = skipna_score - penalized_score
+                        overest_parts.append(
+                            f"<em>{nan_row['strategy'][:60]}…</em>: "
+                            f"현재 {skipna_score:.4f} vs NaN=0 기준 {penalized_score:.4f} "
+                            f"(<strong style='color:#c62828'>+{gap:.4f} 과대평가</strong>)"
+                        )
+                    nan_notes.append(
+                        f"<strong>{grp_name}</strong> 그룹 <code>{m}</code>: NaN {nan_cnt}개<br>"
+                        + "<br>".join(overest_parts)
+                    )
+
+        nan_note_html = ""
+        if nan_notes:
+            nan_note_html = f"""
+        <div class="mt-2 p-2 rounded" style="background:#fce4ec;border-left:3px solid #e91e63;font-size:0.75rem;color:#880e4f;">
+          🔴 <strong>NaN 처리 주의</strong>: NaN 메트릭은 평균 계산에서 제외(skipna=True)되므로
+          해당 전략의 가중 점수가 실제보다 높게 산출될 수 있습니다.<br>
+          {'<br>'.join(nan_notes)}
+        </div>"""
+
+        return f"""
+    <div class="p-3 rounded mb-3" style="background:#fff;border:1px solid #dee2e6;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+      <h6 style="font-size:0.9rem;font-weight:700;color:#1a237e;margin-bottom:14px;">
+        📊 레이어별 기여도 분석 — 평균 RAGAS 가중 점수 비교
+      </h6>
+
+      <!-- 혼합 그룹 비교 한계 경고 -->
+      <div class="mb-3 p-2 rounded" style="background:#fff8e1;border-left:3px solid #ffc107;font-size:0.78rem;color:#5d4037;">
+        ⚠️ <strong>해석 주의</strong>: 이 비교는 <strong>그룹 전체 평균</strong>으로, 각 그룹 내에 다른 레이어(Dense 모델, Sparse 모델 등) 효과가 혼입됩니다.
+        예를 들어 Contextual ON/OFF 비교 시 ON 그룹에는 FlashRank+Contextual처럼 Reranker 효과도 포함됩니다.
+        <strong>순수 레이어 효과</strong>를 측정하려면 동일한 base 전략(OFF vs ON, 또는 Reranker 없음 vs 있음)을 1:1 대비해야 합니다.
+      </div>
+
+      <!-- Reranker 효과 -->
+      <div class="mb-3">
+        <div style="font-size:0.82rem;font-weight:700;color:#37474f;margin-bottom:6px;">
+          Layer 3: Reranker 효과
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover table-bordered mb-1" style="font-size:0.82rem;">
+            <thead class="table-light">
+              <tr><th>Reranker</th><th class="text-center">전략 수</th><th class="text-center">평균 점수</th><th>점수 분포</th><th class="text-center">향상폭 (Δ)</th></tr>
+            </thead>
+            <tbody>{reranker_rows_html}</tbody>
+          </table>
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">* 기준: Reranker 없음 그룹 평균 대비 향상폭 (Layer 1·2·4 효과 혼입)</div>
+      </div>
+
+      <!-- Contextual 효과 -->
+      <div>
+        <div style="font-size:0.82rem;font-weight:700;color:#37474f;margin-bottom:6px;">
+          Layer 4: Contextual Retrieval 효과
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover table-bordered mb-1" style="font-size:0.82rem;">
+            <thead class="table-light">
+              <tr><th>Contextual</th><th class="text-center">전략 수</th><th class="text-center">평균 점수</th><th>점수 분포</th><th class="text-center">향상폭 (Δ)</th></tr>
+            </thead>
+            <tbody>{ctx_rows_html}</tbody>
+          </table>
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">* 기준: Contextual OFF 그룹 평균 대비 향상폭 (Layer 1·2·3 효과 혼입)</div>
+        {pure_delta_html}
+      </div>
+
+      {nan_note_html}
+    </div>"""
+    except Exception:
+        return ""
 
 
 def _total_timing_table_html(timing_df: Optional[pd.DataFrame], top_n: int = 20, exclude_contextual: bool = False, evaluated_only: bool = True) -> str:
@@ -690,19 +1329,11 @@ def _layer4_timing_html(
 
     merged["off_s"] = pd.to_numeric(merged["off_s"], errors="coerce").fillna(0.0)
     merged["on_s"] = pd.to_numeric(merged["on_s"], errors="coerce").fillna(0.0)
-    merged["overhead_s"] = merged["on_s"]  # ON은 추가 비용(LLM 호출)이므로 off에 더해지는 값
-    merged["overhead_pct"] = ((merged["overhead_s"] / merged["off_s"].replace(0, float("nan"))) * 100).round(0)
+    merged["overhead_s"] = merged["on_s"]
     merged = merged.sort_values("on_s", ascending=False)
 
     rows_html = ""
     for _, row in merged.iterrows():
-        overhead_pct = row["overhead_pct"]
-        import math
-        if math.isnan(overhead_pct):
-            badge_str = '<span class="badge bg-secondary" style="font-size:0.78rem">N/A</span>'
-        else:
-            badge_color = "danger" if overhead_pct > 100 else ("warning text-dark" if overhead_pct > 30 else "secondary")
-            badge_str = f'<span class="badge bg-{badge_color}" style="font-size:0.78rem">+{overhead_pct:.0f}%</span>'
         rows_html += f"""
         <tr>
           <td><span class="badge bg-primary" style="font-size:0.72rem">{row['dense']}</span></td>
@@ -710,7 +1341,6 @@ def _layer4_timing_html(
           <td class="text-center">{row['off_s']:.1f}s</td>
           <td class="text-center">{row['on_s']:.1f}s</td>
           <td class="text-center">{row['overhead_s']:.1f}s</td>
-          <td class="text-center">{badge_str}</td>
         </tr>"""
 
     avg_on_s = merged["on_s"].mean()
@@ -722,7 +1352,7 @@ def _layer4_timing_html(
     <div class="table-responsive">
       <table class="table table-sm table-hover table-bordered">
         <thead class="table-dark">
-          <tr><th>Dense 모델</th><th>Sparse</th><th>Off (s)</th><th>On — LLM 추가 (s)</th><th>추가 시간</th><th>OFF 대비</th></tr>
+          <tr><th>Dense 모델</th><th>Sparse</th><th>Off (s)</th><th>On — LLM 추가 (s)</th><th>추가 시간</th></tr>
         </thead>
         <tbody>{rows_html}</tbody>
       </table>
@@ -921,13 +1551,17 @@ def generate_html_report(
 
     # 테이블 HTML
     lat_table = _latency_table_html(latency_df) if latency_df is not None else "<p>데이터 없음</p>"
-    ragas_table = _ragas_table_html(ragas_df) if ragas_df is not None else "<p>데이터 없음</p>"
+    ragas_table = _ragas_split_tables_html(ragas_df) if ragas_df is not None else "<p>데이터 없음</p>"
     summary_cards = _summary_cards_html(latency_df, ragas_df, run_record)
     env_table = _env_table_html(run_record)
     recommendations = _recommendations_html(ragas_df, latency_df)
     token_breakdown_table = _token_breakdown_html(run_record)
     radar_area_rank = _radar_area_rank_html(ragas_df) if ragas_df is not None else ""
     layer4_timing = _layer4_timing_html(timing_df, history_dir=history_dir)
+
+    # 신규: Executive Summary + 레이어 기여도
+    executive_summary = _executive_summary_html(ragas_df, latency_df) if ragas_df is not None else ""
+    layer_contribution = _layer_contribution_html(ragas_df) if ragas_df is not None else ""
 
     # 전략 수 / top_n 계산 (벤치마크 방법론 섹션용)
     _agg_lat = _agg_latency(latency_df) if latency_df is not None else None
@@ -1022,6 +1656,9 @@ def generate_html_report(
   <!-- 요약 카드 -->
   <h4 class="section-title">요약 통계</h4>
   {summary_cards}
+
+  <!-- Executive Summary — 최적 전략 추천 -->
+  {executive_summary}
 
   <!-- 실행 환경 -->
   <h4 class="section-title">실행 환경</h4>
@@ -1182,6 +1819,10 @@ def generate_html_report(
         </div>
       </div>
     </div>
+
+    <!-- 레이어별 기여도 요약표 (Layer 4 인덱싱 시간 비교 바로 위) -->
+    {layer_contribution}
+
     <!-- Layer 4 인덱싱 시간 비교표 -->
     <div class="p-3 rounded border border-success" style="background:#f0fdf4;">
       <h6 style="font-size:0.88rem;font-weight:700;color:#166534;margin-bottom:8px;">
@@ -1200,13 +1841,15 @@ def generate_html_report(
     <!-- 레이턴시 막대 차트 -->
     <div class="col-md-7">
       <div class="chart-card">
-        <h5 class="chart-title">전략별 평균 레이턴시 (낮을수록 좋음)</h5>
+        <h5 class="chart-title">전략별 중앙값 레이턴시 (낮을수록 좋음)</h5>
         <div class="chart-explain">
-          쿼리 1건을 처리하는 평균 시간(ms). 막대가 짧을수록 실시간 서비스에 유리합니다.<br>
+          쿼리 1건을 처리하는 <strong>중앙값</strong> 시간(ms). 이상치에 강건한 지표입니다. 막대가 짧을수록 실시간 서비스에 유리합니다.<br>
           • <span class="badge bg-primary">파란색</span> 상위 3개 전략 — 속도 최강군 &nbsp;
           • 로컬 임베딩(KoSimCSE, BGE-M3)은 네트워크 없이 빠름<br>
           • ColBERT/FlashRank 리랭킹 시 크게 증가 &nbsp;
-          • Contextual은 미리 캐시하므로 쿼리 시점 속도 영향 없음
+          • Contextual은 미리 캐시하므로 쿼리 시점 속도 영향 없음<br>
+          <span style="font-size:0.75rem;color:#1565c0;">★ 정렬·차트 기준: <strong>중앙값(Median)</strong> — 이상치 쿼리가 있어도 순위가 왜곡되지 않습니다.
+          이상치가 있는 전략은 우측 테이블에서 ⚠️이상치 표시와 참고용 평균을 함께 확인하세요.</span>
         </div>
         <div class="chart-box mt-2">
           {_img_html(latency_chart, "레이턴시 막대 차트")}
@@ -1219,7 +1862,10 @@ def generate_html_report(
       <div class="chart-card">
         <h5 class="chart-title">레이턴시 순위 Top 20</h5>
         <div class="chart-explain">
-          <span class="badge bg-warning text-dark">TOP3</span> 전략은 실시간 서비스에 우선 검토를 권장합니다.
+          <span class="badge bg-warning text-dark">TOP3</span> 전략은 실시간 서비스에 우선 검토를 권장합니다.<br>
+          ★ 표시값은 <strong>중앙값(Median)</strong> 기준 — 이상치 영향 최소화.<br>
+          <span style="color:#e65100;font-weight:600;">⚠️이상치</span> 전략은 특정 쿼리에서 극단값 발생. 참고용 평균(mean)을 함께 표시합니다.<br>
+          <span style="font-size:0.75rem;color:#666;">* 이 벤치마크는 5개 쿼리 기준 — 소규모 샘플에서는 이상치 1건도 순위에 영향을 줄 수 있습니다.</span>
         </div>
         <div class="table-responsive mt-2">
           {lat_table}
@@ -1234,10 +1880,11 @@ def generate_html_report(
       <div class="chart-card">
         <h5 class="chart-title">레이턴시 vs 품질 산점도 (왼쪽 위가 최적)</h5>
         <div class="chart-explain">
-          X축 = 평균 레이턴시, Y축 = RAGAS 메트릭 평균. "빠르면서 품질도 높은" 최적 전략을 한눈에 파악합니다.<br>
+          X축 = 중앙값 레이턴시, Y축 = RAGAS 메트릭 평균. "빠르면서 품질도 높은" 최적 전략을 한눈에 파악합니다.<br>
+          • <strong style="color:#2196F3;">파란 점</strong> = ColBERT 포함 전략 (고정밀, 고레이턴시) &nbsp;
+          • <strong style="color:#4CAF50;">녹색 점</strong> = non-ColBERT 전략 (속도 우세) &nbsp;
+          • <strong style="color:red;">빨간 점선</strong> = 실용 한계 3s 기준선<br>
           • <strong>왼쪽 위</strong> = 이상적 전략 (빠름 + 고품질) &nbsp;
-          • <strong>오른쪽 위</strong> = 고품질이지만 느림 (오프라인 처리용) &nbsp;
-          • <strong>왼쪽 아래</strong> = 빠르지만 품질 미흡 &nbsp;
           • 파레토 프론티어(좌상단 경계선) 근처 전략들이 실용적 후보군
         </div>
         <div class="chart-box mt-2">
@@ -1256,11 +1903,12 @@ def generate_html_report(
     <!-- 레이더 차트 + 면적 순위 -->
     <div class="col-md-5">
       <div class="chart-card">
-        <h5 class="chart-title">상위 전략 RAGAS 레이더 (넓을수록 좋음)</h5>
+        <h5 class="chart-title">최고 vs 최저 전략 레이더 비교</h5>
         <div class="chart-explain">
-          상위 5개 전략의 4가지 품질 지표를 다각형으로 겹쳐 그립니다. 다각형 면적이 클수록 종합 품질이 높습니다.<br>
-          • 이상적인 전략은 모든 축에서 외곽선 근처까지 채워진 형태<br>
-          • 한쪽 축이 움푹 파인 전략은 해당 지표에 약점 존재
+          RAGAS 가중 점수 1위(최고)와 최하위(최저) 전략의 4가지 품질 지표를 비교합니다.<br>
+          • <strong style="color:#2196F3;">파란 영역</strong> = 최고 전략 &nbsp;
+          • <strong style="color:#F44336;">빨간 영역</strong> = 최저 전략<br>
+          • 두 전략 간 면적 차이가 클수록 전략 선택의 중요성이 높습니다
         </div>
         <div class="chart-box mt-2">
           {_img_html(radar_chart, "레이더 차트")}
@@ -1277,6 +1925,12 @@ def generate_html_report(
         <div class="chart-explain">
           Pass 2에서 평가된 전략별 4개 지표입니다. 셀 배경색이 진할수록(초록) 점수가 높습니다.
           모든 지표가 균형 잡힌 전략이 장기적으로 안정적입니다.
+          <div class="mt-2 p-2 rounded" style="background:#fff3cd;border-left:3px solid #ffc107;font-size:0.8rem;color:#664d03;">
+            ⚠️ FlashRank 전략의 faithfulness가 낮게 측정된 것은 짧은 재랭킹 윈도우(top-k 한정 스코어링)로 인해 문맥 다양성이 떨어지기 때문일 수 있습니다.
+          </div>
+          <div class="mt-2 p-2 rounded" style="background:#e8f4fd;border-left:3px solid #2196F3;font-size:0.8rem;color:#0d47a1;">
+            📊 본 평가는 5개 쿼리 기준으로 통계적 변동성이 있을 수 있습니다. 운영 도입 전 더 많은 쿼리로 재검증을 권장합니다.
+          </div>
         </div>
         <div class="table-responsive mt-2">
           {ragas_table}

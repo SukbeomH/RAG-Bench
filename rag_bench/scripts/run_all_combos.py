@@ -555,6 +555,7 @@ def _step7_report(args, summary_df, scores_df, combos, evaluator, tracker, timin
             session_id=session_id,
             run_record=run_record,
             timing_df=timing_df,
+            history_dir=str(BENCH_DATA_DIR / "run_history"),
         )
     except Exception as _html_err:
         print(f"  [HTML 보고서 생성 실패]: {_html_err}")
