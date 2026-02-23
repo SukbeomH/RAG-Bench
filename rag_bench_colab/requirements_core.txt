@@ -1,0 +1,44 @@
+# rag_bench_colab — 벤치마크 핵심 의존성 (필수)
+# 설치 실패 시 벤치마크를 실행할 수 없는 패키지
+
+# --- LangChain ---
+langchain>=0.3
+langchain-community>=0.3
+langchain-core>=0.3
+langchain-huggingface>=0.1
+langchain-openai>=0.2
+langchain-qdrant>=0.2
+langchain-text-splitters>=0.3
+langgraph>=0.2
+
+# --- Vector DB ---
+qdrant-client>=1.11
+
+# --- NLP ---
+konlpy>=0.6.0
+fastembed>=0.4
+
+# --- ML ---
+pylate>=1.0
+sentence-transformers>=3.1
+transformers>=4.40
+# torch: Colab 사전 설치 버전 사용 (CUDA 호환성 유지, 재설치 금지)
+flashrank>=0.2
+einops>=0.8.2
+# flash-attn: --no-build-isolation 필요 → Cell 1.2에서 별도 설치
+
+# --- PDF 처리 ---
+pymupdf>=1.24
+pymupdf4llm>=0.0.17
+
+# --- Upstage ---
+langchain-upstage>=0.3
+
+# --- Evaluation ---
+ragas>=0.4.3
+rapidfuzz>=3.0
+
+# --- Utils ---
+python-dotenv>=1.0
+pandas>=2.2
+httpx
