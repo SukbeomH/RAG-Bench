@@ -855,7 +855,8 @@ def _report_env_section(lines: list, tracker) -> None:
     lines.append("")
 
     if tracker._phases:
-        total_s = rec.duration_s or 1
+        phase_sum = sum(p.duration_s for p in tracker._phases if p.duration_s > 0)
+        total_s = rec.duration_s or phase_sum or 1
         lines.append("## 단계별 소요 시간")
         lines.append("")
         lines.append("| 단계 | 소요 시간 | 비중 | 토큰 |")
@@ -888,12 +889,14 @@ def _report_latency_section(lines: list, latency_summary_df) -> None:
     """리포트에 레이턴시 결과 섹션을 추가한다."""
     lines.extend(["---", "", "## 레이턴시 결과 (Top 10)", ""])
     if latency_summary_df is not None and "strategy" in latency_summary_df.columns:
-        if "avg_latency" in latency_summary_df.columns:
-            sorted_df = latency_summary_df.sort_values("avg_latency")
-            lines.append("| # | 전략 | 평균 레이턴시 |")
+        lat_col = "p50_latency" if "p50_latency" in latency_summary_df.columns else "avg_latency"
+        lat_label = "중앙값 레이턴시" if lat_col == "p50_latency" else "평균 레이턴시"
+        if lat_col in latency_summary_df.columns:
+            sorted_df = latency_summary_df.sort_values(lat_col)
+            lines.append(f"| # | 전략 | {lat_label} |")
             lines.append("|---|------|:----------:|")
             for i, (_, row) in enumerate(sorted_df.head(10).iterrows(), 1):
-                lines.append(f"| {i} | {row['strategy']} | {row['avg_latency']:.3f}s |")
+                lines.append(f"| {i} | {row['strategy']} | {row[lat_col]:.3f}s |")
         lines.append("")
 
 
