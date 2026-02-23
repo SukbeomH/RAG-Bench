@@ -23,8 +23,8 @@ from langchain_core.retrievers import BaseRetriever
 from rag_bench.base import BaseRAGStrategy, StrategyRetriever
 from rag_bench.utils.device import detect_device
 
-# ColBERT 모델은 스레드 비안전(PyTorch 배치 텐서 공유) — 전역 Lock으로 직렬화
-_COLBERT_INFERENCE_LOCK = threading.Lock()
+# ColBERT 모델은 스레드 비안전(PyTorch 배치 텐서 공유) — 모델 인스턴스별 Lock으로 직렬화.
+# 동일 모델을 공유하는 전략들은 shared_lock을 통해 하나의 Lock을 공유한다.
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,7 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         device: Optional[str] = None,
         batch_size: int = 32,
         shared_model: Any = None,
+        shared_lock: Optional[threading.Lock] = None,
     ):
         self._base_strategy = base_strategy
         self._model_name = model_name
@@ -61,6 +62,8 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         self._model: Any = shared_model
         self._is_shared_model = shared_model is not None
         self._is_ready = shared_model is not None
+        # shared_lock이 제공되면 공유 모델의 Lock을 사용, 아니면 인스턴스 전용 Lock 생성
+        self._inference_lock: threading.Lock = shared_lock if shared_lock is not None else threading.Lock()
 
     @property
     def name(self) -> str:
@@ -133,10 +136,10 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         k = min(k, len(candidates))
 
         # 2단계: ColBERT 인코딩 + 3단계: MaxSim 리랭킹
-        # 공유 모델은 스레드 비안전 — Lock으로 직렬화
+        # 공유 모델은 스레드 비안전 — 모델별 Lock으로 직렬화
         doc_texts = [doc.page_content for doc in candidates]
         doc_ids = list(range(len(candidates)))
-        with _COLBERT_INFERENCE_LOCK:
+        with self._inference_lock:
             query_embedding = self._model.encode(
                 sentences=[query],
                 batch_size=1,
