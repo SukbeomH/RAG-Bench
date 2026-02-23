@@ -1,12 +1,13 @@
 """
-전체 조합 벤치마크 — 3-Layer 교차 조합 + 2-Pass 실행.
+전체 조합 벤치마크 — 4-Layer 교차 조합 + 2-Pass 실행.
 
-3-Layer 설계:
+4-Layer 설계:
   Layer 1: Dense Model   (kosimcse, e5, bge-m3 / openai-large, upstage)
   Layer 2: Sparse Model  (korean_bm25, splade)
-  Layer 3: Retrieval Mode (hybrid × reranker × llm_support = 6종)
+  Layer 3: Reranker      (none, colbert, flashrank)
+  Layer 4: Contextual    (none, contextual) — 인덱싱 시 LLM 문맥 부착, 독립 적용 가능
 
-총 유효 조합 (full): 5 × 2 × 6 = 60개
+총 유효 조합 (full): 5 × 2 × 3 × 2 = 60개
 
 옵션:
   --preset quick|standard|full  프리셋 기반 조합 생성 (필수)
@@ -364,9 +365,17 @@ def _run_preset_mode(args):
             error_count = int(strat_rows["error"].notna().sum())
             tracker.record_query_stats(timing, valid_lats, error_count)
 
-    # 레이어별 기여도 분석 (레이턴시 기반)
+    # 레이어별 기여도 분석 (레이턴시 기반, Layer 4는 기존 build_s 데이터 활용)
     if args.layers and summary_df is not None:
-        _print_layer_contribution(strategies, summary_df)
+        _timing_for_layers = None
+        _timing_csv = BENCH_DATA_DIR / "combo_timing.csv"
+        if _timing_csv.exists():
+            try:
+                import pandas as _pd_tmp
+                _timing_for_layers = _pd_tmp.read_csv(_timing_csv)
+            except Exception:
+                pass
+        _print_layer_contribution(strategies, summary_df, timing_df=_timing_for_layers)
 
     # --pass1-only: 여기서 종료
     if args.pass1_only:
@@ -546,10 +555,10 @@ def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
     print(f"{'═' * 60}")
 
     for layer_name, values in [
-        ("Dense Model", config["dense_models"]),
-        ("Sparse Model", config["sparse_models"]),
-        ("Reranker", config["rerankers"]),
-        ("LLM Support", config["llm_support"]),
+        ("Layer 1 — Dense Model", config["dense_models"]),
+        ("Layer 2 — Sparse Model", config["sparse_models"]),
+        ("Layer 3 — Reranker", config["rerankers"]),
+        ("Layer 4 — Contextual", config["llm_support"]),
     ]:
         print(f"\n  {layer_name}:")
         for val in values:
@@ -585,10 +594,14 @@ def _build_latency_summary(latency_df):
     return summary
 
 
-def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_df):
-    """레이턴시 기반 레이어 기여도 출력."""
+def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_df, timing_df=None):
+    """레이턴시 기반 레이어 기여도 출력.
+
+    Layer 1~3: 쿼리 평균 레이턴시(avg_latency) 기준
+    Layer 4 (Contextual): 인덱싱 소요시간(build_s) 기준 — 쿼리 레이턴시에 영향 없음
+    """
     print(f"\n{'═' * 60}")
-    print(" 레이어별 평균 레이턴시 기여도")
+    print(" 레이어별 기여도 분석")
     print(f"{'═' * 60}")
 
     if summary_df is None or summary_df.empty:
@@ -600,12 +613,12 @@ def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_d
     for _, row in summary_df.iterrows():
         lat_map[row["strategy"]] = row["avg_latency"]
 
-    # 레이어별 분석
+    # Layer 1~3: 쿼리 레이턴시 기준
+    print("\n  [지표: 쿼리 평균 레이턴시 (s)]")
     for layer_name, get_val in [
-        ("Dense Model", lambda s: s.dense),
-        ("Sparse Model", lambda s: s.sparse),
-        ("Reranker", lambda s: s.reranker or "none"),
-        ("LLM Support", lambda s: s.llm_support or "none"),
+        ("Layer 1 — Dense Model", lambda s: s.dense),
+        ("Layer 2 — Sparse Model", lambda s: s.sparse),
+        ("Layer 3 — Reranker", lambda s: s.reranker or "none"),
     ]:
         print(f"\n  {layer_name}:")
         val_lats: Dict[str, List[float]] = {}
@@ -618,6 +631,26 @@ def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_d
         for val, lats in sorted(val_lats.items()):
             avg = sum(lats) / len(lats) if lats else 0
             print(f"    {val:<20} → {avg:.3f}s (n={len(lats)})")
+
+    # Layer 4: 인덱싱 소요시간 기준
+    print(f"\n  Layer 4 — Contextual [지표: 인덱싱 소요시간 build_s]:")
+    if timing_df is not None and "build_s" in timing_df.columns and "llm_support" in timing_df.columns:
+        grp = timing_df.groupby("llm_support")["build_s"]
+        for val, group in grp:
+            avg_build = group.mean()
+            label = val if val and val != "nan" else "none"
+            print(f"    {label:<20} → {avg_build:.1f}s avg build (n={len(group)})")
+    else:
+        # timing_df 없으면 쿼리 레이턴시로 대체 출력
+        val_lats = {}
+        for spec, strat in strategies:
+            val = spec.llm_support or "none"
+            lat = lat_map.get(strat.name, None)
+            if lat is not None:
+                val_lats.setdefault(val, []).append(lat)
+        for val, lats in sorted(val_lats.items()):
+            avg = sum(lats) / len(lats) if lats else 0
+            print(f"    {val:<20} → {avg:.3f}s query latency (n={len(lats)}) [build_s 데이터 없음]")
 
 
 def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], scores_df):
@@ -634,10 +667,10 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
         score_map[row["strategy"]] = {col: row[col] for col in metric_cols if isinstance(row[col], float)}
 
     for layer_name, get_val in [
-        ("Dense Model", lambda s: s.dense),
-        ("Sparse Model", lambda s: s.sparse),
-        ("Reranker", lambda s: s.reranker or "none"),
-        ("LLM Support", lambda s: s.llm_support or "none"),
+        ("Layer 1 — Dense Model", lambda s: s.dense),
+        ("Layer 2 — Sparse Model", lambda s: s.sparse),
+        ("Layer 3 — Reranker", lambda s: s.reranker or "none"),
+        ("Layer 4 — Contextual", lambda s: s.llm_support or "none"),
     ]:
         print(f"\n  {layer_name}:")
         val_scores: Dict[str, List[Dict[str, float]]] = {}

@@ -29,14 +29,19 @@ Strategy Pattern 기반으로 다양한 RAG 방식을 통일된 인터페이스�
 └─────────────────────────────────────────────────────┘
 ```
 
-### 왜 3-Layer 교차 조합인가
+### 왜 4-Layer 교차 조합인가
 
-기존 벤치마크는 "Dense+Sparse 조합 4가지 + ColBERT + Reranker" 같은 개별 전략 비교였습니다. 하지만 실제 프로덕션에서는 **Dense 모델, Sparse 모델, 후처리(리랭킹/문맥 부착)** 세 축을 독립적으로 선택합니다.
+기존 벤치마크는 "Dense+Sparse 조합 4가지 + ColBERT + Reranker" 같은 개별 전략 비교였습니다. 하지만 실제 프로덕션에서는 **Dense 모델, Sparse 모델, 리랭커, Contextual 강화 여부** 네 축을 독립적으로 선택합니다.
 
-3-Layer 설계로 바꾸면:
+- **Layer 1 — Dense Model**: 의미적 유사도 검색의 핵심 (kosimcse, e5, bge-m3, openai-large, upstage)
+- **Layer 2 — Sparse Model**: 키워드 정확 매칭으로 Dense 보완 (korean_bm25, splade)
+- **Layer 3 — Reranker**: Hybrid 결과를 정밀 재순위화 (none, colbert, flashrank)
+- **Layer 4 — Contextual**: 인덱싱 시 LLM 문맥 부착, Layer 1~3 어떤 조합에도 독립 적용 가능 (none, contextual)
+
+4-Layer 설계로 바꾸면:
 - 각 레이어의 **독립적 기여도**를 분석할 수 있음 (예: "BGE-M3가 다른 Dense 모델보다 평균 15% 우수")
 - **최적 조합**을 찾을 수 있음 (예: "e5+splade+flashrank가 의외로 1위")
-- **비용 대비 효과**를 판단할 수 있음 (예: "contextual은 2배 느리지만 품질 차이는 5%")
+- **비용 대비 효과**를 판단할 수 있음 (예: "contextual은 인덱싱 시 1회 비용으로 품질 X% 향상")
 
 ### 왜 2-Pass 실행인가
 
@@ -289,7 +294,7 @@ rag_bench/
 │   ├── generate_qa.py       # QA 데이터셋 자동 생성 (RAGAS KG, PDF 페이지 샘플링 통합)
 │   ├── generate_html_report.py  # ★ HTML 벤치마크 보고서 생성 (Python API, 차트 인라인, Bootstrap)
 │   ├── run_bench.py         # 3종 전략 벤치마크 + RAGAS 평가
-│   ├── run_all_combos.py    # ★ 60개 3-Layer 교차 조합 벤치마크 (2-Pass)
+│   ├── run_all_combos.py    # ★ 60개 4-Layer 교차 조합 벤치마크 (2-Pass)
 │   └── bench_visualize.ipynb # 시각화 노트북 (10섹션, 수행 이력 포함)
 │
 ├── docs/                    # 벤치마크 대상 Markdown 문서
@@ -595,11 +600,11 @@ chat.ask("제네시스 미션이 뭐야?")
 chat.clear()  # 세션 초기화
 ```
 
-## 3-Layer 조합 벤치마크 상세
+## 4-Layer 조합 벤치마크 상세
 
 ### 프리셋
 
-| 프리셋 | Dense | Sparse | Reranker | LLM Support | 조합 수 |
+| 프리셋 | Layer 1 Dense | Layer 2 Sparse | Layer 3 Reranker | Layer 4 Contextual | 조합 수 |
 |--------|:-----:|:------:|:--------:|:-----------:|:-------:|
 | `quick` | 1 (bge-m3) | 1 (korean_bm25) | 2 (none, flashrank) | 1 (none) | **2** |
 | `standard` | 5 (HF 3 + 유료 2) | 2 | 2 (none, flashrank) | 1 (none) | **20** |
@@ -635,21 +640,25 @@ Step 6: 리포트 생성 (e2e_report.md)
 `--layers` 플래그를 사용하면 각 레이어의 독립적 기여도를 분석합니다:
 
 ```
-Dense Model:
+Layer 1 — Dense Model:
   kosimcse     → 0.234s (n=12)
   e5           → 0.456s (n=12)
   bge-m3       → 0.345s (n=12)
   openai-large → 0.512s (n=12)
   upstage      → 0.498s (n=12)
 
-Sparse Model:
+Layer 2 — Sparse Model:
   korean_bm25 → 0.312s (n=30)
   splade      → 0.289s (n=30)
 
-Reranker:
+Layer 3 — Reranker:
   none       → 0.156s (n=20)
   colbert    → 0.523s (n=20)
   flashrank  → 0.178s (n=20)
+
+Layer 4 — Contextual:
+  none        → 0.312s (n=30)
+  contextual  → 0.298s (n=30)  ← 쿼리 레이턴시는 동일 수준, 인덱싱 시 1회 비용
 ```
 
 ## 벤치마크 CLI 옵션 전체
@@ -662,12 +671,12 @@ Reranker:
   --no_ragas           RAGAS 평가 건너뛰기
   --reindex            기존 인덱스 삭제 후 재인덱싱
 
-3-Layer 조합 모드 (--preset 사용):
+4-Layer 조합 모드 (--preset 사용):
   --preset PRESET      quick(2) | standard(20) | full(60)
   --pass1-only         레이턴시만 (RAGAS 없음)
   --top_n N            상위 N개만 RAGAS 평가
   --dry-run            조합 목록만 출력
-  --layers             레이어별 기여도 분석
+  --layers             레이어별 기여도 분석 (Layer 1~4 독립 분석)
 ```
 
 ### generate_qa.py
@@ -753,7 +762,7 @@ class MyStrategy(BaseRAGStrategy):
         ...
 ```
 
-3-Layer 조합에 새 레이어 값을 추가하려면 `run_all_combos.py`의 `PRESETS` 딕셔너리를 수정합니다.
+4-Layer 조합에 새 레이어 값을 추가하려면 `combo/spec.py`의 `PRESETS` 딕셔너리를 수정합니다.
 
 ## 의존성
 

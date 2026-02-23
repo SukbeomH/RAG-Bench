@@ -1,5 +1,8 @@
 """
-ContextualRetrievalStrategy — Anthropic 제안 Contextual Retrieval 기법 구현
+ContextualRetrievalStrategy — Anthropic 제안 Contextual Retrieval 기법 구현 (Layer 4)
+
+4-Layer 벤치마크의 Layer 4에 해당. Layer 1~3(Dense × Sparse × Reranker)의 어떤
+조합에도 독립적으로 on/off 적용 가능한 인덱스 강화 기법.
 
 인덱싱 시 LLM이 각 청크에 문맥 요약(Contextual Prefix)을 부착하여
 검색 정확도를 높인다. Parent 청크를 문서 문맥으로 사용.

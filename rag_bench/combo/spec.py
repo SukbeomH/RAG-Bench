@@ -1,13 +1,14 @@
 """
 ComboSpec + PRESETS + generate_valid_combinations.
 
-3-Layer 조합 명세 및 프리셋 정의.
+4-Layer 조합 명세 및 프리셋 정의.
 
-지원 Dense 모델:
-  kosimcse, e5, bge-m3 (HuggingFace 로컬)
-  openai-large (OpenAI API), upstage (Upstage API)
-지원 Sparse 타입:
-  korean_bm25, splade
+  Layer 1: Dense Model   — kosimcse, e5, bge-m3 (로컬) / openai-large, upstage (API)
+  Layer 2: Sparse Model  — korean_bm25, splade
+  Layer 3: Reranker      — none, colbert, flashrank
+  Layer 4: Contextual    — none, contextual (인덱싱 시 LLM 문맥 부착)
+
+총 유효 조합 (full): 5 × 2 × 3 × 2 = 60개
 """
 
 from dataclasses import dataclass
@@ -24,12 +25,12 @@ _ALL_DENSE_MODELS = _HF_DENSE_MODELS + ["openai-large", "upstage"]
 
 @dataclass
 class ComboSpec:
-    """3-Layer 조합 명세."""
+    """4-Layer 조합 명세."""
 
-    dense: str = ""                   # DENSE_MODELS 키 (예: "kosimcse")
-    sparse: str = ""                  # SPARSE_TYPES 값 (예: "splade")
-    reranker: Optional[str] = None    # None | "colbert" | "flashrank"
-    llm_support: Optional[str] = None # None | "contextual"
+    dense: str = ""                   # Layer 1: DENSE_MODELS 키 (예: "kosimcse")
+    sparse: str = ""                  # Layer 2: SPARSE_TYPES 값 (예: "splade")
+    reranker: Optional[str] = None    # Layer 3: None | "colbert" | "flashrank"
+    llm_support: Optional[str] = None # Layer 4: None | "contextual"
 
     @property
     def label(self) -> str:
@@ -85,7 +86,7 @@ PRESETS: Dict[str, Dict[str, list]] = {
 
 
 def generate_valid_combinations(config: Dict[str, list]) -> List[ComboSpec]:
-    """3-Layer 카테시안 곱으로 유효 조합 생성.
+    """4-Layer 카테시안 곱으로 유효 조합 생성.
 
     Args:
         config: PRESETS 딕셔너리 항목.

@@ -32,10 +32,10 @@ def print_combo_timing_table(timing_df: pd.DataFrame) -> None:
 
     # 레이어별 평균
     for layer_col, layer_name in [
-        ("dense", "Dense Model"),
-        ("sparse", "Sparse"),
-        ("reranker", "Reranker"),
-        ("llm_support", "LLM Support"),
+        ("dense", "Layer 1 — Dense Model"),
+        ("sparse", "Layer 2 — Sparse"),
+        ("reranker", "Layer 3 — Reranker"),
+        ("llm_support", "Layer 4 — Contextual"),
     ]:
         print(f"\n  ── {layer_name} 별 평균 소요 시간 ──")
         print(f"  {'값':<20} {'빌드(s)':>8} {'Pass1(s)':>9} {'Pass2(s)':>9} {'합계(s)':>9} {'조합 수':>7}")
