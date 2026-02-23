@@ -71,15 +71,16 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
 
     def __init__(
         self,
-        base_strategy: BaseRAGStrategy,
-        parent_pairs: List[Tuple[str, Document]],
+        base_strategy: Optional[BaseRAGStrategy] = None,
+        parent_pairs: List[Tuple[str, Document]] = None,
         llm_model: str = DEFAULT_CONTEXTUAL_LLM,
         max_context_tokens: int = 4000,
         cache_dir: Optional[str] = None,
     ):
         self._base_strategy = base_strategy
+        _pairs = parent_pairs or []
         self._parent_lookup: Dict[str, Document] = {
-            pid: doc for pid, doc in parent_pairs
+            pid: doc for pid, doc in _pairs
         }
         self._llm_model = llm_model
         self._max_context_tokens = max_context_tokens
@@ -300,6 +301,14 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
     def get_retriever(self, k: int = 5) -> BaseRetriever:
         """LangChain 호환 Retriever 객체를 반환한다."""
         return StrategyRetriever(strategy=self, k=k)
+
+    def enrich_only(self, child_chunks: List[Document]) -> List[Document]:
+        """LLM prefix를 부착한 enriched_chunks를 반환한다 (인덱싱은 하지 않음).
+
+        run_all_combos 등에서 사전 전처리 단계로 1회 호출하여
+        결과를 contextual 전략들에 재사용할 수 있다.
+        """
+        return self._enrich_chunks(child_chunks)
 
     def cleanup(self) -> None:
         """base_strategy 리소스 정리."""

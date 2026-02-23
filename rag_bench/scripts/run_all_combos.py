@@ -270,6 +270,21 @@ def _run_preset_mode(args):
         num_docs=len(child_chunks),
     )
 
+    # ── Step 2.5: Contextual 청크 사전 생성 (해당 조합이 있을 때만) ──
+    _has_contextual = any(s.llm_support == "contextual" for s in combos)
+    pre_enriched_chunks = None
+    if _has_contextual:
+        print(f"\n{'=' * 60}")
+        print("Step 2.5: Contextual Retrieval 청크 사전 생성")
+        print(f"{'=' * 60}")
+        from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+        _ctx_prep = ContextualRetrievalStrategy(
+            base_strategy=None,
+            parent_pairs=parent_pairs,
+        )
+        pre_enriched_chunks = _ctx_prep.enrich_only(child_chunks)
+        print(f"  사전 생성 완료: {len(pre_enriched_chunks)}개 enriched 청크")
+
     # ── Step 3: 전략 생성 (인덱스 캐싱) ──
     print(f"\n{'=' * 60}")
     print("Step 3: 전략 생성 및 인덱싱")
@@ -289,7 +304,10 @@ def _run_preset_mode(args):
             strategy, err = _safe_build(
                 label,
                 lambda s=spec: (
-                    build_strategy_from_spec(s, index_cache, child_chunks, parent_pairs, reindex),
+                    build_strategy_from_spec(
+                        s, index_cache, child_chunks, parent_pairs, reindex,
+                        pre_enriched=pre_enriched_chunks,
+                    ),
                     None,
                 ),
                 progress=progress,

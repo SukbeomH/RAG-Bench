@@ -6,7 +6,7 @@ CacheConfig + IndexCacheManager.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM, QDRANT_DB_PREFIX
 from rag_bench.combo.spec import ComboSpec
@@ -100,11 +100,22 @@ class IndexCacheManager:
         self.cache[key] = (strategy, qdrant_path)
         return strategy
 
-    def get_or_build_contextual(self, spec: ComboSpec, child_chunks, parent_pairs, reindex=False):
+    def get_or_build_contextual(
+        self,
+        spec: ComboSpec,
+        child_chunks,
+        parent_pairs,
+        reindex=False,
+        pre_enriched: Optional[List] = None,
+    ):
         """contextual 전략을 캐시에서 가져오거나 새로 빌드.
 
         디스크에 기존 Contextual Qdrant 인덱스가 있고 reindex=False면
         LLM 문맥 생성 및 재인덱싱 없이 연결만 한다.
+
+        Args:
+            pre_enriched: 사전 생성된 enriched 청크 목록. 제공 시 LLM 호출 없이
+                          pre_enriched를 직접 ctx_base에 인덱싱한다.
         """
         from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
@@ -154,7 +165,15 @@ class IndexCacheManager:
             ctx_base._is_ready = True
             strategy._is_ready = True
         else:
-            strategy.index(child_chunks)
+            if pre_enriched is not None:
+                ctx_base._ensure_initialized()
+                if hasattr(ctx_base._sparse_embeddings, "fit"):
+                    texts = [d.page_content for d in pre_enriched]
+                    ctx_base._sparse_embeddings.fit(texts)
+                ctx_base.index(pre_enriched)
+                strategy._is_ready = True
+            else:
+                strategy.index(child_chunks)
 
         self.ctx_cache[key] = strategy
         return strategy

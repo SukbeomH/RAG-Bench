@@ -12,6 +12,7 @@ def build_strategy_from_spec(
     child_chunks,
     parent_pairs,
     reindex: bool = False,
+    pre_enriched=None,
 ):
     """ComboSpec에서 전략 인스턴스 생성."""
     # 1. Base: DenseSparse (인덱스 캐시 활용)
@@ -19,7 +20,9 @@ def build_strategy_from_spec(
 
     # 2. LLM Support 적용 (contextual 캐시 활용)
     if spec.llm_support == "contextual":
-        base = index_cache.get_or_build_contextual(spec, child_chunks, parent_pairs, reindex)
+        base = index_cache.get_or_build_contextual(
+            spec, child_chunks, parent_pairs, reindex, pre_enriched=pre_enriched
+        )
 
     # 3. Reranker 적용 (Decorator)
     cfg = index_cache.config
