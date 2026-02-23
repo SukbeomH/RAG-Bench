@@ -200,17 +200,16 @@ rag_bench_colab/
 | `drive` | Google Drive 저장 | 영속 |
 | `memory` | 인메모리 (`:memory:`) | 세션 종료 시 삭제 |
 
-## Cell 1.2 설치 최적화 (uv + flash-attn wheel 캐시)
+## Cell 1.2 설치 최적화 (flash-attn wheel 캐시)
 
-세션 시작 시 패키지 설치 시간을 크게 단축하는 두 가지 최적화가 적용되어 있습니다:
+세션 시작 시 패키지 설치 시간을 단축하는 최적화가 적용되어 있습니다:
 
 | 최적화 | 효과 | 상세 |
 |--------|------|------|
-| **uv 패키지 매니저** | requirements 설치 ~8배 빠름 | pip 대비 고속. Drive에 `UV_CACHE_DIR` 설정으로 세션 간 캐시 재사용 |
-| **flash-attn 사전 빌드 wheel** | 설치 30초 (소스 빌드 30~120분 → ~30초) | CUDA/Python/torch 버전 조합으로 wheel 파일명 자동 구성, GitHub에서 다운로드 |
+| **flash-attn 사전 빌드 wheel** | 설치 ~30초 (소스 빌드 30~120분 → ~30초) | CUDA/Python/torch 버전 조합으로 wheel 파일명 자동 구성, GitHub에서 다운로드 |
 | **Drive wheel 캐시** | 2회차부터 ~5초 | 다운로드한 wheel을 Drive에 저장, 재시작 시 즉시 재사용 |
 
-**설치 우선순위:** ① Drive 캐시 wheel → ② GitHub wheel 다운로드 → ③ 소스 빌드 (fallback)
+**설치 우선순위:** ① Drive 캐시 wheel → ② GitHub wheel 다운로드 → 미지원 시 건너뜀 (소스 빌드 없음)
 
 ## rag_bench 최적화 적용 내역
 
