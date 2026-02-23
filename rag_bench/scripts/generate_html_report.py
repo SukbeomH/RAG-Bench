@@ -366,9 +366,12 @@ def _ragas_table_html(ragas_df: pd.DataFrame) -> str:
         for col in metric_cols:
             val = row.get(col, 0.0)
             if isinstance(val, float):
-                pct = int(val * 100)
-                color = f"hsl({int(val * 120)}, 70%, 85%)"
-                cells += f'<td style="background:{color}; text-align:center">{val:.4f}</td>'
+                import math
+                if math.isnan(val):
+                    cells += '<td style="text-align:center;color:#aaa">N/A</td>'
+                else:
+                    color = f"hsl({int(val * 120)}, 70%, 85%)"
+                    cells += f'<td style="background:{color}; text-align:center">{val:.4f}</td>'
             else:
                 cells += f"<td>{val}</td>"
         rows_html += f"<tr>{cells}</tr>"
@@ -595,10 +598,55 @@ def _total_timing_table_html(timing_df: Optional[pd.DataFrame], top_n: int = 20,
     </div>"""
 
 
-def _layer4_timing_html(timing_df: Optional[pd.DataFrame]) -> str:
+def _load_cold_on_times(history_dir: str) -> Optional[pd.DataFrame]:
+    """run_history JSON에서 Contextual ON 비캐시 최초 빌드 시간을 추출.
+
+    Returns:
+        dense, sparse, on_s 컬럼을 가진 DataFrame, 또는 None.
+    """
+    import glob as _glob
+    import os as _os
+
+    files = sorted(_glob.glob(_os.path.join(history_dir, "run_*.json")))
+    if not files:
+        return None
+
+    records = []
+    for f in files:
+        try:
+            with open(f) as fp:
+                d = json.load(fp)
+        except Exception:
+            continue
+        for t in d.get("strategy_timings", []):
+            if (t.get("llm_support") or "") == "contextual":
+                records.append({
+                    "dense": t.get("dense_model", ""),
+                    "sparse": t.get("sparse_model", ""),
+                    "build_time_s": float(t.get("build_time_s") or 0),
+                })
+
+    if not records:
+        return None
+
+    hist = pd.DataFrame(records)
+    # 실제 LLM 호출이 있었던 최초 인덱싱 시간 = build_time_s > 0 중 최대값
+    on_cold = (
+        hist[hist["build_time_s"] > 0]
+        .groupby(["dense", "sparse"], as_index=False)["build_time_s"]
+        .max()
+        .rename(columns={"build_time_s": "on_s"})
+    )
+    return on_cold if not on_cold.empty else None
+
+
+def _layer4_timing_html(
+    timing_df: Optional[pd.DataFrame],
+    history_dir: Optional[str] = None,
+) -> str:
     """Layer 4 — Contextual Retrieval 인덱싱 시간 비교표.
 
-    (dense, sparse) 베이스 조합별로 contextual OFF vs ON의 build_s를 비교.
+    OFF는 현재 timing_df 기준, ON은 history_dir가 있으면 비캐시 최초 시간으로 표기.
     """
     if timing_df is None or timing_df.empty:
         return ""
@@ -610,22 +658,51 @@ def _layer4_timing_html(timing_df: Optional[pd.DataFrame]) -> str:
     df["llm_support"] = df["llm_support"].fillna("none")
     df["build_s"] = pd.to_numeric(df["build_s"], errors="coerce").fillna(0.0)
 
-    # OFF: llm_support == "none", ON: llm_support == "contextual"
-    off_df = df[df["llm_support"] == "none"][["dense", "sparse", "build_s"]].rename(columns={"build_s": "off_s"})
-    on_df  = df[df["llm_support"] == "contextual"][["dense", "sparse", "build_s"]].rename(columns={"build_s": "on_s"})
+    # OFF: (dense, sparse)별 평균
+    off_df = (
+        df[df["llm_support"] == "none"][["dense", "sparse", "build_s"]]
+        .groupby(["dense", "sparse"], as_index=False)["build_s"].mean()
+        .rename(columns={"build_s": "off_s"})
+    )
+
+    # ON: history에서 비캐시 시간 우선, 없으면 현재 timing_df max 사용
+    on_cold = None
+    if history_dir:
+        try:
+            on_cold = _load_cold_on_times(history_dir)
+        except Exception:
+            on_cold = None
+
+    if on_cold is not None:
+        on_df = on_cold
+        note = "* Contextual ON 시간은 이전 실행 기록 기준 <strong>캐시 없는 최초 LLM 인덱싱 시간</strong>입니다."
+    else:
+        on_df = (
+            df[df["llm_support"] == "contextual"][["dense", "sparse", "build_s"]]
+            .groupby(["dense", "sparse"], as_index=False)["build_s"].max()
+            .rename(columns={"build_s": "on_s"})
+        )
+        note = "* Contextual ON 시간은 현재 실행 기준입니다 (캐시 효과 포함)."
 
     merged = off_df.merge(on_df, on=["dense", "sparse"], how="inner")
     if merged.empty:
         return ""
 
-    merged["overhead_s"] = merged["on_s"] - merged["off_s"]
+    merged["off_s"] = pd.to_numeric(merged["off_s"], errors="coerce").fillna(0.0)
+    merged["on_s"] = pd.to_numeric(merged["on_s"], errors="coerce").fillna(0.0)
+    merged["overhead_s"] = merged["on_s"]  # ON은 추가 비용(LLM 호출)이므로 off에 더해지는 값
     merged["overhead_pct"] = ((merged["overhead_s"] / merged["off_s"].replace(0, float("nan"))) * 100).round(0)
-    merged = merged.sort_values("overhead_s", ascending=False)
+    merged = merged.sort_values("on_s", ascending=False)
 
     rows_html = ""
     for _, row in merged.iterrows():
         overhead_pct = row["overhead_pct"]
-        badge_color = "danger" if overhead_pct > 500 else ("warning text-dark" if overhead_pct > 200 else "secondary")
+        import math
+        if math.isnan(overhead_pct):
+            badge_str = '<span class="badge bg-secondary" style="font-size:0.78rem">N/A</span>'
+        else:
+            badge_color = "danger" if overhead_pct > 100 else ("warning text-dark" if overhead_pct > 30 else "secondary")
+            badge_str = f'<span class="badge bg-{badge_color}" style="font-size:0.78rem">+{overhead_pct:.0f}%</span>'
         rows_html += f"""
         <tr>
           <td><span class="badge bg-primary" style="font-size:0.72rem">{row['dense']}</span></td>
@@ -633,29 +710,27 @@ def _layer4_timing_html(timing_df: Optional[pd.DataFrame]) -> str:
           <td class="text-center">{row['off_s']:.1f}s</td>
           <td class="text-center">{row['on_s']:.1f}s</td>
           <td class="text-center">{row['overhead_s']:.1f}s</td>
-          <td class="text-center">
-            <span class="badge bg-{badge_color}" style="font-size:0.78rem">+{overhead_pct:.0f}%</span>
-          </td>
+          <td class="text-center">{badge_str}</td>
         </tr>"""
 
-    avg_overhead_pct = merged["overhead_pct"].mean()
+    avg_on_s = merged["on_s"].mean()
     return f"""
     <div class="chart-explain mb-2">
-      인덱싱 시 LLM이 각 청크에 문맥 요약을 부착하므로, Contextual OFF 대비 <strong>평균 +{avg_overhead_pct:.0f}%</strong> 의 인덱싱 시간이 추가됩니다.
+      Contextual ON 시 LLM이 각 청크에 문맥 요약을 부착하므로, 평균 <strong>+{avg_on_s:.0f}s</strong> 의 인덱싱 시간이 추가됩니다.
       이 비용은 <strong>일회성</strong>으로, 캐시 이후 재인덱싱 시 단축됩니다.
     </div>
     <div class="table-responsive">
       <table class="table table-sm table-hover table-bordered">
         <thead class="table-dark">
-          <tr><th>Dense 모델</th><th>Sparse</th><th>Off (s)</th><th>On (s)</th><th>추가 시간</th><th>증가율</th></tr>
+          <tr><th>Dense 모델</th><th>Sparse</th><th>Off (s)</th><th>On — LLM 추가 (s)</th><th>추가 시간</th><th>OFF 대비</th></tr>
         </thead>
         <tbody>{rows_html}</tbody>
       </table>
     </div>
     <div class="text-muted" style="font-size:0.76rem">
-      * Contextual 캐시는 <strong>청크 내용 해시 기준</strong>으로 공유됩니다.
-        동일 문서의 첫 번째 Contextual 전략이 LLM 호출 비용을 부담하며, 이후 전략은 캐시를 재사용합니다.
-        따라서 실제 인덱싱 비용은 "Contextual 전략 수"가 아닌 "고유 청크 수"에만 비례합니다.
+      {note}
+      Contextual 캐시는 <strong>청크 내용 해시 기준</strong>으로 공유됩니다.
+      동일 문서의 첫 번째 Contextual 전략이 LLM 호출 비용을 부담하며, 이후 전략은 캐시를 재사용합니다.
     </div>"""
 
 
@@ -822,6 +897,7 @@ def generate_html_report(
     session_id: str = "",
     run_record: Optional[dict] = None,
     timing_df: Optional[pd.DataFrame] = None,
+    history_dir: Optional[str] = None,
 ) -> str:
     """벤치마크 결과를 HTML 보고서로 생성.
 
@@ -851,7 +927,7 @@ def generate_html_report(
     recommendations = _recommendations_html(ragas_df, latency_df)
     token_breakdown_table = _token_breakdown_html(run_record)
     radar_area_rank = _radar_area_rank_html(ragas_df) if ragas_df is not None else ""
-    layer4_timing = _layer4_timing_html(timing_df)
+    layer4_timing = _layer4_timing_html(timing_df, history_dir=history_dir)
 
     # 전략 수 / top_n 계산 (벤치마크 방법론 섹션용)
     _agg_lat = _agg_latency(latency_df) if latency_df is not None else None
