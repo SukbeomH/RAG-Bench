@@ -14,6 +14,41 @@ import pandas as pd
 
 
 # ---------------------------------------------------------------------------
+# 한글 폰트 설정 (macOS AppleGothic / Linux NanumGothic 자동 선택)
+# ---------------------------------------------------------------------------
+
+
+def _set_korean_font():
+    """matplotlib 한글 폰트를 플랫폼에 맞게 설정한다."""
+    try:
+        import platform
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib import font_manager
+
+        system = platform.system()
+        candidates = []
+        if system == "Darwin":
+            candidates = ["AppleGothic", "Apple SD Gothic Neo", "Noto Sans KR"]
+        elif system == "Linux":
+            candidates = ["NanumGothic", "Noto Sans KR", "UnDotum"]
+        else:
+            candidates = ["Malgun Gothic", "NanumGothic", "Noto Sans KR"]
+
+        available = {f.name for f in font_manager.fontManager.ttflist}
+        chosen = next((c for c in candidates if c in available), None)
+        if chosen:
+            plt.rcParams["font.family"] = chosen
+        plt.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        pass
+
+
+_set_korean_font()
+
+
+# ---------------------------------------------------------------------------
 # 차트 생성 유틸리티
 # ---------------------------------------------------------------------------
 
@@ -26,6 +61,24 @@ def _fig_to_base64(fig) -> str:
     return base64.b64encode(buf.read()).decode()
 
 
+def _agg_latency(latency_df: pd.DataFrame) -> pd.DataFrame:
+    """per-query 행을 전략별로 집계하여 avg_latency_ms 컬럼을 생성한다."""
+    if latency_df is None or latency_df.empty:
+        return latency_df
+    if "avg_latency_ms" in latency_df.columns or "avg_latency" in latency_df.columns:
+        return latency_df  # 이미 집계됨
+    if "latency_ms" in latency_df.columns and "strategy" in latency_df.columns:
+        agg = (
+            latency_df.groupby("strategy")["latency_ms"]
+            .agg(avg_latency_ms="mean", min_latency_ms="min", max_latency_ms="max",
+                 p50_latency_ms=lambda x: x.quantile(0.5))
+            .reset_index()
+        )
+        agg["avg_latency_ms"] = agg["avg_latency_ms"].round(1)
+        return agg
+    return latency_df
+
+
 def _build_latency_chart(latency_df: pd.DataFrame) -> str:
     """레이턴시 수평 막대 차트 → base64 PNG."""
     try:
@@ -33,6 +86,7 @@ def _build_latency_chart(latency_df: pd.DataFrame) -> str:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
+        latency_df = _agg_latency(latency_df)
         sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
         if sort_col not in latency_df.columns:
             return ""
@@ -109,6 +163,7 @@ def _build_scatter_chart(latency_df: pd.DataFrame, ragas_df: pd.DataFrame) -> st
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
+        latency_df = _agg_latency(latency_df)
         sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
         if sort_col not in latency_df.columns or ragas_df.empty:
             return ""
@@ -234,6 +289,7 @@ def _ragas_table_html(ragas_df: pd.DataFrame) -> str:
 
 def _latency_table_html(latency_df: pd.DataFrame) -> str:
     """레이턴시 요약 테이블 HTML."""
+    latency_df = _agg_latency(latency_df)
     sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
     if sort_col not in latency_df.columns:
         return "<p>레이턴시 데이터 없음</p>"
@@ -271,12 +327,16 @@ def _recommendations_html(ragas_df: pd.DataFrame, latency_df: pd.DataFrame) -> s
         score = row["_weighted"]
 
         # 레이턴시 가져오기
-        sort_col = "avg_latency" if latency_df is not None and "avg_latency" in latency_df.columns else None
+        agg_lat = _agg_latency(latency_df) if latency_df is not None else None
+        sort_col = "avg_latency_ms" if agg_lat is not None and "avg_latency_ms" in agg_lat.columns else (
+            "avg_latency" if agg_lat is not None and "avg_latency" in agg_lat.columns else None
+        )
         lat_str = ""
-        if sort_col and latency_df is not None:
-            lat_row = latency_df[latency_df["strategy"] == name]
+        if sort_col and agg_lat is not None:
+            lat_row = agg_lat[agg_lat["strategy"] == name]
             if not lat_row.empty:
-                lat_str = f" | 레이턴시: {lat_row[sort_col].values[0]:.3f}s"
+                unit = "s" if sort_col == "avg_latency" else "ms"
+                lat_str = f" | 레이턴시: {lat_row[sort_col].values[0]:.1f}{unit}"
 
         items += f"""
         <li class="list-group-item">
@@ -314,7 +374,8 @@ def _summary_cards_html(
     run_record: Optional[dict],
 ) -> str:
     """요약 통계 카드."""
-    n_strategies = len(latency_df) if latency_df is not None else 0
+    _lat_agg = _agg_latency(latency_df) if latency_df is not None else None
+    n_strategies = len(_lat_agg["strategy"].unique()) if _lat_agg is not None and "strategy" in _lat_agg.columns else 0
     n_evaluated = len(ragas_df) if ragas_df is not None else 0
 
     total_s = "N/A"
@@ -364,6 +425,80 @@ def _summary_cards_html(
     </div>"""
 
 
+def _token_breakdown_html(run_record: Optional[dict]) -> str:
+    """토큰 사용량 세분화 테이블 HTML (카테고리 × 프로바이더)."""
+    if run_record is None:
+        return "<p class='text-muted'>토큰 데이터 없음</p>"
+
+    breakdown = run_record.get("token_breakdown", {})
+    total = run_record.get("token_usage_total", {})
+
+    # breakdown이 없으면 total만 표시
+    if not breakdown:
+        tt = total.get("total_tokens", 0)
+        cost = total.get("total_cost_usd", 0)
+        calls = total.get("num_calls", 0)
+        if tt == 0:
+            return "<p class='text-muted'>토큰 사용 내역 없음</p>"
+        return f"""
+        <table class='table table-sm table-bordered'>
+          <thead class='table-dark'><tr><th>카테고리</th><th>프로바이더</th><th>총 토큰</th><th>프롬프트</th><th>컴플리션</th><th>비용($)</th><th>호출수</th></tr></thead>
+          <tbody><tr><td colspan='2'><em>합계</em></td>
+            <td>{total.get('total_tokens',0):,}</td>
+            <td>{total.get('prompt_tokens',0):,}</td>
+            <td>{total.get('completion_tokens',0):,}</td>
+            <td>{total.get('total_cost_usd',0):.4f}</td>
+            <td>{total.get('num_calls',0)}</td></tr></tbody>
+        </table>"""
+
+    CATEGORY_LABELS = {
+        "qa_generation": "QA 생성",
+        "contextual_indexing": "Contextual 인덱싱",
+        "ragas_evaluation": "RAGAS 평가",
+        "embedding_indexing": "임베딩 인덱싱",
+        "embedding_query": "임베딩 쿼리",
+    }
+    PROVIDER_BADGES = {
+        "openai": '<span class="badge bg-primary">OpenAI</span>',
+        "upstage": '<span class="badge bg-success">Upstage</span>',
+        "local": '<span class="badge bg-secondary">Local</span>',
+    }
+
+    rows_html = ""
+    grand_total = grand_prompt = grand_comp = grand_cost = grand_calls = 0
+    for key in sorted(breakdown.keys()):
+        cat, _, prov = key.partition(".")
+        u = breakdown[key]
+        tt = u.get("total_tokens", 0)
+        pt = u.get("prompt_tokens", 0)
+        ct = u.get("completion_tokens", 0)
+        cost = u.get("total_cost_usd", 0.0)
+        nc = u.get("num_calls", 0)
+        grand_total += tt; grand_prompt += pt; grand_comp += ct
+        grand_cost += cost; grand_calls += nc
+        cat_label = CATEGORY_LABELS.get(cat, cat)
+        prov_badge = PROVIDER_BADGES.get(prov, prov)
+        rows_html += (
+            f"<tr><td>{cat_label}</td><td>{prov_badge}</td>"
+            f"<td>{tt:,}</td><td>{pt:,}</td><td>{ct:,}</td>"
+            f"<td>{cost:.4f}</td><td>{nc}</td></tr>"
+        )
+
+    rows_html += (
+        f"<tr class='table-warning fw-bold'><td colspan='2'>합계</td>"
+        f"<td>{grand_total:,}</td><td>{grand_prompt:,}</td><td>{grand_comp:,}</td>"
+        f"<td>{grand_cost:.4f}</td><td>{grand_calls}</td></tr>"
+    )
+
+    return f"""
+    <table class='table table-sm table-bordered table-hover'>
+      <thead class='table-dark'>
+        <tr><th>카테고리</th><th>프로바이더</th><th>총 토큰</th><th>프롬프트</th><th>컴플리션</th><th>비용($)</th><th>호출수</th></tr>
+      </thead>
+      <tbody>{rows_html}</tbody>
+    </table>"""
+
+
 # ---------------------------------------------------------------------------
 # 메인 함수
 # ---------------------------------------------------------------------------
@@ -403,6 +538,7 @@ def generate_html_report(
     summary_cards = _summary_cards_html(latency_df, ragas_df, run_record)
     env_table = _env_table_html(run_record)
     recommendations = _recommendations_html(ragas_df, latency_df)
+    token_breakdown_table = _token_breakdown_html(run_record)
 
     def _img_html(b64: str, alt: str) -> str:
         if not b64:
@@ -442,78 +578,189 @@ def generate_html_report(
   <h4 class="section-title">실행 환경</h4>
   {env_table}
 
-  <!-- 레이턴시 순위 -->
-  <h4 class="section-title">레이턴시 순위 (Top 20)</h4>
-  <div class="row">
+  <!-- API 토큰 사용량 -->
+  <h4 class="section-title">API 토큰 사용량 (카테고리 × 프로바이더)</h4>
+  <div class="table-responsive mb-4">
+    {token_breakdown_table}
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 차트 Row 1: 레이턴시 막대 + 레이더 차트                        -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <h4 class="section-title">성능 시각화</h4>
+
+  <div class="row g-4 mb-4">
+    <!-- 레이턴시 막대 차트 -->
     <div class="col-md-6">
-      {lat_table}
+      <div class="chart-card">
+        <h5 class="chart-title">① 전략별 평균 레이턴시 (낮을수록 좋음)</h5>
+        <div class="chart-explain">
+          <strong>무엇을 보여주나요?</strong><br>
+          각 RAG 전략이 쿼리 1건을 처리하는 데 걸린 평균 시간(ms)을 수평 막대로 표시합니다.
+          막대가 짧을수록 응답이 빠르고, 실시간 서비스에 유리합니다.<br><br>
+          <strong>어떻게 읽나요?</strong><br>
+          • <span class="badge bg-primary">파란색</span> 상위 3개 전략 — 속도 최강군<br>
+          • 로컬 임베딩(KoSimCSE, BGE-M3)은 일반적으로 API 호출 없이 빠름<br>
+          • ColBERT/FlashRank 리랭킹이 붙으면 레이턴시가 크게 증가<br>
+          • Contextual은 청크 요약을 미리 캐시하므로 쿼리 시점에는 속도 영향 없음
+        </div>
+        <div class="chart-box mt-2">
+          {_img_html(latency_chart, "레이턴시 막대 차트")}
+        </div>
+      </div>
     </div>
+
+    <!-- 레이더 차트 -->
     <div class="col-md-6">
-      <div class="chart-box">
-        {_img_html(latency_chart, "레이턴시 막대 차트")}
+      <div class="chart-card">
+        <h5 class="chart-title">② 상위 전략 RAGAS 레이더 (넓을수록 좋음)</h5>
+        <div class="chart-explain">
+          <strong>무엇을 보여주나요?</strong><br>
+          RAGAS 평가를 통과한 상위 5개 전략의 4가지 품질 지표를
+          다각형으로 겹쳐 그립니다. 다각형 면적이 클수록 종합 품질이 높습니다.<br><br>
+          <strong>어떻게 읽나요?</strong><br>
+          • <strong>faithfulness</strong> — 답변이 검색된 문서에만 근거하는가 (할루시네이션 억제)<br>
+          • <strong>answer_relevancy</strong> — 답변이 질문에 얼마나 직접적으로 대응하는가<br>
+          • <strong>context_precision</strong> — 검색된 청크 중 실제 유용한 비율<br>
+          • <strong>context_recall</strong> — 정답에 필요한 정보를 빠짐없이 가져왔는가<br>
+          • 이상적인 전략은 모든 축에서 외곽선 근처까지 채워진 형태
+        </div>
+        <div class="chart-box mt-2">
+          {_img_html(radar_chart, "레이더 차트")}
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- RAGAS 메트릭 -->
-  <h4 class="section-title">RAGAS 메트릭 테이블</h4>
-  <div class="table-responsive mb-4">
-    {ragas_table}
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 차트 Row 2: RAGAS 히트맵 + 품질-속도 산점도                    -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="row g-4 mb-4">
+    <!-- RAGAS 히트맵 -->
+    <div class="col-md-6">
+      <div class="chart-card">
+        <h5 class="chart-title">③ RAGAS 메트릭 히트맵 (진할수록 높은 점수)</h5>
+        <div class="chart-explain">
+          <strong>무엇을 보여주나요?</strong><br>
+          평가된 모든 전략의 RAGAS 4개 지표를 색상 강도로 한눈에 비교합니다.
+          셀 색이 진초록일수록 점수가 높고, 옅을수록 낮습니다.<br><br>
+          <strong>어떻게 읽나요?</strong><br>
+          • 행(가로) = 개별 전략, 열(세로) = RAGAS 지표<br>
+          • 전체 행이 고르게 진한 전략 → 균형 잡힌 우수 전략<br>
+          • 특정 열만 옅은 전략 → 해당 지표에 약점 존재<br>
+          • context_recall이 옅으면 필요한 정보를 놓친 것 → 청크 크기·k 값 재검토 필요
+        </div>
+        <div class="chart-box mt-2">
+          {_img_html(ragas_heatmap, "RAGAS 히트맵")}
+        </div>
+      </div>
+    </div>
+
+    <!-- 산점도 -->
+    <div class="col-md-6">
+      <div class="chart-card">
+        <h5 class="chart-title">④ 레이턴시 vs 품질 산점도 (왼쪽 위가 최적)</h5>
+        <div class="chart-explain">
+          <strong>무엇을 보여주나요?</strong><br>
+          X축 = 평균 레이턴시, Y축 = RAGAS 메트릭 평균으로 각 전략을 점으로 찍습니다.
+          "빠르면서 품질도 높은" 최적 전략을 시각적으로 식별할 수 있습니다.<br><br>
+          <strong>어떻게 읽나요?</strong><br>
+          • <strong>왼쪽 위</strong> = 이상적 전략 (빠름 + 고품질)<br>
+          • <strong>오른쪽 위</strong> = 고품질이지만 느림 (오프라인 처리용)<br>
+          • <strong>왼쪽 아래</strong> = 빠르지만 품질 미흡 (추가 튜닝 필요)<br>
+          • 파레토 프론티어(좌상단 경계선) 근처 전략들이 실용적 후보군
+        </div>
+        <div class="chart-box mt-2">
+          {_img_html(scatter_chart, "산점도")}
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 히트맵 -->
-  <h4 class="section-title">RAGAS 히트맵</h4>
-  <div class="chart-box">
-    {_img_html(ragas_heatmap, "RAGAS 히트맵")}
-  </div>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 데이터 테이블                                               -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="row g-4 mb-4">
+    <!-- 레이턴시 순위 테이블 -->
+    <div class="col-md-6">
+      <div class="chart-card">
+        <h5 class="chart-title">레이턴시 순위 Top 20</h5>
+        <div class="chart-explain">
+          전략별 평균 레이턴시(ms) 순위표입니다.
+          <span class="badge bg-warning text-dark">TOP3</span> 표시 전략은 속도 최강군으로,
+          실시간 챗봇·검색 서비스에 우선 검토를 권장합니다.
+        </div>
+        <div class="table-responsive mt-2">
+          {lat_table}
+        </div>
+      </div>
+    </div>
 
-  <!-- 레이더 차트 -->
-  <h4 class="section-title">상위 전략 레이더 차트</h4>
-  <div class="chart-box">
-    {_img_html(radar_chart, "레이더 차트")}
-  </div>
-
-  <!-- 산점도 -->
-  <h4 class="section-title">레이턴시 vs 품질 산점도</h4>
-  <div class="chart-box">
-    {_img_html(scatter_chart, "산점도")}
+    <!-- RAGAS 메트릭 테이블 -->
+    <div class="col-md-6">
+      <div class="chart-card">
+        <h5 class="chart-title">RAGAS 메트릭 상세 테이블</h5>
+        <div class="chart-explain">
+          Pass 2에서 평가된 전략별 RAGAS 4개 지표입니다.
+          셀 배경색이 진할수록(초록) 점수가 높습니다.
+          모든 지표가 균형 잡힌 전략이 장기적으로 안정적입니다.
+        </div>
+        <div class="table-responsive mt-2">
+          {ragas_table}
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 전략 설명 -->
-  <h4 class="section-title">전략 유형 설명</h4>
+  <h4 class="section-title">전략 유형 가이드</h4>
   <div class="row g-3 mb-4">
-    <div class="col-md-6">
+    <div class="col-md-4">
       <div class="strategy-desc">
         <strong>Dense + Sparse (Hybrid)</strong><br>
-        <small>Dense 임베딩(코사인 유사도)과 Sparse BM25/SPLADE를 결합한 하이브리드 검색.</small>
-      </div>
-      <div class="strategy-desc">
-        <strong>ColBERT Reranker</strong><br>
-        <small>ColBERT 후기 상호작용 모델로 초기 검색 결과를 재순위화.</small>
-      </div>
-      <div class="strategy-desc">
-        <strong>FlashRank Reranker</strong><br>
-        <small>경량 Cross-Encoder로 빠른 재순위화.</small>
+        <small>Dense 임베딩(의미적 유사도)과 Sparse BM25/SPLADE(키워드 매칭)를 병합한 하이브리드 검색.
+        단독 방식 대비 recall과 precision 모두 향상되는 경우가 많음.</small>
       </div>
     </div>
-    <div class="col-md-6">
+    <div class="col-md-4">
+      <div class="strategy-desc">
+        <strong>ColBERT Reranker</strong><br>
+        <small>Late-Interaction 방식의 ColBERT 모델로 초기 검색 후 재순위화.
+        정밀도는 높지만 레이턴시가 크게 증가. 배치/비실시간 처리에 적합.</small>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="strategy-desc">
+        <strong>FlashRank Reranker</strong><br>
+        <small>경량 Cross-Encoder 기반 빠른 재순위화.
+        ColBERT보다 빠르고 단순 Hybrid보다 정밀. 속도·품질 균형이 필요한 상황에 적합.</small>
+      </div>
+    </div>
+    <div class="col-md-4">
       <div class="strategy-desc">
         <strong>Contextual Retrieval</strong><br>
-        <small>각 청크에 LLM 기반 문맥 요약을 부착하여 검색 품질 향상.</small>
+        <small>각 청크에 LLM 요약 문맥을 미리 부착(인덱싱 시점).
+        쿼리 시점 레이턴시 증가 없이 검색 품질 향상. API 비용은 인덱싱 시 일회성 발생.</small>
       </div>
+    </div>
+    <div class="col-md-4">
       <div class="strategy-desc">
         <strong>OpenAI Embedding</strong><br>
-        <small>OpenAI text-embedding-3-small/large API 기반 Dense 검색.</small>
+        <small>text-embedding-3-large API 기반 Dense 검색.
+        고차원(3072d) 벡터로 높은 의미 표현력. API 비용과 네트워크 레이턴시가 트레이드오프.</small>
       </div>
+    </div>
+    <div class="col-md-4">
       <div class="strategy-desc">
         <strong>Upstage Solar Embedding</strong><br>
-        <small>Upstage solar-embedding-1-large: passage/query 모델 분리 운용.</small>
+        <small>문서용(passage)과 쿼리용(query) 모델을 분리 운용하는 비대칭 임베딩.
+        한국어 최적화 모델로 국내 도메인 문서에 강점.</small>
       </div>
     </div>
   </div>
 
   <!-- 결론 & 권장사항 -->
-  <h4 class="section-title">결론 & 권장사항 (Top 3)</h4>
+  <h4 class="section-title">결론 &amp; 권장사항 (Top 3)</h4>
   {recommendations}
 
 </div>
