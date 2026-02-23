@@ -34,15 +34,21 @@ PARENT_STORE_PATH = BENCH_DATA_DIR / "parent_store"  # Parent 청크 저장 경�
 DOCS_DIR = PROJECT_ROOT / "docs"
 
 # ---------------------------------------------------------------------------
-# Qdrant 인덱스 경로 접두사
+# Qdrant 인덱스 경로 접두사 / 기본 컬렉션 이름
 # ---------------------------------------------------------------------------
 # _benchdata/ 하위 Qdrant 인덱스 디렉토리 이름 공통 접두사.
 # "qdrant_db_" 문자열을 코드 전역에서 하드코딩하는 대신 이 상수를 사용한다.
 QDRANT_DB_PREFIX = "qdrant_db_"
+# Qdrant 기본 컬렉션 이름 — DenseSparseStrategy 생성자의 기본값으로 사용된다.
+QDRANT_COLLECTION_NAME = "document_child_chunks"
 
 # ---------------------------------------------------------------------------
-# HuggingFace 모델 레지스트리
+# HuggingFace 모델 레지스트리 + 기본 모델 상수
 # ---------------------------------------------------------------------------
+# ColBERT / FlashRank 기본 모델 — CacheConfig 기본값과 이 상수가 한 곳에서 관리된다.
+DEFAULT_COLBERT_MODEL = "jinaai/jina-colbert-v2"
+DEFAULT_FLASHRANK_MODEL = "ms-marco-MultiBERT-L-12"
+
 REQUIRED_HF_MODELS = [
     "BM-K/KoSimCSE-roberta-multitask",
     "intfloat/multilingual-e5-large",
@@ -76,6 +82,21 @@ DEFAULT_RERANK_N = 10  # 리랭킹 후보 수 (ColBERT/FlashRank)
 DEFAULT_LLM_WORKERS = 8  # LLM 답변 생성 병렬 워커 수
 CONV_SUMMARY_MIN_MESSAGES = 4  # 대화 요약 최소 메시지 수
 CONV_HISTORY_WINDOW = 6  # 대화 이력 window 크기
+
+
+def make_http_client(verify: bool = False):
+    """SSL 검증 설정이 통일된 httpx.Client를 반환한다.
+
+    기업 네트워크/프록시 환경에서는 verify=False (기본값)로 사용한다.
+    """
+    import httpx
+    return httpx.Client(verify=verify)
+
+
+def make_async_http_client(verify: bool = False):
+    """SSL 검증 설정이 통일된 httpx.AsyncClient를 반환한다."""
+    import httpx
+    return httpx.AsyncClient(verify=verify)
 
 
 def setup_ssl_bypass() -> None:

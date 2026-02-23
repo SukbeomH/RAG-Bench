@@ -75,7 +75,7 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
     def __init__(
         self,
         base_strategy: Optional[BaseRAGStrategy] = None,
-        parent_pairs: List[Tuple[str, Document]] = None,
+        parent_pairs: Optional[List[Tuple[str, Document]]] = None,
         llm_model: str = DEFAULT_CONTEXTUAL_LLM,
         max_context_tokens: int = 4000,
         cache_dir: Optional[str] = None,

@@ -149,8 +149,8 @@ def _step1_load_qa(args, tracker) -> Tuple[List[str], List[str]]:
     with tracker.phase("qa_dataset_load"):
         if getattr(args, "regenerate_qa", False) or getattr(args, "sample_pages", False):
             from rag_bench.scripts.generate_qa import (
-                _compute_effective_num_qa,
-                _generate_qa_ragas,
+                compute_effective_num_qa,
+                generate_qa_ragas,
             )
             import argparse as _ap
             _qa_args = _ap.Namespace(
@@ -161,10 +161,10 @@ def _step1_load_qa(args, tracker) -> Tuple[List[str], List[str]]:
                 markdown_dir=str(BENCH_DOCS_DIR),
                 parent_store_path=str(BENCH_DATA_DIR / "parent_store"),
             )
-            effective_num_qa = _compute_effective_num_qa(_qa_args, _tmp_parent_pairs)
+            effective_num_qa = compute_effective_num_qa(_qa_args, _tmp_parent_pairs)
             print(f"  QA 재생성: {effective_num_qa}개 (청크 {len(_tmp_parent_pairs)}개 × {_qa_args.max_qa_per_page})")
             with track_openai_tokens() as _qa_tokens:
-                qa_pairs_raw = _generate_qa_ragas(
+                qa_pairs_raw = generate_qa_ragas(
                     parent_pairs=_tmp_parent_pairs,
                     num_qa=effective_num_qa,
                     reuse_kg=False,
@@ -368,13 +368,10 @@ def _step4_pass1(
     return runner, summary_df, False
 
 
-def _step5_pass2(
-    args, strategies, queries, ground_truths, runner, summary_df, tracker
-) -> Tuple[Optional[Any], Optional[Any], Optional[Any], List]:
-    """Step 5: Pass 2 — RAGAS 평가 (상위 N 또는 전체).
+def _select_eval_strategies(args, strategies, summary_df) -> List:
+    """Pass 1 결과를 기반으로 RAGAS 평가 대상 전략을 선택한다.
 
-    Returns:
-        (scores_df, evaluator, eval_runner, eval_strategies)
+    top_n이 전체 전략 수보다 작으면 평균 레이턴시 기준 상위 top_n개만 반환한다.
     """
     top_n = args.top_n or len(strategies)
     if top_n < len(strategies):
@@ -388,14 +385,66 @@ def _step5_pass2(
                 avg_lat = summary_df.loc[mask, "avg_latency"].values[0] if mask.any() else float("inf")
                 strategy_latencies.append((spec, strat, avg_lat))
             strategy_latencies.sort(key=lambda x: x[2])
-            eval_strategies = [(sp, st) for sp, st, _ in strategy_latencies[:top_n]]
-        else:
-            eval_strategies = strategies[:top_n]
+            return [(sp, st) for sp, st, _ in strategy_latencies[:top_n]]
+        return strategies[:top_n]
+
+    print(f"\n{'=' * 60}")
+    print(f"Step 5: Pass 2 — 전체 {len(strategies)}개 RAGAS 평가")
+    print(f"{'=' * 60}")
+    return strategies
+
+
+def _save_ragas_results(args, scores_df, eval_strategies, eval_runner, tracker) -> None:
+    """RAGAS 평가 결과를 per-sample CSV, 집계 CSV, RunTracker에 저장한다."""
+    if eval_runner.reports:
+        per_sample_dir = BENCH_DATA_DIR / "per_sample"
+        per_sample_dir.mkdir(parents=True, exist_ok=True)
+        for strat_name, report in eval_runner.reports.items():
+            if not report.per_sample_df.empty:
+                safe_name = strat_name.replace("/", "_").replace(" ", "_")
+                report.per_sample_df.to_csv(
+                    per_sample_dir / f"{safe_name}.csv", index=False, encoding="utf-8-sig"
+                )
+        print(f"  per-sample 결과: {per_sample_dir}/")
+
+    scores_path = BENCH_DATA_DIR / "all_combos_ragas.csv"
+    if getattr(args, "append_results", False) and scores_path.exists():
+        import pandas as pd
+        existing_ragas = pd.read_csv(scores_path)
+        new_strategies = scores_df["strategy"].unique()
+        existing_ragas = existing_ragas[~existing_ragas["strategy"].isin(new_strategies)]
+        scores_df = pd.concat([existing_ragas, scores_df], ignore_index=True)
+        scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
+        print(f"  RAGAS 점수 병합(append): {scores_path}")
     else:
-        print(f"\n{'=' * 60}")
-        print(f"Step 5: Pass 2 — 전체 {len(strategies)}개 RAGAS 평가")
-        print(f"{'=' * 60}")
-        eval_strategies = strategies
+        scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
+        print(f"  RAGAS 점수: {scores_path}")
+
+    for _, row in scores_df.iterrows():
+        strat_name = row["strategy"]
+        for spec, strat in eval_strategies:
+            if strat.name == strat_name:
+                timing = tracker.find_timing(spec.label)
+                if timing:
+                    metric_cols = [c for c in scores_df.columns if c != "strategy"]
+                    scores = {
+                        c: round(float(row[c]), 4)
+                        for c in metric_cols
+                        if isinstance(row[c], (int, float))
+                    }
+                    tracker.record_ragas(timing, scores)
+                break
+
+
+def _step5_pass2(
+    args, strategies, queries, ground_truths, runner, summary_df, tracker
+) -> Tuple[Optional[Any], Optional[Any], Optional[Any], List]:
+    """Step 5: Pass 2 — RAGAS 평가 (상위 N 또는 전체).
+
+    Returns:
+        (scores_df, evaluator, eval_runner, eval_strategies)
+    """
+    eval_strategies = _select_eval_strategies(args, strategies, summary_df)
 
     evaluator = None
     if not args.no_ragas:
@@ -429,45 +478,8 @@ def _step5_pass2(
             tracker.record_ragas_tokens(ragas_tokens)
         print_ragas_table(scores_df, scoring_profile=args.scoring_profile)
 
-        if eval_runner.reports:
-            per_sample_dir = BENCH_DATA_DIR / "per_sample"
-            per_sample_dir.mkdir(parents=True, exist_ok=True)
-            for strat_name, report in eval_runner.reports.items():
-                if not report.per_sample_df.empty:
-                    safe_name = strat_name.replace("/", "_").replace(" ", "_")
-                    report.per_sample_df.to_csv(
-                        per_sample_dir / f"{safe_name}.csv", index=False, encoding="utf-8-sig"
-                    )
-            print(f"  per-sample 결과: {per_sample_dir}/")
-
         if scores_df is not None:
-            scores_path = BENCH_DATA_DIR / "all_combos_ragas.csv"
-            if getattr(args, "append_results", False) and scores_path.exists():
-                import pandas as pd
-                existing_ragas = pd.read_csv(scores_path)
-                new_strategies = scores_df["strategy"].unique()
-                existing_ragas = existing_ragas[~existing_ragas["strategy"].isin(new_strategies)]
-                scores_df = pd.concat([existing_ragas, scores_df], ignore_index=True)
-                scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
-                print(f"  RAGAS 점수 병합(append): {scores_path}")
-            else:
-                scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
-                print(f"  RAGAS 점수: {scores_path}")
-
-            for _, row in scores_df.iterrows():
-                strat_name = row["strategy"]
-                for spec, strat in eval_strategies:
-                    if strat.name == strat_name:
-                        timing = tracker.find_timing(spec.label)
-                        if timing:
-                            metric_cols = [c for c in scores_df.columns if c != "strategy"]
-                            scores = {
-                                c: round(float(row[c]), 4)
-                                for c in metric_cols
-                                if isinstance(row[c], (int, float))
-                            }
-                            tracker.record_ragas(timing, scores)
-                        break
+            _save_ragas_results(args, scores_df, eval_strategies, eval_runner, tracker)
 
         if args.layers and scores_df is not None:
             _print_layer_contribution_ragas(eval_strategies, scores_df)
@@ -510,22 +522,59 @@ def _step6_timing(
 
 
 def _step7_report(args, summary_df, scores_df, combos, evaluator, tracker, timing_df) -> None:
-    """Step 7: Markdown 리포트 생성."""
+    """Step 7: Markdown + HTML 리포트 생성."""
+    ragas_df = scores_df if evaluator else None
+
     if summary_df is not None:
         _generate_report(
-            summary_df, scores_df if evaluator else None,
+            summary_df, ragas_df,
             combos, BENCH_DATA_DIR, tracker=tracker, timing_df=timing_df,
         )
+
+    # HTML 보고서 자동 생성
+    try:
+        from rag_bench.scripts.generate_html_report import generate_html_report
+        from dataclasses import asdict as _asdict
+
+        run_record = None
+        if tracker and hasattr(tracker, "_record"):
+            try:
+                run_record = _asdict(tracker._record)
+            except Exception:
+                pass
+
+        session_id = ""
+        if tracker and hasattr(tracker, "_record"):
+            session_id = getattr(tracker._record, "run_id", "")
+
+        html_path = BENCH_DATA_DIR / "benchmark_report.html"
+        generate_html_report(
+            latency_df=summary_df,
+            ragas_df=ragas_df,
+            output_path=str(html_path),
+            session_id=session_id,
+            run_record=run_record,
+            timing_df=timing_df,
+        )
+    except Exception as _html_err:
+        print(f"  [HTML 보고서 생성 실패]: {_html_err}")
 
 
 def _collect_upstage_tokens(strategies, tracker) -> None:
     """Upstage 임베딩 토큰 breakdown 집계."""
-    from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
-    for _spec, _strat in strategies:
+    try:
+        from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
+    except ImportError:
+        return
+    for item in strategies:
+        # (spec, strat) 튜플이 아닌 경우(flat list 등) 방어
+        if isinstance(item, tuple) and len(item) == 2:
+            _spec, _strat = item
+        else:
+            continue
         _base = getattr(_strat, "_base_strategy", _strat)
         if isinstance(_base, UpstageEmbedStrategy):
-            _idx = _base._token_indexing
-            _qry = _base._token_query
+            _idx, _qry = _base.get_raw_token_usages()
             if _idx.total_tokens > 0:
                 tracker.add_tokens_breakdown(_idx, "embedding_indexing", "upstage")
             if _qry.total_tokens > 0:
@@ -623,7 +672,10 @@ def _run_preset_mode(args):
     )
 
     _step7_report(args, summary_df, scores_df, combos, evaluator, tracker, timing_df)
-    _collect_upstage_tokens(strategies, tracker)
+    try:
+        _collect_upstage_tokens(strategies, tracker)
+    except Exception as _e:
+        print(f"  [토큰 집계 오류 무시]: {_e}")
     tracker.finalize()
     _cleanup_strategies(active_strategies)
 
@@ -636,6 +688,16 @@ def _run_preset_mode(args):
 # 레이어 기여도 분석
 # ===========================================================================
 
+# 4-Layer 정의 — (레이어 이름, ComboSpec 필드 접근 람다) 공통 상수.
+# _print_layer_analysis_preview / _print_layer_contribution /
+# _print_layer_contribution_ragas 에서 공유하여 레이어 명칭 중복을 방지한다.
+_LAYER_DEFINITIONS = [
+    ("Layer 1 — Dense Model", lambda s: s.dense),
+    ("Layer 2 — Sparse Model", lambda s: s.sparse),
+    ("Layer 3 — Reranker", lambda s: s.reranker or "none"),
+    ("Layer 4 — Contextual", lambda s: s.llm_support or "none"),
+]
+
 
 def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
     """dry-run 시 레이어 분석 미리보기."""
@@ -643,23 +705,16 @@ def _print_layer_analysis_preview(combos: List[ComboSpec], config: dict):
     print(" 레이어별 조합 분포")
     print(f"{'═' * 60}")
 
-    for layer_name, values in [
-        ("Layer 1 — Dense Model", config["dense_models"]),
-        ("Layer 2 — Sparse Model", config["sparse_models"]),
-        ("Layer 3 — Reranker", config["rerankers"]),
-        ("Layer 4 — Contextual", config["llm_support"]),
-    ]:
+    config_values = [
+        config["dense_models"],
+        config["sparse_models"],
+        config["rerankers"],
+        config["llm_support"],
+    ]
+    for (layer_name, get_val), values in zip(_LAYER_DEFINITIONS, config_values):
         print(f"\n  {layer_name}:")
         for val in values:
-            count = 0
-            if layer_name == "Dense Model":
-                count = sum(1 for c in combos if c.dense == val)
-            elif layer_name == "Sparse Model":
-                count = sum(1 for c in combos if c.sparse == val)
-            elif layer_name == "Reranker":
-                count = sum(1 for c in combos if c.reranker == val)
-            elif layer_name == "LLM Support":
-                count = sum(1 for c in combos if c.llm_support == val)
+            count = sum(1 for c in combos if get_val(c) == val)
             print(f"    {str(val) or 'None':<20} → {count}개 조합")
 
 
@@ -704,11 +759,7 @@ def _print_layer_contribution(strategies: List[Tuple[ComboSpec, Any]], summary_d
 
     # Layer 1~3: 쿼리 레이턴시 기준
     print("\n  [지표: 쿼리 평균 레이턴시 (s)]")
-    for layer_name, get_val in [
-        ("Layer 1 — Dense Model", lambda s: s.dense),
-        ("Layer 2 — Sparse Model", lambda s: s.sparse),
-        ("Layer 3 — Reranker", lambda s: s.reranker or "none"),
-    ]:
+    for layer_name, get_val in _LAYER_DEFINITIONS[:3]:
         print(f"\n  {layer_name}:")
         val_lats: Dict[str, List[float]] = {}
         for spec, strat in strategies:
@@ -755,12 +806,7 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
     for _, row in scores_df.iterrows():
         score_map[row["strategy"]] = {col: row[col] for col in metric_cols if isinstance(row[col], float)}
 
-    for layer_name, get_val in [
-        ("Layer 1 — Dense Model", lambda s: s.dense),
-        ("Layer 2 — Sparse Model", lambda s: s.sparse),
-        ("Layer 3 — Reranker", lambda s: s.reranker or "none"),
-        ("Layer 4 — Contextual", lambda s: s.llm_support or "none"),
-    ]:
+    for layer_name, get_val in _LAYER_DEFINITIONS:
         print(f"\n  {layer_name}:")
         val_scores: Dict[str, List[Dict[str, float]]] = {}
         for spec, strat in strategies:
@@ -786,6 +832,144 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
 # ===========================================================================
 
 
+def _report_env_section(lines: list, tracker) -> None:
+    """리포트에 실행 환경 섹션을 추가한다."""
+    if not (tracker and hasattr(tracker, '_record')):
+        return
+    rec = tracker._record
+    pf = rec.platform_info
+    lines.append("## 실행 환경")
+    lines.append("")
+    lines.append("| 항목 | 값 |")
+    lines.append("|------|-----|")
+    lines.append(f"| Run ID | {rec.run_id} |")
+    lines.append(f"| Preset | {rec.preset} |")
+    lines.append(f"| Platform | {pf.get('os', '')} {pf.get('os_release', '')} |")
+    chip = pf.get("apple_chip", pf.get("processor", "N/A"))
+    lines.append(f"| Chip / CPU | {chip} ({pf.get('cpu_count_logical', '?')} cores) |")
+    lines.append(f"| RAM | {pf.get('ram_total_gb', '?')} GB |")
+    lines.append(f"| GPU | {pf.get('gpu') or 'None'} |")
+    lines.append(f"| Python | {pf.get('python_version', '')} |")
+    lines.append(f"| Git Commit | {pf.get('git_commit', '')} |")
+    lines.append("")
+
+    if tracker._phases:
+        total_s = rec.duration_s or 1
+        lines.append("## 단계별 소요 시간")
+        lines.append("")
+        lines.append("| 단계 | 소요 시간 | 비중 | 토큰 |")
+        lines.append("|------|----------|:----:|------|")
+        for p in tracker._phases:
+            if p.duration_s <= 0:
+                continue
+            pct = p.duration_s / total_s * 100
+            tok_str = ""
+            if p.tokens and p.tokens.get("total_tokens", 0) > 0:
+                tok_str = f"{p.tokens['total_tokens']:,}"
+            lines.append(f"| {p.phase} | {p.duration_s:.1f}s | {pct:.1f}% | {tok_str} |")
+        lines.append("")
+
+    tt = tracker._token_total
+    if tt.total_tokens > 0:
+        lines.append("## 토큰 사용량")
+        lines.append("")
+        lines.append("| 항목 | 값 |")
+        lines.append("|------|-----|")
+        lines.append(f"| Total Tokens | {tt.total_tokens:,} |")
+        lines.append(f"| Prompt | {tt.prompt_tokens:,} |")
+        lines.append(f"| Completion | {tt.completion_tokens:,} |")
+        lines.append(f"| API Cost | ${tt.total_cost_usd:.4f} |")
+        lines.append(f"| LLM Calls | {tt.num_calls} |")
+        lines.append("")
+
+
+def _report_latency_section(lines: list, latency_summary_df) -> None:
+    """리포트에 레이턴시 결과 섹션을 추가한다."""
+    lines.extend(["---", "", "## 레이턴시 결과 (Top 10)", ""])
+    if latency_summary_df is not None and "strategy" in latency_summary_df.columns:
+        if "avg_latency" in latency_summary_df.columns:
+            sorted_df = latency_summary_df.sort_values("avg_latency")
+            lines.append("| # | 전략 | 평균 레이턴시 |")
+            lines.append("|---|------|:----------:|")
+            for i, (_, row) in enumerate(sorted_df.head(10).iterrows(), 1):
+                lines.append(f"| {i} | {row['strategy']} | {row['avg_latency']:.3f}s |")
+        lines.append("")
+
+
+def _report_timing_section(lines: list, timing_df) -> None:
+    """리포트에 조합별 타이밍 섹션을 추가한다."""
+    if timing_df is None or timing_df.empty:
+        return
+    lines.append("## 조합별 전체 소요 시간")
+    lines.append("")
+    lines.append("| 조합 | Dense | Sparse | Reranker | LLM | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
+    lines.append("|------|-------|--------|----------|-----|:-------:|:--------:|:--------:|:-------:|")
+    for _, row in timing_df.sort_values("total_s", ascending=False).iterrows():
+        lines.append(
+            f"| {row['label']} | {row['dense']} | {row['sparse']} | {row['reranker']} | {row['llm_support']}"
+            f" | {row['build_s']:.1f} | {row['pass1_s']:.1f} | {row['pass2_s']:.1f} | **{row['total_s']:.1f}** |"
+        )
+    lines.append("")
+
+    lines.append("### 레이어별 평균 소요 시간")
+    lines.append("")
+    for layer_col, layer_name in [
+        ("dense", "Dense Model"), ("sparse", "Sparse"),
+        ("reranker", "Reranker"), ("llm_support", "LLM Support"),
+    ]:
+        lines.append(f"**{layer_name}**")
+        lines.append("")
+        lines.append("| 값 | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
+        lines.append("|---|:-------:|:--------:|:--------:|:-------:|")
+        for val, grp in timing_df.groupby(layer_col):
+            lines.append(
+                f"| {val} | {grp['build_s'].mean():.1f} | {grp['pass1_s'].mean():.1f}"
+                f" | {grp['pass2_s'].mean():.1f} | {grp['total_s'].mean():.1f} |"
+            )
+        lines.append("")
+
+
+def _report_ragas_section(lines: list, ragas_df) -> None:
+    """리포트에 RAGAS 평가 결과 + 가중 점수 섹션을 추가한다."""
+    if ragas_df is None or ragas_df.empty:
+        return
+    lines.append("## RAGAS 평가 결과")
+    lines.append("")
+    metric_cols = [c for c in ragas_df.columns if c != "strategy"]
+    header = "| 전략 | " + " | ".join(metric_cols) + " |"
+    sep = "|------|" + "|".join(":---:" for _ in metric_cols) + "|"
+    lines.append(header)
+    lines.append(sep)
+    for _, row in ragas_df.iterrows():
+        vals = " | ".join(
+            f"{row[c]:.4f}" if isinstance(row[c], float) else str(row[c])
+            for c in metric_cols
+        )
+        lines.append(f"| {row['strategy']} | {vals} |")
+    lines.append("")
+
+    from rag_bench.evaluation.evaluator import SCORING_PROFILES
+    lines.append("## 가중 점수 (Scoring Profiles)")
+    lines.append("")
+    profile_names = list(SCORING_PROFILES.keys())
+    header = "| 전략 | " + " | ".join(profile_names) + " |"
+    sep = "|------|" + "|".join(":---:" for _ in profile_names) + "|"
+    lines.append(header)
+    lines.append(sep)
+    for _, row in ragas_df.iterrows():
+        vals = []
+        for pname in profile_names:
+            weights = SCORING_PROFILES[pname]
+            ws = sum(
+                row.get(metric, 0.0) * weight
+                for metric, weight in weights.items()
+                if isinstance(row.get(metric, 0.0), (int, float))
+            )
+            vals.append(f"{ws:.4f}")
+        lines.append(f"| {row['strategy']} | " + " | ".join(vals) + " |")
+    lines.append("")
+
+
 def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, tracker=None, timing_df=None):
     """Markdown 리포트 생성. latency_summary_df는 전략별 요약 DataFrame."""
     report_path = output_dir / "e2e_report.md"
@@ -798,134 +982,10 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
         "",
     ]
 
-    # 수행 이력 요약 (플랫폼, 시간, 토큰)
-    if tracker and hasattr(tracker, '_record'):
-        rec = tracker._record
-        pf = rec.platform_info
-        lines.append("## 실행 환경")
-        lines.append("")
-        lines.append("| 항목 | 값 |")
-        lines.append("|------|-----|")
-        lines.append(f"| Run ID | {rec.run_id} |")
-        lines.append(f"| Preset | {rec.preset} |")
-        lines.append(f"| Platform | {pf.get('os', '')} {pf.get('os_release', '')} |")
-        chip = pf.get("apple_chip", pf.get("processor", "N/A"))
-        lines.append(f"| Chip / CPU | {chip} ({pf.get('cpu_count_logical', '?')} cores) |")
-        lines.append(f"| RAM | {pf.get('ram_total_gb', '?')} GB |")
-        lines.append(f"| GPU | {pf.get('gpu') or 'None'} |")
-        lines.append(f"| Python | {pf.get('python_version', '')} |")
-        lines.append(f"| Git Commit | {pf.get('git_commit', '')} |")
-        lines.append("")
-
-        if tracker._phases:
-            total_s = rec.duration_s or 1
-            lines.append("## 단계별 소요 시간")
-            lines.append("")
-            lines.append("| 단계 | 소요 시간 | 비중 | 토큰 |")
-            lines.append("|------|----------|:----:|------|")
-            for p in tracker._phases:
-                if p.duration_s <= 0:
-                    continue
-                pct = p.duration_s / total_s * 100
-                tok_str = ""
-                if p.tokens and p.tokens.get("total_tokens", 0) > 0:
-                    tok_str = f"{p.tokens['total_tokens']:,}"
-                lines.append(f"| {p.phase} | {p.duration_s:.1f}s | {pct:.1f}% | {tok_str} |")
-            lines.append("")
-
-        tt = tracker._token_total
-        if tt.total_tokens > 0:
-            lines.append("## 토큰 사용량")
-            lines.append("")
-            lines.append("| 항목 | 값 |")
-            lines.append("|------|-----|")
-            lines.append(f"| Total Tokens | {tt.total_tokens:,} |")
-            lines.append(f"| Prompt | {tt.prompt_tokens:,} |")
-            lines.append(f"| Completion | {tt.completion_tokens:,} |")
-            lines.append(f"| API Cost | ${tt.total_cost_usd:.4f} |")
-            lines.append(f"| LLM Calls | {tt.num_calls} |")
-            lines.append("")
-
-    lines.extend([
-        "---",
-        "",
-        "## 레이턴시 결과 (Top 10)",
-        "",
-    ])
-
-    if latency_summary_df is not None and "strategy" in latency_summary_df.columns:
-        if "avg_latency" in latency_summary_df.columns:
-            sorted_df = latency_summary_df.sort_values("avg_latency")
-            lines.append("| # | 전략 | 평균 레이턴시 |")
-            lines.append("|---|------|:----------:|")
-            for i, (_, row) in enumerate(sorted_df.head(10).iterrows(), 1):
-                lines.append(f"| {i} | {row['strategy']} | {row['avg_latency']:.3f}s |")
-        lines.append("")
-
-    if timing_df is not None and not timing_df.empty:
-        lines.append("## 조합별 전체 소요 시간")
-        lines.append("")
-        lines.append("| 조합 | Dense | Sparse | Reranker | LLM | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
-        lines.append("|------|-------|--------|----------|-----|:-------:|:--------:|:--------:|:-------:|")
-        for _, row in timing_df.sort_values("total_s", ascending=False).iterrows():
-            lines.append(
-                f"| {row['label']} | {row['dense']} | {row['sparse']} | {row['reranker']} | {row['llm_support']}"
-                f" | {row['build_s']:.1f} | {row['pass1_s']:.1f} | {row['pass2_s']:.1f} | **{row['total_s']:.1f}** |"
-            )
-        lines.append("")
-
-        # 레이어별 평균 소요 시간
-        lines.append("### 레이어별 평균 소요 시간")
-        lines.append("")
-        for layer_col, layer_name in [("dense", "Dense Model"), ("sparse", "Sparse"), ("reranker", "Reranker"), ("llm_support", "LLM Support")]:
-            lines.append(f"**{layer_name}**")
-            lines.append("")
-            lines.append("| 값 | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
-            lines.append("|---|:-------:|:--------:|:--------:|:-------:|")
-            for val, grp in timing_df.groupby(layer_col):
-                lines.append(
-                    f"| {val} | {grp['build_s'].mean():.1f} | {grp['pass1_s'].mean():.1f}"
-                    f" | {grp['pass2_s'].mean():.1f} | {grp['total_s'].mean():.1f} |"
-                )
-            lines.append("")
-
-    if ragas_df is not None and not ragas_df.empty:
-        lines.append("## RAGAS 평가 결과")
-        lines.append("")
-        metric_cols = [c for c in ragas_df.columns if c != "strategy"]
-        header = "| 전략 | " + " | ".join(metric_cols) + " |"
-        sep = "|------|" + "|".join(":---:" for _ in metric_cols) + "|"
-        lines.append(header)
-        lines.append(sep)
-        for _, row in ragas_df.iterrows():
-            vals = " | ".join(
-                f"{row[c]:.4f}" if isinstance(row[c], float) else str(row[c])
-                for c in metric_cols
-            )
-            lines.append(f"| {row['strategy']} | {vals} |")
-        lines.append("")
-
-        # 가중 점수 테이블 (모든 프로파일)
-        from rag_bench.evaluation.evaluator import SCORING_PROFILES
-        lines.append("## 가중 점수 (Scoring Profiles)")
-        lines.append("")
-        profile_names = list(SCORING_PROFILES.keys())
-        header = "| 전략 | " + " | ".join(profile_names) + " |"
-        sep = "|------|" + "|".join(":---:" for _ in profile_names) + "|"
-        lines.append(header)
-        lines.append(sep)
-        for _, row in ragas_df.iterrows():
-            vals = []
-            for pname in profile_names:
-                weights = SCORING_PROFILES[pname]
-                ws = 0.0
-                for metric, weight in weights.items():
-                    val = row.get(metric, 0.0)
-                    if isinstance(val, (int, float)):
-                        ws += val * weight
-                vals.append(f"{ws:.4f}")
-            lines.append(f"| {row['strategy']} | " + " | ".join(vals) + " |")
-        lines.append("")
+    _report_env_section(lines, tracker)
+    _report_latency_section(lines, latency_summary_df)
+    _report_timing_section(lines, timing_df)
+    _report_ragas_section(lines, ragas_df)
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"  리포트: {report_path}")

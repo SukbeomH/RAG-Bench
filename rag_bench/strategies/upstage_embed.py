@@ -136,6 +136,17 @@ class UpstageEmbedStrategy(BaseRAGStrategy):
         query_vector = self._query_embeddings.embed_query(query)
         return self._vectorstore.similarity_search_by_vector(query_vector, k=k)
 
+    def get_raw_token_usages(self):
+        """인덱싱/쿼리 TokenUsage 객체를 그대로 반환한다.
+
+        RunTracker.add_tokens_breakdown() 등 TokenUsage 객체를 직접 필요로 하는
+        호출자를 위해 제공한다. 비공개 속성의 직접 접근을 방지한다.
+
+        Returns:
+            (indexing_usage, query_usage) 튜플
+        """
+        return self._token_indexing, self._token_query
+
     def get_token_usage(self) -> dict:
         """인덱싱/쿼리 토큰 사용량을 반환한다."""
         return {

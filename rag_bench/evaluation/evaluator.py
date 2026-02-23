@@ -11,7 +11,7 @@ import pandas as pd
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
-from rag_bench.config import DEFAULT_EVAL_LLM
+from rag_bench.config import DEFAULT_EVAL_LLM, make_async_http_client, make_http_client
 from rag_bench.evaluation.metrics import MetricPreset, create_metrics
 
 
@@ -70,13 +70,12 @@ class _MultiPerspectiveLLM:
     def _get_structured_llm(self) -> Any:
         """ChatOpenAI.with_structured_output 인스턴스를 lazy 초기화한다."""
         if self._structured_llm is None:
-            import httpx
             from langchain_openai import ChatOpenAI
 
             chat_llm = ChatOpenAI(
                 model=self._model,
-                http_client=httpx.Client(verify=self._verify_ssl),
-                http_async_client=httpx.AsyncClient(verify=self._verify_ssl),
+                http_client=make_http_client(verify=self._verify_ssl),
+                http_async_client=make_async_http_client(verify=self._verify_ssl),
                 temperature=0.7,
             )
             # json_schema: OpenAI Structured Outputs — 스키마 준수 보장
@@ -302,14 +301,13 @@ class ExtendedRAGEvaluator:
             try:
                 import warnings
 
-                import httpx
                 from langchain_openai import ChatOpenAI
                 from ragas.llms import LangchainLLMWrapper
 
                 chat_llm = ChatOpenAI(
                     model=self.llm_model,
-                    http_client=httpx.Client(verify=False),
-                    http_async_client=httpx.AsyncClient(verify=False),
+                    http_client=make_http_client(),
+                    http_async_client=make_async_http_client(),
                 )
                 # LangchainLLMWrapper는 BaseRagasLLM을 구현하므로 agenerate_text() 지원
                 with warnings.catch_warnings():

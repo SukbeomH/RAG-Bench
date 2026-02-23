@@ -30,7 +30,10 @@ from typing import List, Optional
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
+    DEFAULT_CONTEXTUAL_LLM,
     DOCS_DIR,
+    make_async_http_client,
+    make_http_client,
     setup_ssl_bypass,
 )
 from rag_bench.indexing.chunker import create_parent_child_chunks
@@ -46,7 +49,7 @@ def _compute_docs_hash(docs_dir: Path) -> str:
     return h.hexdigest()[:16]
 
 
-def _compute_effective_num_qa(args, parent_pairs: list) -> int:
+def compute_effective_num_qa(args, parent_pairs: list) -> int:
     """청크 수 × max_qa_per_page 로 QA 생성 수를 결정한다."""
     sampled_page_count = len(parent_pairs)
     effective = sampled_page_count * args.max_qa_per_page
@@ -63,7 +66,7 @@ def _compute_effective_num_qa(args, parent_pairs: list) -> int:
 KG_SAVE_PATH = BENCH_DATA_DIR / "ragas_knowledge_graph.json"
 
 
-def _generate_qa_ragas(
+def generate_qa_ragas(
     parent_pairs: list,
     num_qa: int,
     reuse_kg: bool = False,
@@ -74,7 +77,6 @@ def _generate_qa_ragas(
     """RAGAS KnowledgeGraph + TestsetGenerator로 QA 생성."""
     import os
 
-    import httpx
     from langchain_openai import OpenAIEmbeddings
     from openai import AsyncOpenAI
     from ragas.embeddings import LangchainEmbeddingsWrapper
@@ -90,15 +92,13 @@ def _generate_qa_ragas(
 
     # 1. LLM/Embedding 초기화
     print("  [RAGAS] LLM/Embedding 초기화...")
-    async_client = httpx.AsyncClient(verify=False)
     openai_client = AsyncOpenAI(
         api_key=os.environ.get("OPENAI_API_KEY"),
-        http_client=async_client,
+        http_client=make_async_http_client(),
     )
-    ragas_llm = llm_factory(model="gpt-4o-mini", client=openai_client)
+    ragas_llm = llm_factory(model=DEFAULT_CONTEXTUAL_LLM, client=openai_client)
 
-    sync_http_client = httpx.Client(verify=False)
-    embeddings = OpenAIEmbeddings(http_client=sync_http_client)
+    embeddings = OpenAIEmbeddings(http_client=make_http_client())
     ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
 
     # 2. LangChain 문서 준비
@@ -302,13 +302,13 @@ def main():
         sys.exit(1)
 
     # Step 2: 유효 QA 수 계산
-    effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
+    effective_num_qa = compute_effective_num_qa(args, parent_pairs)
 
     # Step 3: RAGAS KG 기반 QA 생성
     print(f"\n=== Step 2: RAGAS KG 기반 QA 생성 (n={effective_num_qa}) ===")
     with tracker.phase("ragas_kg_qa_generation"):
         with track_openai_tokens() as qa_tokens:
-            qa_pairs = _generate_qa_ragas(
+            qa_pairs = generate_qa_ragas(
                 parent_pairs=parent_pairs,
                 num_qa=effective_num_qa,
                 reuse_kg=args.reuse_kg,

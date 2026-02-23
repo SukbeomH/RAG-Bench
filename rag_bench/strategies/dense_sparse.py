@@ -19,7 +19,7 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import SparseVector
 
 from rag_bench.base import BaseRAGStrategy, StrategyRetriever
-from rag_bench.config import QDRANT_DB_PREFIX
+from rag_bench.config import QDRANT_COLLECTION_NAME, QDRANT_DB_PREFIX
 from rag_bench.utils.device import detect_device
 
 
@@ -277,6 +277,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
         sparse_type: Optional[str] = None,
         qdrant_path: Optional[str] = None,
         device: Optional[str] = None,   # None이면 _init_dense에서 detect_device() 자동 사용
+        collection_name: str = QDRANT_COLLECTION_NAME,
     ):
         self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
         self._sparse_type = sparse_type or "korean_bm25"
@@ -284,10 +285,9 @@ class DenseSparseStrategy(BaseRAGStrategy):
         if qdrant_path is not None:
             self._qdrant_path = qdrant_path
         else:
-            dense_short = self._dense_model.split("/")[-1]
-            self._qdrant_path = f"{QDRANT_DB_PREFIX}{dense_short}_{self._sparse_type}"
+            self._qdrant_path = f"{QDRANT_DB_PREFIX}{self._dense_short}_{self._sparse_type}"
 
-        self._collection_name = "document_child_chunks"
+        self._collection_name = collection_name
         self._device: Optional[str] = device   # None이면 _init_dense에서 detect_device() 사용
 
         self._dense_embeddings: Optional[Embeddings] = None
@@ -297,14 +297,17 @@ class DenseSparseStrategy(BaseRAGStrategy):
         self._is_ready = False
 
     @property
+    def _dense_short(self) -> str:
+        """모델 경로에서 짧은 이름을 추출한다 (예: 'BAAI/bge-m3' → 'bge-m3')."""
+        return self._dense_model.split("/")[-1]
+
+    @property
     def name(self) -> str:
-        dense_short = self._dense_model.split("/")[-1]
-        return f"DS({dense_short}+{self._sparse_type})"
+        return f"DS({self._dense_short}+{self._sparse_type})"
 
     @property
     def description(self) -> str:
-        dense_short = self._dense_model.split("/")[-1]
-        return f"Hybrid: {dense_short} (dense) + {self._sparse_type} (sparse)"
+        return f"Hybrid: {self._dense_short} (dense) + {self._sparse_type} (sparse)"
 
     @property
     def is_ready(self) -> bool:
