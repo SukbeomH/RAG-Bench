@@ -31,6 +31,7 @@ dependencies = [
     "ragas>=0.4.3",
     "einops>=0.8.2",
     "matplotlib>=3.10.8",
+    "rapidfuzz>=3.14.3",
 ]
 
 [tool.hatch.build.targets.wheel]
