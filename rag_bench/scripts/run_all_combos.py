@@ -110,12 +110,12 @@ def _print_init_summary(results: list):
 
 
 # ===========================================================================
-# 새 모드: 3-Layer 조합 실행
+# 새 모드: 4-Layer 조합 실행
 # ===========================================================================
 
 
 def _run_preset_mode(args):
-    """--preset 기반 새 3-Layer 조합 실행."""
+    """--preset 기반 새 4-Layer 조합 실행."""
     setup_ssl_bypass()
 
     preset_name = args.preset
@@ -136,7 +136,7 @@ def _run_preset_mode(args):
             sys.exit(1)
 
     print(f"\n{'═' * 60}")
-    print(f" 3-Layer 조합 벤치마크 — 프리셋: {preset_name}")
+    print(f" 4-Layer 조합 벤치마크 — 프리셋: {preset_name}")
     print(f"{'═' * 60}")
     print(f"  Dense Models: {config['dense_models']}")
     print(f"  Sparse Models: {config['sparse_models']}")
@@ -544,7 +544,7 @@ def _run_preset_mode(args):
     # ── Upstage 토큰 breakdown 집계 ──
     from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
     from rag_bench.run_tracker import TokenUsage as _TU
-    for _label, _strat in active_strategies:
+    for _spec, _strat in strategies:
         _base = getattr(_strat, "_base_strategy", _strat)
         if isinstance(_base, UpstageEmbedStrategy):
             _idx = _base._token_indexing
@@ -724,7 +724,7 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
     report_path = output_dir / "e2e_report.md"
 
     lines = [
-        "# E2E 3-Layer 조합 벤치마크 리포트",
+        "# E2E 4-Layer 조합 벤치마크 리포트",
         "",
         f"**조합 수**: {len(combo_specs)}개",
         f"**생성 시각**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
@@ -972,7 +972,7 @@ def _cleanup_strategies(strategies):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="전체 조합 벤치마크 — 3-Layer 교차 조합 + 2-Pass 실행"
+        description="전체 조합 벤치마크 — 4-Layer 교차 조합 + 2-Pass 실행"
     )
 
     parser.add_argument("--k", type=int, default=3, help="검색 결과 수 (기본: 3)")
