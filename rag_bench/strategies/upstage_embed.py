@@ -1,9 +1,9 @@
 """
-UpstageEmbedStrategy — Upstage solar-embedding-1-large 기반 Dense 검색.
+UpstageEmbedStrategy — Upstage Solar Embeddings 기반 Dense 검색.
 
 Upstage는 문서용(passage)과 쿼리용(query) 모델을 분리 운용:
-  - 인덱싱: solar-embedding-1-large-passage
-  - 쿼리:   solar-embedding-1-large-query
+  - 인덱싱: embedding-passage
+  - 쿼리:   embedding-query
 
 환경변수: UPSTAGE_API_KEY
 의존성: langchain-upstage, langchain-qdrant
@@ -20,12 +20,12 @@ from rag_bench.base import BaseRAGStrategy, StrategyRetriever
 
 
 class UpstageEmbedStrategy(BaseRAGStrategy):
-    """Upstage solar-embedding-1-large 기반 Dense 검색."""
+    """Upstage Solar Embeddings 기반 Dense 검색."""
 
     def __init__(
         self,
-        model: str = "solar-embedding-1-large-passage",
-        query_model: str = "solar-embedding-1-large-query",
+        model: str = "embedding-passage",
+        query_model: str = "embedding-query",
         qdrant_path: Optional[str] = None,
         collection_name: str = "upstage_embed",
         k: int = 3,

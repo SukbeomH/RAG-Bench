@@ -212,7 +212,7 @@ DENSE_MODELS: Dict[str, str] = {
     # OpenAI API
     "openai-large": "text-embedding-3-large",
     # Upstage API
-    "upstage": "solar-embedding-1-query",
+    "upstage": "embedding-query",
 }
 
 DENSE_DIMS: Dict[str, int] = {
@@ -220,7 +220,7 @@ DENSE_DIMS: Dict[str, int] = {
     "intfloat/multilingual-e5-large": 1024,
     "BAAI/bge-m3": 1024,
     "text-embedding-3-large": 3072,
-    "solar-embedding-1-query": 4096,
+    "embedding-query": 4096,
 }
 
 SPARSE_TYPES: List[str] = ["korean_bm25", "splade"]
@@ -313,10 +313,10 @@ class DenseSparseStrategy(BaseRAGStrategy):
             # OpenAI Embeddings API — device 파라미터 불필요
             from langchain_openai import OpenAIEmbeddings
             self._dense_embeddings = OpenAIEmbeddings(model=model_spec)
-        elif "solar-embedding" in model_spec:
+        elif "embedding-query" in model_spec or "embedding-passage" in model_spec or "solar-embedding" in model_spec:
             # Upstage Solar Embeddings API — device 파라미터 불필요
             from langchain_upstage import UpstageEmbeddings
-            self._dense_embeddings = UpstageEmbeddings(model="solar-embedding-1-query")
+            self._dense_embeddings = UpstageEmbeddings(model=model_spec)
         else:
             # HuggingFace 로컬 모델
             from langchain_huggingface import HuggingFaceEmbeddings
