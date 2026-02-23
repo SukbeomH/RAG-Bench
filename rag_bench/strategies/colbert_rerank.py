@@ -14,6 +14,7 @@ ColBERT를 검색 자체에 쓰는 ColBERTStrategy와 달리,
 전체 코퍼스 인코딩 없이 후보 N개만 인코딩하므로 효율적이다.
 """
 
+import threading
 from typing import Any, List, Optional
 
 from langchain_core.documents import Document
@@ -21,6 +22,9 @@ from langchain_core.retrievers import BaseRetriever
 
 from rag_bench.base import BaseRAGStrategy, StrategyRetriever
 from rag_bench.utils.device import detect_device
+
+# ColBERT 모델은 스레드 비안전(PyTorch 배치 텐서 공유) — 전역 Lock으로 직렬화
+_COLBERT_INFERENCE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -128,27 +132,26 @@ class ColBERTRerankStrategy(BaseRAGStrategy):
         # k를 후보 수 이하로 제한
         k = min(k, len(candidates))
 
-        # 2단계: ColBERT 인코딩
-        query_embedding = self._model.encode(
-            sentences=[query],
-            batch_size=1,
-            is_query=True,
-        )
-
+        # 2단계: ColBERT 인코딩 + 3단계: MaxSim 리랭킹
+        # 공유 모델은 스레드 비안전 — Lock으로 직렬화
         doc_texts = [doc.page_content for doc in candidates]
-        doc_embeddings = self._model.encode(
-            sentences=doc_texts,
-            batch_size=self._batch_size,
-            is_query=False,
-        )
-
-        # 3단계: MaxSim 리랭킹
         doc_ids = list(range(len(candidates)))
-        reranked = rank.rerank(
-            documents_ids=[doc_ids],
-            queries_embeddings=query_embedding,
-            documents_embeddings=[doc_embeddings],
-        )
+        with _COLBERT_INFERENCE_LOCK:
+            query_embedding = self._model.encode(
+                sentences=[query],
+                batch_size=1,
+                is_query=True,
+            )
+            doc_embeddings = self._model.encode(
+                sentences=doc_texts,
+                batch_size=self._batch_size,
+                is_query=False,
+            )
+            reranked = rank.rerank(
+                documents_ids=[doc_ids],
+                queries_embeddings=query_embedding,
+                documents_embeddings=[doc_embeddings],
+            )
 
         # reranked: [[{"id": 0, "score": 13.8}, ...]]
         ranked = reranked[0]
