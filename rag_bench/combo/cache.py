@@ -4,6 +4,7 @@ CacheConfig + IndexCacheManager.
 인덱스 캐시 관리 및 설정.
 """
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,6 +34,7 @@ class IndexCacheManager:
         self.cache: Dict[str, Tuple[Any, str]] = {}
         self.ctx_cache: Dict[str, Any] = {}
         self._colbert_model: Any = None
+        self._colbert_lock: threading.Lock = threading.Lock()
         self._flashrank_ranker: Any = None
 
     def get_colbert_model(self):
@@ -48,6 +50,10 @@ class IndexCacheManager:
         )
         print("[ColBERT 캐시] 모델 로드 완료.")
         return self._colbert_model
+
+    def get_colbert_lock(self) -> threading.Lock:
+        """공유 ColBERT 모델에 대한 전용 Lock을 반환한다."""
+        return self._colbert_lock
 
     def get_flashrank_ranker(self):
         """FlashRank Ranker를 1회만 로드하고 이후 공유."""
@@ -66,11 +72,13 @@ class IndexCacheManager:
         """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드.
 
         디스크에 기존 Qdrant 인덱스가 있고 reindex=False면 재인덱싱 없이 연결만 한다.
+        BM25 어휘는 {qdrant_path}_bm25_vocab.json에 영속화하여 재시작 시 재fit을 생략한다.
         """
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
+        from rag_bench.strategies.dense_sparse import DenseSparseStrategy, KoreanBM25Encoder
 
         key = spec.index_key
         qdrant_path = str(BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}{spec.dense}_{spec.sparse}")
+        vocab_path = qdrant_path + "_bm25_vocab.json"
 
         if key in self.cache and not reindex:
             cached_strategy, _ = self.cache[key]
@@ -89,13 +97,17 @@ class IndexCacheManager:
         if index_exists and not reindex:
             print(f"  [기존 인덱스 재사용] {spec.dense}+{spec.sparse} — {qdrant_path}")
             strategy._ensure_initialized()
-            # BM25 어휘는 디스크에 영속화되지 않으므로 동일 문서로 재fit
-            if hasattr(strategy._sparse_embeddings, "fit"):
-                texts = [doc.page_content for doc in child_chunks]
-                strategy._sparse_embeddings.fit(texts)
+            if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
+                if Path(vocab_path).exists():
+                    strategy._sparse_embeddings = KoreanBM25Encoder.load(vocab_path)
+                else:
+                    texts = [doc.page_content for doc in child_chunks]
+                    strategy._sparse_embeddings.fit(texts)
             strategy._is_ready = True
         else:
             strategy.index(child_chunks)
+            if isinstance(strategy._sparse_embeddings, KoreanBM25Encoder):
+                strategy._sparse_embeddings.save(vocab_path)
 
         self.cache[key] = (strategy, qdrant_path)
         return strategy
@@ -112,13 +124,14 @@ class IndexCacheManager:
 
         디스크에 기존 Contextual Qdrant 인덱스가 있고 reindex=False면
         LLM 문맥 생성 및 재인덱싱 없이 연결만 한다.
+        BM25 어휘는 {ctx_qdrant_path}_bm25_vocab.json에 영속화하여 재시작 시 재fit을 생략한다.
 
         Args:
             pre_enriched: 사전 생성된 enriched 청크 목록. 제공 시 LLM 호출 없이
                           pre_enriched를 직접 ctx_base에 인덱싱한다.
         """
         from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
+        from rag_bench.strategies.dense_sparse import DenseSparseStrategy, KoreanBM25Encoder
 
         key = f"ctx:{spec.index_key}"
 
@@ -128,6 +141,8 @@ class IndexCacheManager:
         ctx_qdrant_path = str(
             BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}ctx_{spec.dense}_{spec.sparse}"
         )
+        ctx_vocab_path = ctx_qdrant_path + "_bm25_vocab.json"
+
         ctx_base = DenseSparseStrategy(
             dense_model=spec.dense,
             sparse_type=spec.sparse,
@@ -159,23 +174,30 @@ class IndexCacheManager:
         if ctx_index_exists and not reindex:
             print(f"  [기존 Contextual 인덱스 재사용] {spec.dense}+{spec.sparse} — {ctx_qdrant_path}")
             ctx_base._ensure_initialized()
-            if hasattr(ctx_base._sparse_embeddings, "fit"):
-                # pre_enriched 있으면 enriched 텍스트 기준으로 BM25 fit (인덱스와 어휘 일치)
-                fit_docs = pre_enriched if pre_enriched is not None else child_chunks
-                texts = [doc.page_content for doc in fit_docs]
-                ctx_base._sparse_embeddings.fit(texts)
+            if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
+                if Path(ctx_vocab_path).exists():
+                    ctx_base._sparse_embeddings = KoreanBM25Encoder.load(ctx_vocab_path)
+                else:
+                    # pre_enriched 있으면 enriched 텍스트 기준으로 BM25 fit (인덱스와 어휘 일치)
+                    fit_docs = pre_enriched if pre_enriched is not None else child_chunks
+                    texts = [doc.page_content for doc in fit_docs]
+                    ctx_base._sparse_embeddings.fit(texts)
             ctx_base._is_ready = True
             strategy._is_ready = True
         else:
             if pre_enriched is not None:
                 ctx_base._ensure_initialized()
-                if hasattr(ctx_base._sparse_embeddings, "fit"):
+                if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
                     texts = [d.page_content for d in pre_enriched]
                     ctx_base._sparse_embeddings.fit(texts)
                 ctx_base.index(pre_enriched)
+                if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
+                    ctx_base._sparse_embeddings.save(ctx_vocab_path)
                 strategy._is_ready = True
             else:
                 strategy.index(child_chunks)
+                if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
+                    ctx_base._sparse_embeddings.save(ctx_vocab_path)
 
         self.ctx_cache[key] = strategy
         return strategy

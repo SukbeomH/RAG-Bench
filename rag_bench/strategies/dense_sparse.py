@@ -5,6 +5,7 @@ Qdrant 벡터 DB에 Dense(벡터) + Sparse(BM25/SPLADE) 하이브리드 검색�
 dense_model / sparse_type 독립 파라미터로 조합을 지정한다.
 """
 
+import json
 import math
 import threading
 from collections import Counter
@@ -106,6 +107,33 @@ class KoreanBM25Encoder:
     def embed_documents(self, texts: List[str]) -> List[SparseVector]:
         """langchain_qdrant 호환 sparse embedding (documents)."""
         return [self.embed_query(text) for text in texts]
+
+    def save(self, path: str) -> None:
+        """어휘 상태를 JSON 파일에 저장한다."""
+        state = {
+            "vocab": self.vocab,
+            "doc_freqs": self.doc_freqs,
+            "doc_count": self.doc_count,
+            "avg_doc_len": self.avg_doc_len,
+            "_next_id": self._next_id,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+        print(f"BM25 vocab saved: {path} ({len(self.vocab)} tokens)")
+
+    @classmethod
+    def load(cls, path: str, k1: float = 1.5, b: float = 0.75) -> "KoreanBM25Encoder":
+        """JSON 파일에서 어휘 상태를 복원한다."""
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        instance = cls(k1=k1, b=b)
+        instance.vocab = state["vocab"]
+        instance.doc_freqs = state["doc_freqs"]
+        instance.doc_count = state["doc_count"]
+        instance.avg_doc_len = state["avg_doc_len"]
+        instance._next_id = state["_next_id"]
+        print(f"BM25 vocab loaded: {path} ({len(instance.vocab)} tokens)")
+        return instance
 
 
 class SpladeEncoder:

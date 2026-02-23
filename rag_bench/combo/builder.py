@@ -30,12 +30,14 @@ def build_strategy_from_spec(
         from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
 
         shared = index_cache.get_colbert_model()
+        shared_lock = index_cache.get_colbert_lock()
         return ColBERTRerankStrategy(
             base_strategy=base,
             model_name=cfg.colbert_model,
             rerank_n=cfg.rerank_n,
             device=cfg.colbert_device,
             shared_model=shared,
+            shared_lock=shared_lock,
         )
     elif spec.reranker == "flashrank":
         from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
