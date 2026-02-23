@@ -49,6 +49,7 @@ class BenchmarkRunner:
         self.parallel_strategies = parallel_strategies or int(os.environ.get("RAG_BENCH_PARALLEL_STRATEGIES", "0"))
         self._results: Dict[str, List[dict]] = {}
         self._reports: Dict[str, "EvaluationReport"] = {}
+        self._eval_times: Dict[str, float] = {}  # 전략별 RAGAS 평가 소요 시간 (초)
         self._generator = None  # lazy 초기화
 
     def _ensure_generator(self):
@@ -221,6 +222,7 @@ class BenchmarkRunner:
 
         for name, query_results in self._results.items():
             print(f"Evaluating {name}...")
+            _t_strat = time.time()
 
             questions = [r["query"] for r in query_results]
             contexts = [[d["content"] for d in r["results"]] for r in query_results]
@@ -281,10 +283,12 @@ class BenchmarkRunner:
 
                 scores_dict["strategy"] = name
                 all_scores.append(scores_dict)
+                self._eval_times[name] = round(time.time() - _t_strat, 2)
 
                 print(f"  -> {scores_dict}")
 
             except Exception as e:
+                self._eval_times[name] = round(time.time() - _t_strat, 2)
                 print(f"Evaluation failed for {name}: {e}")
 
         return pd.DataFrame(all_scores)

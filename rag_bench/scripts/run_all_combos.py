@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
+    DOCS_DIR,
     setup_ssl_bypass,
 )
 from rag_bench.combo import (
@@ -38,6 +39,7 @@ from rag_bench.combo import (
     CacheConfig, IndexCacheManager, build_strategy_from_spec,
 )
 from rag_bench.indexing.chunker import create_parent_child_chunks
+from rag_bench.indexing.pdf_converter import pdfs_to_markdowns
 from rag_bench.run_tracker import RunTracker, track_openai_tokens
 from rag_bench.runner import BenchmarkRunner
 from rag_bench.utils.qa_loader import load_qa_dataset
@@ -124,6 +126,13 @@ def _run_preset_mode(args):
     config = PRESETS[preset_name]
     combos = generate_valid_combinations(config)
 
+    # --dense-filter: 특정 dense 모델만 실행
+    if getattr(args, "dense_filter", None):
+        filter_models = [m.strip() for m in args.dense_filter.split(",")]
+        combos = [c for c in combos if c.dense in filter_models]
+        if not combos:
+            print(f"Error: --dense-filter '{args.dense_filter}'에 해당하는 조합이 없습니다.")
+            sys.exit(1)
 
     print(f"\n{'═' * 60}")
     print(f" 3-Layer 조합 벤치마크 — 프리셋: {preset_name}")
@@ -157,13 +166,78 @@ def _run_preset_mode(args):
     # ── RunTracker 초기화 ──
     tracker = RunTracker(output_dir=BENCH_DATA_DIR)
 
-    # ── Step 1: QA 로드 ──
+    # ── Step 0: PDF 페이지 샘플링 → Markdown 재생성 (--sample-pages 시) ──
+    if getattr(args, "sample_pages", False):
+        print(f"\n{'=' * 60}")
+        print("Step 0: PDF 페이지 샘플링 → Markdown 변환")
+        print(f"{'=' * 60}")
+        pdf_files = list(DOCS_DIR.glob("*.pdf"))
+        if not pdf_files:
+            print(f"[Warning] {DOCS_DIR}에 PDF 없음 — 기존 .md 파일을 사용합니다.")
+        else:
+            ratio = getattr(args, "page_sample_ratio", 0.1)
+            max_p = getattr(args, "max_sample_pages", 5)
+            print(f"  PDF: {len(pdf_files)}개  비율: {ratio:.0%}  최대: {max_p}페이지")
+            BENCH_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+            pdfs_to_markdowns(
+                docs_dir=str(DOCS_DIR),
+                output_dir=str(BENCH_DOCS_DIR),
+                sample_pages=True,
+                page_sample_ratio=ratio,
+                max_sample_pages=max_p,
+            )
+            print(f"  샘플링된 .md → {BENCH_DOCS_DIR}")
+
+    # ── Step 1: QA 로드 또는 재생성 ──
     print(f"\n{'=' * 60}")
     print("Step 1: QA 데이터셋 로드")
     print(f"{'=' * 60}")
     with tracker.phase("qa_dataset_load"):
-        dataset = load_qa_dataset(BENCH_DATA_DIR)
-        qa_pairs = dataset["qa_pairs"]
+        if getattr(args, "regenerate_qa", False) or getattr(args, "sample_pages", False):
+            # 샘플링된 문서 기준으로 QA 재생성
+            from rag_bench.scripts.generate_qa import (
+                _compute_effective_num_qa,
+                _generate_qa_ragas,
+            )
+            import argparse as _ap
+            _qa_args = _ap.Namespace(
+                sample_pages=getattr(args, "sample_pages", False),
+                max_qa_per_page=getattr(args, "max_qa_per_page", 2),
+            )
+            # 청킹 먼저 (QA 수 결정에 필요)
+            _tmp_parent_pairs, _ = create_parent_child_chunks(
+                markdown_dir=str(BENCH_DOCS_DIR),
+                parent_store_path=str(BENCH_DATA_DIR / "parent_store"),
+            )
+            effective_num_qa = _compute_effective_num_qa(_qa_args, _tmp_parent_pairs)
+            print(f"  QA 재생성: {effective_num_qa}개 (청크 {len(_tmp_parent_pairs)}개 × {_qa_args.max_qa_per_page})")
+            qa_pairs_raw = _generate_qa_ragas(
+                parent_pairs=_tmp_parent_pairs,
+                num_qa=effective_num_qa,
+                reuse_kg=False,
+            )
+            if qa_pairs_raw:
+                # qa_dataset.json 저장
+                import json as _json, hashlib as _hl
+                _docs_hash = _hl.md5(
+                    "".join(sorted(str(p) for p in BENCH_DOCS_DIR.glob("*.md"))).encode()
+                ).hexdigest()[:8]
+                _qa_out = {
+                    "docs_hash": _docs_hash,
+                    "num_qa": len(qa_pairs_raw),
+                    "qa_pairs": qa_pairs_raw,
+                }
+                (BENCH_DATA_DIR / "qa_dataset.json").write_text(
+                    _json.dumps(_qa_out, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                qa_pairs = qa_pairs_raw
+            else:
+                print("  [Warning] QA 재생성 실패 — 기존 qa_dataset.json 사용")
+                dataset = load_qa_dataset(BENCH_DATA_DIR)
+                qa_pairs = dataset["qa_pairs"]
+        else:
+            dataset = load_qa_dataset(BENCH_DATA_DIR)
+            qa_pairs = dataset["qa_pairs"]
         queries = [qa["question"] for qa in qa_pairs]
         ground_truths = [qa["ground_truth"] for qa in qa_pairs]
 
@@ -258,8 +332,19 @@ def _run_preset_mode(args):
     summary_df = None
     if latency_df is not None:
         latency_path = BENCH_DATA_DIR / "all_combos_latency.csv"
-        latency_df.to_csv(latency_path, index=False, encoding="utf-8-sig")
-        print(f"  레이턴시 결과: {latency_path}")
+        if getattr(args, "append_results", False) and latency_path.exists():
+            import pandas as pd
+            existing = pd.read_csv(latency_path)
+            # 기존에 같은 전략명이 있으면 덮어쓰기 (재실행 대비)
+            new_strategies = latency_df["strategy"].unique()
+            existing = existing[~existing["strategy"].isin(new_strategies)]
+            merged = pd.concat([existing, latency_df], ignore_index=True)
+            merged.to_csv(latency_path, index=False, encoding="utf-8-sig")
+            print(f"  레이턴시 결과 병합(append): {latency_path} (기존 {len(existing)}행 + 신규 {len(latency_df)}행)")
+            latency_df = merged  # 이후 summary 계산에 병합본 사용
+        else:
+            latency_df.to_csv(latency_path, index=False, encoding="utf-8-sig")
+            print(f"  레이턴시 결과: {latency_path}")
         # 전략별 요약 DataFrame (avg_latency 등)
         summary_df = _build_latency_summary(latency_df)
 
@@ -357,8 +442,17 @@ def _run_preset_mode(args):
 
         if scores_df is not None:
             scores_path = BENCH_DATA_DIR / "all_combos_ragas.csv"
-            scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
-            print(f"  RAGAS 점수: {scores_path}")
+            if getattr(args, "append_results", False) and scores_path.exists():
+                import pandas as pd
+                existing_ragas = pd.read_csv(scores_path)
+                new_strategies = scores_df["strategy"].unique()
+                existing_ragas = existing_ragas[~existing_ragas["strategy"].isin(new_strategies)]
+                scores_df = pd.concat([existing_ragas, scores_df], ignore_index=True)
+                scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
+                print(f"  RAGAS 점수 병합(append): {scores_path}")
+            else:
+                scores_df.to_csv(scores_path, index=False, encoding="utf-8-sig")
+                print(f"  RAGAS 점수: {scores_path}")
 
             # 트래커에 RAGAS 점수 기록
             for _, row in scores_df.iterrows():
@@ -381,9 +475,37 @@ def _run_preset_mode(args):
         if args.layers and scores_df is not None:
             _print_layer_contribution_ragas(eval_strategies, scores_df)
 
-    # ── Step 6: 리포트 생성 ──
+    # ── Step 6: 조합별 전체 소요 시간 집계 ──
+    timing_df = _build_combo_timing_df(
+        strategies=strategies,
+        tracker=tracker,
+        summary_df=summary_df,
+        eval_runner=eval_runner if evaluator else None,
+        n_queries=len(queries),
+    )
+    if timing_df is not None:
+        timing_path = BENCH_DATA_DIR / "combo_timing.csv"
+        if getattr(args, "append_results", False) and timing_path.exists():
+            import pandas as _pd
+            existing_t = _pd.read_csv(timing_path)
+            existing_t = existing_t[~existing_t["label"].isin(timing_df["label"].unique())]
+            timing_df = _pd.concat([existing_t, timing_df], ignore_index=True)
+        timing_df.to_csv(timing_path, index=False, encoding="utf-8-sig")
+        print(f"  조합 타이밍: {timing_path}")
+        from rag_bench.utils.report import print_combo_timing_table, print_qa_scaling_table
+        print_combo_timing_table(timing_df)
+        print_qa_scaling_table(
+            timing_df=timing_df,
+            n_strategies=len(strategies),
+            n_eval_strategies=len(eval_strategies) if not args.pass1_only else 0,
+        )
+
+    # ── Step 7: 리포트 생성 ──
     if summary_df is not None:
-        _generate_report(summary_df, scores_df if evaluator else None, combos, BENCH_DATA_DIR, tracker=tracker)
+        _generate_report(
+            summary_df, scores_df if evaluator else None,
+            combos, BENCH_DATA_DIR, tracker=tracker, timing_df=timing_df,
+        )
 
     # ── 수행 이력 저장 ──
     tracker.finalize()
@@ -526,7 +648,7 @@ def _print_layer_contribution_ragas(strategies: List[Tuple[ComboSpec, Any]], sco
 # ===========================================================================
 
 
-def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, tracker=None):
+def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, tracker=None, timing_df=None):
     """Markdown 리포트 생성. latency_summary_df는 전략별 요약 DataFrame."""
     report_path = output_dir / "e2e_report.md"
 
@@ -602,6 +724,33 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
                 lines.append(f"| {i} | {row['strategy']} | {row['avg_latency']:.3f}s |")
         lines.append("")
 
+    if timing_df is not None and not timing_df.empty:
+        lines.append("## 조합별 전체 소요 시간")
+        lines.append("")
+        lines.append("| 조합 | Dense | Sparse | Reranker | LLM | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
+        lines.append("|------|-------|--------|----------|-----|:-------:|:--------:|:--------:|:-------:|")
+        for _, row in timing_df.sort_values("total_s", ascending=False).iterrows():
+            lines.append(
+                f"| {row['label']} | {row['dense']} | {row['sparse']} | {row['reranker']} | {row['llm_support']}"
+                f" | {row['build_s']:.1f} | {row['pass1_s']:.1f} | {row['pass2_s']:.1f} | **{row['total_s']:.1f}** |"
+            )
+        lines.append("")
+
+        # 레이어별 평균 소요 시간
+        lines.append("### 레이어별 평균 소요 시간")
+        lines.append("")
+        for layer_col, layer_name in [("dense", "Dense Model"), ("sparse", "Sparse"), ("reranker", "Reranker"), ("llm_support", "LLM Support")]:
+            lines.append(f"**{layer_name}**")
+            lines.append("")
+            lines.append("| 값 | 빌드(s) | Pass1(s) | Pass2(s) | 합계(s) |")
+            lines.append("|---|:-------:|:--------:|:--------:|:-------:|")
+            for val, grp in timing_df.groupby(layer_col):
+                lines.append(
+                    f"| {val} | {grp['build_s'].mean():.1f} | {grp['pass1_s'].mean():.1f}"
+                    f" | {grp['pass2_s'].mean():.1f} | {grp['total_s'].mean():.1f} |"
+                )
+            lines.append("")
+
     if ragas_df is not None and not ragas_df.empty:
         lines.append("## RAGAS 평가 결과")
         lines.append("")
@@ -647,6 +796,74 @@ def _generate_report(latency_summary_df, ragas_df, combo_specs, output_dir, trac
 # ===========================================================================
 # 공통 유틸리티
 # ===========================================================================
+
+
+def _build_combo_timing_df(
+    strategies: List[Tuple[ComboSpec, Any]],
+    tracker,
+    summary_df,
+    eval_runner=None,
+    n_queries: int = 0,
+):
+    """조합별 전체 소요 시간 DataFrame을 생성한다.
+
+    컬럼:
+        label, dense, sparse, reranker, llm_support,
+        build_s           — 인덱싱(빌드) 소요 시간
+        pass1_s           — Pass 1 검색 총 소요 시간 (avg_latency × n_queries)
+        pass1_s_per_qa    — 조합당 QA 1개 평균 검색 시간
+        pass2_s           — Pass 2 RAGAS 평가 소요 시간 (전략별 실측, 없으면 0)
+        pass2_s_per_qa    — 조합당 QA 1개 평균 RAGAS 시간 (0이면 미평가)
+        total_s           — build_s + pass1_s + pass2_s
+        n_queries         — 실행에 사용된 QA 수
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        return None
+
+    rows = []
+    for spec, strat in strategies:
+        timing = tracker.find_timing(spec.label)
+        build_s = timing.build_time_s if timing else 0.0
+
+        # Pass 1: avg_latency(s) × query_count
+        pass1_s = 0.0
+        n_q_actual = n_queries
+        if summary_df is not None and "strategy" in summary_df.columns:
+            mask = summary_df["strategy"] == strat.name
+            if mask.any():
+                avg_lat_s = summary_df.loc[mask, "avg_latency"].values[0]  # 이미 초 단위
+                n_q_actual = int(summary_df.loc[mask, "query_count"].values[0])
+                pass1_s = round(avg_lat_s * n_q_actual, 2)
+
+        pass1_per_qa = round(pass1_s / n_q_actual, 3) if n_q_actual > 0 else 0.0
+
+        # Pass 2: eval_runner._eval_times 에서 전략별 실측
+        pass2_s = 0.0
+        if eval_runner is not None and hasattr(eval_runner, "_eval_times"):
+            pass2_s = eval_runner._eval_times.get(strat.name, 0.0)
+
+        pass2_per_qa = round(pass2_s / n_q_actual, 3) if (n_q_actual > 0 and pass2_s > 0) else 0.0
+
+        rows.append({
+            "label": spec.label,
+            "dense": spec.dense,
+            "sparse": spec.sparse,
+            "reranker": spec.reranker or "none",
+            "llm_support": spec.llm_support or "none",
+            "build_s": round(build_s, 2),
+            "pass1_s": pass1_s,
+            "pass1_s_per_qa": pass1_per_qa,
+            "pass2_s": round(pass2_s, 2),
+            "pass2_s_per_qa": pass2_per_qa,
+            "total_s": round(build_s + pass1_s + pass2_s, 2),
+            "n_queries": n_q_actual,
+        })
+
+    if not rows:
+        return None
+    return pd.DataFrame(rows)
 
 
 def _release_memory():
@@ -708,6 +925,21 @@ def main():
     parser.add_argument("--scoring-profile", type=str, default="balanced",
                         choices=["balanced", "precision_critical", "speed_critical", "comprehensive"],
                         help="스코어링 프로파일 (기본: balanced)")
+    parser.add_argument("--dense-filter", type=str, default=None,
+                        help="실행할 dense 모델 필터 (쉼표 구분). 예: --dense-filter upstage,openai-large")
+    parser.add_argument("--append-results", action="store_true",
+                        help="기존 latency/RAGAS CSV에 결과를 병합(append)하여 저장")
+    # PDF 페이지 샘플링
+    parser.add_argument("--sample-pages", action="store_true",
+                        help="docs/*.pdf를 페이지 샘플링하여 rag_bench/docs/*.md 재생성 후 인덱싱")
+    parser.add_argument("--page-sample-ratio", type=float, default=0.1,
+                        help="페이지 샘플링 비율 (기본: 0.1 = 10%%)")
+    parser.add_argument("--max-sample-pages", type=int, default=5,
+                        help="최대 샘플 페이지 수 (기본: 5)")
+    parser.add_argument("--max-qa-per-page", type=int, default=2,
+                        help="청크당 QA 수 — QA 재생성 시 총 QA = 청크 수 × 이 값 (기본: 2)")
+    parser.add_argument("--regenerate-qa", action="store_true",
+                        help="기존 qa_dataset.json 무시하고 현재 문서에서 QA 재생성")
 
     args = parser.parse_args()
     _run_preset_mode(args)
