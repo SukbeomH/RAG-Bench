@@ -22,10 +22,10 @@ PACKAGE_ROOT = Path(__file__).parent
 # 모든 벤치마크 산출물(인덱스, 마크다운, parent_store 등)은
 # BENCH_DATA_DIR (_benchdata/) 하위에 배치하여 경로 기준을 단일화한다.
 # ---------------------------------------------------------------------------
-BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"   # 벤치마크 중간 산출물 (기준점)
-BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"         # 벤치마크 대상 markdown 문서
-MODELS_DIR = PACKAGE_ROOT / "_models"          # 로컬 모델 캐시
-MARKDOWN_DIR = BENCH_DATA_DIR / "markdown"     # 변환된 마크다운 저장 경로
+BENCH_DATA_DIR = PACKAGE_ROOT / "_benchdata"  # 벤치마크 중간 산출물 (기준점)
+BENCH_DOCS_DIR = PACKAGE_ROOT / "docs"  # 벤치마크 대상 markdown 문서
+MODELS_DIR = PACKAGE_ROOT / "_models"  # 로컬 모델 캐시
+MARKDOWN_DIR = BENCH_DATA_DIR / "markdown"  # 변환된 마크다운 저장 경로
 PARENT_STORE_PATH = BENCH_DATA_DIR / "parent_store"  # Parent 청크 저장 경로
 
 # ---------------------------------------------------------------------------
@@ -65,17 +65,17 @@ DEFAULT_LLM_TEMPERATURE = 0
 
 # 용도별 LLM 모델 상수
 # 이 상수를 수정하면 모든 관련 컴포넌트에 일괄 적용된다.
-DEFAULT_ANSWER_LLM = "gpt-4o-mini"      # 답변 생성용 (BenchmarkRunner)
-DEFAULT_EVAL_LLM = "gpt-4o-mini"        # RAGAS 평가용 (ExtendedRAGEvaluator)
+DEFAULT_ANSWER_LLM = "gpt-4o-mini"  # 답변 생성용 (BenchmarkRunner)
+DEFAULT_EVAL_LLM = "gpt-4o-mini"  # RAGAS 평가용 (ExtendedRAGEvaluator)
 DEFAULT_CONTEXTUAL_LLM = "gpt-4o-mini"  # Contextual Retrieval 압축용
 
 # ---------------------------------------------------------------------------
 # 실행 파라미터 상수
 # ---------------------------------------------------------------------------
-DEFAULT_RERANK_N = 20        # 리랭킹 후보 수 (ColBERT/FlashRank)
-DEFAULT_LLM_WORKERS = 8      # LLM 답변 생성 병렬 워커 수
+DEFAULT_RERANK_N = 10  # 리랭킹 후보 수 (ColBERT/FlashRank)
+DEFAULT_LLM_WORKERS = 8  # LLM 답변 생성 병렬 워커 수
 CONV_SUMMARY_MIN_MESSAGES = 4  # 대화 요약 최소 메시지 수
-CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
+CONV_HISTORY_WINDOW = 6  # 대화 이력 window 크기
 
 
 def setup_ssl_bypass() -> None:
@@ -105,6 +105,7 @@ def setup_ssl_bypass() -> None:
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     try:
         import torch
+
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
             gc.collect()
