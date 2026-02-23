@@ -221,12 +221,16 @@ class BenchmarkRunner:
         print(f"{'=' * 60}")
 
         all_scores = []
+        _t_pass2_start = time.time()
+        _completed_count = [0]  # mutable for closure
 
         self._ensure_generator()
 
+        items = list(self._results.items())
+        total = len(items)
+
         def _eval_one(name: str, query_results: List[dict]) -> Optional[Dict[str, Any]]:
             """단일 전략 평가 — 병렬 호출 가능."""
-            print(f"Evaluating {name}...")
             _t_strat = time.time()
 
             questions = [r["query"] for r in query_results]
@@ -280,19 +284,30 @@ class BenchmarkRunner:
                 }
                 self._reports[name] = result
                 scores_dict["strategy"] = name
-                self._eval_times[name] = round(time.time() - _t_strat, 2)
+                elapsed_strat = time.time() - _t_strat
+                self._eval_times[name] = round(elapsed_strat, 2)
+
+                _completed_count[0] += 1
+                done = _completed_count[0]
+                elapsed_total = time.time() - _t_pass2_start
+                avg_per = elapsed_total / done
+                eta_s = avg_per * (total - done)
+                eta_str = f"{int(eta_s // 60)}m {int(eta_s % 60)}s" if eta_s > 0 else "—"
+                print(
+                    f"[{done}/{total}] {name[:60]}"
+                    f"  {elapsed_strat:.1f}s | ETA {eta_str}"
+                )
                 print(f"  -> {scores_dict}")
                 return scores_dict
             except Exception as e:
                 self._eval_times[name] = round(time.time() - _t_strat, 2)
-                print(f"Evaluation failed for {name}: {e}")
+                _completed_count[0] += 1
+                print(f"[{_completed_count[0]}/{total}] FAILED {name}: {e}")
                 return None
-
-        items = list(self._results.items())
 
         if self.parallel_eval > 1:
             workers = min(self.parallel_eval, len(items))
-            print(f"  [병렬 평가] parallel_eval={workers}")
+            print(f"  [병렬 평가] parallel_eval={workers}, 총 {total}개 전략")
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
                     executor.submit(_eval_one, name, qr): name
@@ -303,11 +318,17 @@ class BenchmarkRunner:
                     if scores_dict is not None:
                         all_scores.append(scores_dict)
         else:
+            print(f"  순차 평가, 총 {total}개 전략")
             for name, query_results in items:
                 scores_dict = _eval_one(name, query_results)
                 if scores_dict is not None:
                     all_scores.append(scores_dict)
 
+        total_elapsed = time.time() - _t_pass2_start
+        print(
+            f"\nPass 2 완료 — {total}개 전략, "
+            f"총 {int(total_elapsed // 60)}분 {int(total_elapsed % 60)}초"
+        )
         return pd.DataFrame(all_scores)
 
     @property
