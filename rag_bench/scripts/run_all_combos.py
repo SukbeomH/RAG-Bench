@@ -211,11 +211,14 @@ def _run_preset_mode(args):
             )
             effective_num_qa = _compute_effective_num_qa(_qa_args, _tmp_parent_pairs)
             print(f"  QA 재생성: {effective_num_qa}개 (청크 {len(_tmp_parent_pairs)}개 × {_qa_args.max_qa_per_page})")
-            qa_pairs_raw = _generate_qa_ragas(
-                parent_pairs=_tmp_parent_pairs,
-                num_qa=effective_num_qa,
-                reuse_kg=False,
-            )
+            with track_openai_tokens() as _qa_tokens:
+                qa_pairs_raw = _generate_qa_ragas(
+                    parent_pairs=_tmp_parent_pairs,
+                    num_qa=effective_num_qa,
+                    reuse_kg=False,
+                )
+            if _qa_tokens.total_tokens > 0:
+                tracker.add_tokens_breakdown(_qa_tokens, "qa_generation", "openai")
             if qa_pairs_raw:
                 # qa_dataset.json 저장
                 import json as _json, hashlib as _hl
@@ -506,6 +509,19 @@ def _run_preset_mode(args):
             summary_df, scores_df if evaluator else None,
             combos, BENCH_DATA_DIR, tracker=tracker, timing_df=timing_df,
         )
+
+    # ── Upstage 토큰 breakdown 집계 ──
+    from rag_bench.strategies.upstage_embed import UpstageEmbedStrategy
+    from rag_bench.run_tracker import TokenUsage as _TU
+    for _label, _strat in active_strategies:
+        _base = getattr(_strat, "_base_strategy", _strat)
+        if isinstance(_base, UpstageEmbedStrategy):
+            _idx = _base._token_indexing
+            _qry = _base._token_query
+            if _idx.total_tokens > 0:
+                tracker.add_tokens_breakdown(_idx, "embedding_indexing", "upstage")
+            if _qry.total_tokens > 0:
+                tracker.add_tokens_breakdown(_qry, "embedding_query", "upstage")
 
     # ── 수행 이력 저장 ──
     tracker.finalize()

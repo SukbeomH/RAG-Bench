@@ -120,7 +120,7 @@ def _detect_gpu() -> Optional[str]:
 
 @dataclass
 class TokenUsage:
-    """LLM API 토큰 사용량."""
+    """LLM/Embedding API 토큰 사용량."""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -231,6 +231,11 @@ class BenchmarkRunRecord:
     # 토큰 사용량 총계
     token_usage_total: Dict[str, Any] = field(default_factory=dict)
 
+    # 토큰 사용량 세분화: {"{category}.{provider}": TokenUsage dict}
+    # category: qa_generation | contextual_indexing | ragas_evaluation | embedding_query
+    # provider: openai | upstage | local
+    token_breakdown: Dict[str, Any] = field(default_factory=dict)
+
     # 요약 통계
     total_build_time_s: float = 0.0
     total_query_time_s: float = 0.0
@@ -259,6 +264,7 @@ class RunTracker:
         self._timings: List[StrategyTiming] = []
         self._phases: List[PhaseTime] = []
         self._token_total = TokenUsage()
+        self._token_breakdown: Dict[str, TokenUsage] = {}  # "{category}.{provider}" → TokenUsage
         self._current_build_start: Optional[float] = None
 
     def set_config(
@@ -318,6 +324,25 @@ class RunTracker:
         """토큰 사용량을 총계에 추가한다."""
         self._token_total.merge(usage)
 
+    def add_tokens_breakdown(
+        self,
+        usage: TokenUsage,
+        category: str,
+        provider: str,
+    ):
+        """토큰 사용량을 category.provider 키로 세분화하여 기록한다.
+
+        Args:
+            usage: 추가할 토큰 사용량.
+            category: 'qa_generation' | 'contextual_indexing' | 'ragas_evaluation' | 'embedding_query'
+            provider: 'openai' | 'upstage' | 'local'
+        """
+        key = f"{category}.{provider}"
+        if key not in self._token_breakdown:
+            self._token_breakdown[key] = TokenUsage()
+        self._token_breakdown[key].merge(usage)
+        self._token_total.merge(usage)
+
     # ------------------------------------------------------------------
     # 전략 빌드 타이밍
     # ------------------------------------------------------------------
@@ -348,6 +373,11 @@ class RunTracker:
         if tokens and tokens.total_tokens > 0:
             timing.indexing_tokens = asdict(tokens)
             self._token_total.merge(tokens)
+            # breakdown: contextual 인덱싱은 OpenAI LLM 호출
+            key = "contextual_indexing.openai"
+            if key not in self._token_breakdown:
+                self._token_breakdown[key] = TokenUsage()
+            self._token_breakdown[key].merge(tokens)
         self._current_build_start = None
 
     # ------------------------------------------------------------------
@@ -376,6 +406,11 @@ class RunTracker:
     def record_ragas_tokens(self, tokens: TokenUsage):
         """RAGAS 평가에서 소비된 토큰을 기록한다."""
         self.record_phase("ragas_evaluation_tokens", 0.0, tokens=tokens)
+        # breakdown: RAGAS는 OpenAI LLM + Embedding 혼합 (get_openai_callback 기준)
+        key = "ragas_evaluation.openai"
+        if key not in self._token_breakdown:
+            self._token_breakdown[key] = TokenUsage()
+        self._token_breakdown[key].merge(tokens)
 
     # ------------------------------------------------------------------
     # 검색
@@ -430,6 +465,11 @@ class RunTracker:
         # 토큰 사용량 총계
         self._record.token_usage_total = asdict(self._token_total)
 
+        # 토큰 breakdown 저장
+        self._record.token_breakdown = {
+            k: asdict(v) for k, v in self._token_breakdown.items()
+        }
+
         # JSON 저장
         record_dict = asdict(self._record)
         filename = f"run_{self._record.run_id}.json"
@@ -457,6 +497,20 @@ class RunTracker:
                   f"completion: {tt.completion_tokens:,}, "
                   f"calls: {tt.num_calls}, "
                   f"cost: ${tt.total_cost_usd:.4f})")
+
+        # 토큰 breakdown 출력
+        if self._token_breakdown:
+            print(f"\n  [RunTracker] 토큰 사용량 세분화:")
+            print(f"  {'카테고리':<30} {'프로바이더':<12} {'총 토큰':>10} {'프롬프트':>10} {'컴플리션':>10} {'비용($)':>9} {'호출수':>7}")
+            print(f"  {'-'*30} {'-'*12} {'-'*10} {'-'*10} {'-'*10} {'-'*9} {'-'*7}")
+            for key, usage in sorted(self._token_breakdown.items()):
+                category, _, provider = key.partition(".")
+                print(
+                    f"  {category:<30} {provider:<12} "
+                    f"{usage.total_tokens:>10,} {usage.prompt_tokens:>10,} "
+                    f"{usage.completion_tokens:>10,} {usage.total_cost_usd:>9.4f} "
+                    f"{usage.num_calls:>7}"
+                )
 
         # 단계별 시간 + 비중 요약
         if self._phases:
