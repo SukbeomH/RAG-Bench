@@ -2049,3 +2049,349 @@ def display_dashboard(
     summary = create_summary_table(lat_df, ragas_df)
     if not summary.empty:
         display_styled_table(summary)
+
+
+# ---------------------------------------------------------------------------
+# [Service Bench] 문서 타입별 성능 히트맵 (조합 × 타입)
+# ---------------------------------------------------------------------------
+
+
+def plot_doctype_heatmap(
+    ranked_by_type: Dict[str, Any],
+    metric: str = "composite",
+) -> None:
+    """
+    조합(전략) × 문서 타입 성능 히트맵.
+
+    Args:
+        ranked_by_type: rank_by_doc_type() 반환값.
+                        Dict[category_name, pd.DataFrame]
+                        DataFrame 컬럼: strategy, composite, rank, ...
+        metric: 히트맵에 표시할 컬럼 (기본: composite)
+    """
+    import matplotlib.pyplot as plt
+
+    try:
+        import seaborn as sns
+    except ImportError:
+        print("seaborn이 필요합니다: pip install seaborn")
+        return
+
+    if not ranked_by_type:
+        print("ranked_by_type 데이터가 없습니다.")
+        return
+
+    # category × strategy 피벗 테이블
+    rows = []
+    for category, df in ranked_by_type.items():
+        if metric not in df.columns:
+            continue
+        for _, row in df.iterrows():
+            rows.append({
+                "category": category.upper(),
+                "strategy": row["strategy"],
+                metric: row[metric],
+            })
+
+    if not rows:
+        print(f"'{metric}' 컬럼 데이터가 없습니다.")
+        return
+
+    pivot_df = pd.DataFrame(rows).pivot_table(
+        index="strategy", columns="category", values=metric
+    )
+    pivot_df = pivot_df.fillna(0)
+
+    # 평균 기준 내림차순 정렬
+    pivot_df["_mean"] = pivot_df.mean(axis=1)
+    pivot_df = pivot_df.sort_values("_mean", ascending=False).drop(columns=["_mean"])
+
+    n_strategies = len(pivot_df)
+    n_categories = len(pivot_df.columns)
+    fig, ax = plt.subplots(
+        figsize=(max(6, n_categories * 1.8), max(4, n_strategies * 0.55))
+    )
+
+    sns.heatmap(
+        pivot_df,
+        annot=True,
+        fmt=".3f",
+        cmap="RdYlGn",
+        vmin=0.0,
+        vmax=1.0,
+        ax=ax,
+        linewidths=0.5,
+        cbar_kws={"label": metric, "shrink": 0.8},
+    )
+
+    # 최고 점수 셀에 ★ 표시
+    for col_idx, cat in enumerate(pivot_df.columns):
+        best_idx = pivot_df[cat].idxmax()
+        row_pos = pivot_df.index.get_loc(best_idx)
+        ax.text(
+            col_idx + 0.5, row_pos + 0.15, "★",
+            ha="center", va="center", fontsize=12, color="navy",
+        )
+
+    ax.set_title(
+        f"서비스 벤치마크 — 조합 × 문서 타입 히트맵 ({metric})",
+        fontsize=13, pad=12,
+    )
+    ax.set_xlabel("문서 타입", fontsize=11)
+    ax.set_ylabel("조합 (Dense+Sparse)", fontsize=11)
+    ax.tick_params(axis="x", rotation=0)
+    ax.tick_params(axis="y", rotation=0, labelsize=8)
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# [Service Bench] 조합별 강점/약점 레이더 차트 (plotly)
+# ---------------------------------------------------------------------------
+
+
+def plot_model_radar(
+    insights: Dict[str, Any],
+    top_n: int = 8,
+) -> None:
+    """
+    조합별 카테고리 복합 점수 레이더 차트.
+
+    Args:
+        insights: analyze_strengths_weaknesses() 반환값.
+                  Dict[strategy, {scores: {cat: float}, ...}]
+        top_n: 표시할 상위 조합 수
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("plotly가 필요합니다: pip install plotly")
+        return
+
+    if not insights:
+        print("insights 데이터가 없습니다.")
+        return
+
+    # 전체 평균 기준 상위 N개 선택
+    sorted_strategies = sorted(
+        insights.items(),
+        key=lambda x: x[1].get("avg_composite", 0),
+        reverse=True,
+    )[:top_n]
+
+    # 카테고리 축 수집
+    all_cats = set()
+    for _, info in sorted_strategies:
+        all_cats.update(info.get("scores", {}).keys())
+    categories = sorted(all_cats)
+
+    if not categories:
+        print("카테고리 점수가 없습니다.")
+        return
+
+    fig = go.Figure()
+    colors = [
+        "#3498db", "#e74c3c", "#2ecc71", "#e67e22",
+        "#9b59b6", "#1abc9c", "#f39c12", "#d35400",
+    ]
+
+    for idx, (strategy, info) in enumerate(sorted_strategies):
+        scores = info.get("scores", {})
+        values = [scores.get(cat, 0.0) for cat in categories]
+        values.append(values[0])  # 닫기
+
+        short_label = strategy[:40] + "..." if len(strategy) > 40 else strategy
+        fig.add_trace(go.Scatterpolar(
+            r=values,
+            theta=categories + [categories[0]],
+            fill="toself",
+            name=short_label,
+            opacity=0.6,
+            line=dict(color=colors[idx % len(colors)]),
+        ))
+
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        showlegend=True,
+        title=f"조합별 강점/약점 레이더 차트 (상위 {len(sorted_strategies)}개)",
+        height=520,
+        font=dict(family="NanumGothic, sans-serif"),
+        legend=dict(
+            orientation="v",
+            x=1.05, y=0.5,
+            font=dict(size=9),
+        ),
+    )
+    fig.show()
+
+
+# ---------------------------------------------------------------------------
+# [Service Bench] 최종 추천 요약 테이블
+# ---------------------------------------------------------------------------
+
+
+def plot_selection_summary(
+    selection: Any,
+) -> None:
+    """
+    SelectionReport를 스타일 테이블로 표시한다.
+
+    Args:
+        selection: generate_selection_report() 반환값 (SelectionReport).
+    """
+    per_category = getattr(selection, "per_category", {})
+    if not per_category:
+        print("per_category 데이터가 없습니다.")
+        return
+
+    rows = []
+    for category, rec in per_category.items():
+        rows.append({
+            "문서 타입": category.upper(),
+            "1순위 조합": getattr(rec, "winner", "—"),
+            "복합 점수": f"{getattr(rec, 'composite_score', 0):.3f}",
+            "Pass%": f"{getattr(rec, 'pass_rate', 0):.1f}%",
+            "2순위": getattr(rec, "runner_up", "—") or "—",
+            "선정 이유": (getattr(rec, "reason", "") or "")[:80],
+        })
+
+    df = pd.DataFrame(rows)
+
+    try:
+        from IPython.display import display, HTML
+
+        def _highlight_winner(s):
+            return ["background-color: #d4edda; font-weight: bold"] * len(s)
+
+        styled = (
+            df.style
+            .apply(_highlight_winner, subset=["1순위 조합"])
+            .set_properties(**{"text-align": "left"})
+            .hide(axis="index")
+        )
+        display(styled)
+    except Exception:
+        print(df.to_string(index=False))
+
+    default_rec = getattr(selection, "default_recommendation", None)
+    default_reason = getattr(selection, "default_reason", "")
+    if default_rec:
+        print(f"\n기본 추천 (혼용 시): {default_rec}")
+        print(f"이유: {default_reason}")
+
+    common = getattr(selection, "common_winners", [])
+    if common:
+        print(f"\n공통 우승 조합: {', '.join(common)}")
+
+
+# ---------------------------------------------------------------------------
+# [Service Bench] 점수 분포 + 동점 그룹 시각화 (박스플롯)
+# ---------------------------------------------------------------------------
+
+
+def plot_score_distribution(
+    ranked_by_type: Dict[str, Any],
+    compressed: Optional[Dict[str, Any]] = None,
+    metric: str = "composite",
+) -> None:
+    """
+    카테고리별 복합 점수 분포를 박스플롯으로 표시하고 동점 그룹을 색상으로 구분한다.
+
+    Args:
+        ranked_by_type: rank_by_doc_type() 반환값
+        compressed: compress_similar_results() 반환값 (동점 그룹 표시용, 선택)
+        metric: 분포에 표시할 컬럼
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+
+    try:
+        import seaborn as sns
+    except ImportError:
+        print("seaborn이 필요합니다: pip install seaborn")
+        return
+
+    if not ranked_by_type:
+        print("ranked_by_type 데이터가 없습니다.")
+        return
+
+    # 롱 포맷으로 변환
+    rows = []
+    for category, df in ranked_by_type.items():
+        if metric not in df.columns:
+            continue
+        for _, row in df.iterrows():
+            tie_group = None
+            if compressed and category in compressed:
+                c_row = compressed[category][compressed[category]["strategy"] == row["strategy"]]
+                if not c_row.empty:
+                    tie_group = int(c_row.iloc[0].get("tie_group", 0))
+            rows.append({
+                "category": category.upper(),
+                "strategy": row["strategy"],
+                metric: float(row[metric]),
+                "rank": int(row["rank"]),
+                "tie_group": tie_group if tie_group is not None else 0,
+            })
+
+    if not rows:
+        print(f"'{metric}' 컬럼이 없습니다.")
+        return
+
+    long_df = pd.DataFrame(rows)
+    categories = sorted(long_df["category"].unique())
+
+    n = len(categories)
+    fig, axes = plt.subplots(1, n, figsize=(max(10, n * 3.5), 6), sharey=True)
+    if n == 1:
+        axes = [axes]
+
+    cmap = cm.get_cmap("tab10", 5)
+
+    for ax, cat in zip(axes, categories):
+        cat_df = long_df[long_df["category"] == cat].sort_values("rank")
+        strategies = cat_df["strategy"].tolist()
+        values = cat_df[metric].tolist()
+        tie_groups = cat_df["tie_group"].tolist()
+
+        colors = [cmap(tg % 10) for tg in tie_groups]
+        bars = ax.barh(
+            range(len(strategies)),
+            values,
+            color=colors,
+            alpha=0.82,
+            edgecolor="white",
+            linewidth=0.5,
+        )
+
+        # 레이블
+        for i, (v, s) in enumerate(zip(values, strategies)):
+            short = s[:35] + "…" if len(s) > 35 else s
+            ax.text(v + 0.005, i, f"{v:.3f}", va="center", fontsize=7)
+
+        ax.set_yticks(range(len(strategies)))
+        ax.set_yticklabels(
+            [f"{i+1}. " + (s[:28] + "…" if len(s) > 28 else s)
+             for i, s in enumerate(strategies)],
+            fontsize=7,
+        )
+        ax.set_xlim(0, 1.15)
+        ax.set_xlabel(metric, fontsize=9)
+        ax.set_title(cat, fontsize=11, fontweight="bold")
+        ax.invert_yaxis()
+
+        # 동점 임계선 (threshold=0.05 위치)
+        if values:
+            ax.axvline(
+                values[0] - 0.05,
+                color="gray", linestyle="--", linewidth=0.8, alpha=0.5,
+                label="동점 임계선 (±5%)",
+            )
+        ax.grid(axis="x", alpha=0.3)
+
+    fig.suptitle(
+        f"문서 타입별 조합 점수 분포 — {metric} (색상=동점 그룹)",
+        fontsize=13, y=1.02,
+    )
+    plt.tight_layout()
+    plt.show()
