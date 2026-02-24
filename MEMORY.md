@@ -940,6 +940,73 @@ jupyter lab rag_bench_local/rag_benchmark.ipynb
 
 ---
 
+## 2026-02-24: 모듈화 리팩토링 — Arch Review 10개 Finding 전부 해소
+
+### 배경
+서비스 벤치마크 시스템(`reporter_exec.py` 신규 생성 등) 이후 `/gsd:arch-review` 수행 결과
+HIGH 2건, MEDIUM 4건, LOW 4건 총 10개 Finding 도출 → 전부 해소.
+
+### 목표
+모듈화, 재사용성, 타 프로젝트 이식 용이성 향상.
+
+### 해소된 Finding (10/10)
+
+| Finding | 우선순위 | 내용 | 커밋 |
+|---------|---------|------|------|
+| F-01 | HIGH | `run_service_bench.py` 인라인 인덱스 빌드 복제 제거 | `aedfb85` |
+| F-02 | HIGH | `reporter.py`/`reporter_exec.py` 분석 파이프라인 중복 제거 | `939c0b5` |
+| F-03 | MEDIUM | `reporter_exec.py` 하드코딩 메타데이터 → 단일 원천 통합 | `a376319` |
+| F-04 | MEDIUM | `datasets/__init__.py` re-export 누락 | `c79b5d3` |
+| F-05 | MEDIUM | `pass_rate` → `recall_pct` (alias 유지) | `a376319` |
+| F-06 | MEDIUM | `classifier.py` `.txt/.md` 제한 → `multi_parser` 활용 | `c79b5d3` |
+| F-07 | LOW | `analysis/__init__.py` 공개 API 등록 | `939c0b5` |
+| F-08 | LOW | `_format_model_name()` 문자열 파싱 취약성 제거 | `a376319` |
+| F-09 | LOW | `hashlib.md5` `usedforsecurity=False` 추가 | `04a1c77` |
+| F-10 | LOW | `setup_ssl_bypass()` docstring 영향 범위 명시 | `04a1c77` |
+
+### 주요 구조 변경
+
+#### 1. `analysis/pipeline.py` 신규 생성 (F-02)
+- `AnalysisResult` dataclass: 5단계 파이프라인 결과 컨테이너
+- `run_analysis_pipeline()`: 공통 분석 로직 (load → rank → insight → compress → select)
+- `reporter.py`, `reporter_exec.py` 양쪽이 이 함수를 공유 → 렌더러만 교체하면 새 보고서 형식 추가 가능
+
+#### 2. Single Source of Truth 메타데이터 (F-03, F-08)
+- `DOC_TYPE_METADATA`에 `label`, `data_source`, `characteristic` 3개 표시용 키 추가
+- `DENSE_MODEL_DISPLAY` 레지스트리 신설 (`dense_sparse.py`): 6개 모델 표시명/파라미터/특성
+- `reporter_exec.py`의 `_CAT_LABEL` 등 하드코딩 상수 전부 제거, `_cat_meta()` 헬퍼로 조회
+
+#### 3. `IndexCacheManager.get_or_build()` 파라미터 확장 (F-01 전제조건)
+- `qdrant_base_dir: Optional[Path] = None` 파라미터 추가
+- 카테고리별 독립 Qdrant 경로 지정 가능 → `run_service_bench.py`에서 재사용 가능
+- `build_strategy_from_spec()`에도 동일 파라미터 전달 경로 확보
+
+#### 4. `run_service_bench.py` 226줄 인라인 빌드 → `build_strategy_from_spec()` 위임 (F-01)
+- `_run_category_bench()` 내 `DenseSparseStrategy` 직접 인스턴스화, BM25/Contextual/Reranker 인라인 코드 전부 제거
+- `-107줄` 감소
+
+### 커밋 히스토리 (6개)
+```
+aedfb85 refactor(bench): _run_category_bench 인라인 빌드→build_strategy_from_spec 위임
+04a1c77 fix(misc): md5 FIPS usedforsecurity=False + SSL bypass 주석 보강
+c79b5d3 fix(pkg): datasets __init__ re-export 추가 + classifier multi_parser 활용
+9f40d39 refactor(cache): get_or_build에 qdrant_base_dir 파라미터 추가
+939c0b5 refactor(analysis): 공통 분석 파이프라인 pipeline.py로 추출 + reporter 중복 제거
+a376319 refactor(metadata): 도메인 메타데이터 단일 원천 통합 + pass_rate→recall_pct
+```
+
+### 검증
+- 12/12 항목 실증 검증 PASS (`gsd:verifier` 수행)
+- import 실행, grep, Python assert 모두 통과
+
+### 신규 파일
+| 파일 | 내용 |
+|------|------|
+| `rag_bench/analysis/pipeline.py` | 공통 분석 파이프라인 + AnalysisResult |
+| `docs/report_design_exec.md` | 경영진 보고서 설계 근거 문서 |
+
+---
+
 ## 2026-02-24: 노션 문서화 — 서비스 벤치마크 구현 현황 정리
 
 ### 주요 활동
