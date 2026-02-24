@@ -785,3 +785,49 @@ CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
 ### 다음 작업 (Phase 2)
 - `rag_bench/datasets/hf_loader.py`: 6개 HF 데이터셋 통합 로더
 - `rag_bench/scripts/run_service_bench.py`: hf/docs 듀얼 모드 오케스트레이터
+
+## 2026-02-24: 서비스 벤치마크 Phase 2 구현 완료
+
+### 주요 활동
+
+#### Phase 2 구현 (커밋 85b19af)
+
+**`rag_bench/datasets/hf_loader.py`** (신규):
+- `BeirDataset`: corpus/queries/qrels 표준 포맷 + `to_langchain_docs()` + `get_qa_pairs()`
+- 개별 로더 6종:
+  - `_load_miracl_ko()`: 1.5M 코퍼스 샘플링, GENERAL primary
+  - `_load_ko_strategyqa()`: multi-hop, GENERAL secondary
+  - `_load_belebele_ko()`: 짧은 지문 MRC, GENERAL secondary
+  - `_load_mrtidy_ko()`: 대규모, GENERAL secondary
+  - `_load_markers_bm(subset)`: law/finance/public/commerce 멀티 서브셋
+  - `_load_publichealth_qa_ko()`: CDC/WHO FAQ, MEDICAL
+- `HFDatasetLoader`: `load(DocType)` + `load_secondary()` + JSON 캐시 시스템
+- `beir_to_parent_child_chunks()`: BeIR corpus → Parent-Child 청크 변환
+
+**`rag_bench/scripts/run_service_bench.py`** (신규):
+- `--mode hf / --mode docs` 듀얼 모드
+- `CheckpointManager`: 카테고리별 JSON 영속화, 재실행 시 완료 카테고리 스킵
+- `_prepare_hf_data()`: HF 로드 + BeIR → 청크 변환 + QA 추출
+- `_prepare_docs_data()`: 사용자 문서 파싱 + 분류 + 샘플링 + LLM QA 생성
+- `_run_category_bench()`: 카테고리별 독립 Qdrant 인덱스, ColBERT 싱글톤 공유
+- Pass 1(레이턴시) + Pass 2(RAGAS) 2단계 구조
+- `--dry_run` 조합 미리보기 지원
+
+### RAGAS 링크 분석 결과 (적용 여부 판단)
+- RAGAS 문서 방식: `DiscreteMetric` (pass/fail 이진), MLflow 연동
+- 우리 방식: RAGAS 4종 연속 지표 (Faithfulness/Recall/Precision/Relevancy) — **더 정교함, 유지**
+- **Phase 3 reporter.py에서 pass_rate 추가 예정**: `(context_recall > 0.5).mean() * 100`
+
+### 검증 결과
+- `BeirDataset.get_qa_pairs()`: corpus-qrels 연결 정상 ✅
+- `beir_to_parent_child_chunks()`: parent/child 분리 정상 ✅
+- `--dry_run`: 8개 서비스 조합 정상 출력 ✅
+- 체크포인트 시스템: JSON 영속화 구조 ✅
+
+### 다음 작업 (Phase 3)
+- `rag_bench/analysis/__init__.py`
+- `rag_bench/analysis/ranker.py`: RAGAS + 레이턴시 기반 카테고리별 순위
+- `rag_bench/analysis/insight.py`: 조합별 강점/약점 도출
+- `rag_bench/analysis/deduplication.py`: 점수 차 5% 이내 동점 그룹 압축
+- `rag_bench/analysis/selector.py`: 카테고리별 최종 선정 근거 생성
+- `rag_bench/analysis/reporter.py`: W&B Horangi 6섹션 Markdown + JSON 보고서 (pass_rate 포함)
