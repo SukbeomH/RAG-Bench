@@ -100,7 +100,7 @@ def _sample_corpus(corpus: Dict, max_size: int, seed: int = 42) -> Dict:
 
 def _make_id(text: str, prefix: str = "doc") -> str:
     """텍스트 해시 기반 고유 ID 생성."""
-    h = hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    h = hashlib.md5(text.encode("utf-8", errors="ignore"), usedforsecurity=False).hexdigest()[:12]
     return f"{prefix}_{h}"
 
 

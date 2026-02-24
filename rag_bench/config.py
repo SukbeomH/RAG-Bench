@@ -100,7 +100,19 @@ def make_async_http_client(verify: bool = False):
 
 
 def setup_ssl_bypass() -> None:
-    """기업 네트워크/프록시 환경을 위한 SSL 우회 설정."""
+    """
+    SSL 인증서 검증을 전역으로 우회한다.
+
+    경고: 이 함수는 프로세스 전체에 영향을 미치며 되돌릴 수 없다.
+    변경 항목:
+      - ssl._create_default_https_context: 인증서 미검증 컨텍스트로 교체
+      - requests.Session.request: verify=False 강제 적용 (monkeypatch)
+      - 환경변수: CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE 등 7개 초기화
+
+    사용처: run_service_bench.py main(), run_all_combos.py main()
+    용도: 사내 네트워크 / 개발 환경에서 HuggingFace 모델 다운로드 시 SSL 오류 우회.
+    주의: 라이브러리로 사용 시 이 함수를 호출하지 말 것.
+    """
     warnings.filterwarnings("ignore")
 
     ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore[assignment]
