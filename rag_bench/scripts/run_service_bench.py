@@ -458,7 +458,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reindex", action="store_true", help="기존 인덱스 무시하고 재인덱싱")
 
     # 모델 설정
-    parser.add_argument("--contextual_llm", type=str, default="gpt-4o-mini", help="Contextual Retrieval LLM (기본: gpt-4o-mini)")
+    parser.add_argument("--contextual_llm", type=str, default=None, help="Contextual Retrieval LLM (기본: config.DEFAULT_CONTEXTUAL_LLM)")
     parser.add_argument("--colbert_model", type=str, default="jinaai/jina-colbert-v2", help="ColBERT 모델")
 
     # 출력
@@ -471,6 +471,11 @@ def parse_args() -> argparse.Namespace:
 def main():
     setup_ssl_bypass()
     args = parse_args()
+
+    # --- contextual_llm 기본값: config.DEFAULT_CONTEXTUAL_LLM 사용
+    if not args.contextual_llm:
+        from rag_bench.config import DEFAULT_CONTEXTUAL_LLM
+        args.contextual_llm = DEFAULT_CONTEXTUAL_LLM
 
     # --- 카테고리 파싱
     cat_names = [c.strip() for c in args.categories.split(",") if c.strip()]

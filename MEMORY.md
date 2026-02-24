@@ -1149,3 +1149,45 @@ bge-m3   + splade      + colbert + contextual
   (`medical`은 체크포인트 완료 → 자동 스킵됨)
 - RAGAS Pass 2 검증 (`core_only` preset 기준)
 - 명령: `uv run python -m rag_bench.scripts.run_service_bench --mode hf --max_queries 20 --categories general,legal,business`
+
+## 2026-02-24: Notion 벤치마크 문서 체계화 + contextual_llm 기본값 변경
+
+### 완료 작업
+
+#### 1. Notion "RAG Benchmarks" 문서 구조 재편
+- 기존 3페이지 → **5페이지**로 분할 (주제별 분리)
+- root 페이지에 문서 구조 테이블 + 페이지별 요약 설명 추가
+
+| 페이지 | 내용 | 상태 |
+|--------|------|------|
+| RAG 벤치마크 최신 레퍼런스 조사 보고서 | 연구 근거, 모델 비교 | 최신화 완료 |
+| 벤치마크 데이터셋 분석 보고서 | HF 6종 데이터셋, 카테고리 매핑 | 최신화 완료 |
+| 벤치마크 조합 및 평가 전략 (신규) | 6종 조합, RAGAS 가중치, 실행 방식 | 신규 생성 |
+| 벤치마크 실행 현황 및 결과 (신규) | Pass 1 결과, 진행 추적 | 신규 생성 |
+| 서비스 벤치마크 시스템 구현 현황 보고서 | Phase 1~4 구현 상세 | 최신화 완료 |
+
+#### 2. 전 페이지 최신 변경사항 반영
+- MIRACL→klue/klue(mrc) 대체 반영
+- snowflake-ko 제외 (8조합→6조합) 주석 추가
+- HF 로더 3종 수정 내역 (streaming, max_queries)
+- RAGAS `standard`→`core_only` preset 변경
+- analysis/pipeline.py 추출 리팩토링
+- Ollama LLM 마이그레이션, contextual_llm 기본값 변경
+
+#### 3. RAGAS 가중치 근거 보충 및 문서 간 일관성 확보
+- 레퍼런스 보고서에 가중치 설계 근거 테이블 추가
+  - Context Recall 0.35: 정보 누락이 오답보다 서비스 이탈로 직결
+  - Context Precision 0.30: 불필요 컨텍스트 → LLM 답변 품질 저하 + 토큰 비용
+  - Faithfulness 0.20: 할루시네이션 방지 (법률/의료 중요)
+  - Answer Relevancy 0.15: 위 3개가 높으면 자연스럽게 따라오는 경향
+- 조합 및 평가 전략 페이지: 균등 0.25 → 실제 구현 0.35/0.30/0.20/0.15 수정
+- 5개 페이지 모두 동일 가중치로 일관성 확보
+
+#### 4. `run_service_bench.py` contextual_llm 기본값 변경
+- `--contextual_llm` 기본값: `"gpt-4o-mini"` → `None` (config.DEFAULT_CONTEXTUAL_LLM 동적 로드)
+- Ollama 마이그레이션 이후 하드코딩된 OpenAI 모델명 제거
+
+### 참고
+- Notion root URL: https://www.notion.so/310e4f18b43d80e983d8d1a8dc305974
+- 관련 코드: `rag_bench/analysis/ranker.py` (RAGAS_WEIGHTS 상수)
+- 관련 문서: `docs/benchmark_scope_guideline.md`
