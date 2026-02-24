@@ -1,0 +1,8 @@
+# rag_bench_colab — 시각화 의존성 (선택)
+# 설치 실패해도 벤치마크 실행에는 영향 없음
+
+matplotlib>=3.10
+plotly>=5.18
+seaborn>=0.13
+kaleido>=0.2
+koreanize-matplotlib>=0.1
