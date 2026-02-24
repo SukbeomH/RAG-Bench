@@ -54,7 +54,123 @@ Pass 2: 상위 10개 전략 × 20 쿼리 = 200회 평가 → RAGAS (API 비용 ~
 
 API 호출을 83% 절감하면서도 의미 있는 상위권 전략의 품질을 평가할 수 있습니다.
 
+## 핵심 디자인 패턴
+
+1. **Strategy Pattern**: `BaseRAGStrategy` ABC로 통일된 인터페이스, 전략 교체 용이
+2. **Decorator Pattern**: `ColBERTRerankStrategy`, `FlashRankRerankStrategy`, `ContextualRetrievalStrategy`가 base 전략을 래핑하여 기능 확장
+3. **Factory + Cache**: `IndexCacheManager`가 전략 생성과 인덱스 캐싱을 관리, 동일 `(dense, sparse)` 쌍은 Qdrant 인덱스 재사용
+4. **Preset System**: `ComboSpec`과 `PRESETS`로 4-Layer 조합을 선언적으로 관리
+5. **Lazy Initialization**: 모델/LLM을 필요할 때만 로드하여 메모리 절약
+
+## 기술 스택
+
+| 카테고리 | 기술 |
+|---------|------|
+| **LLM 프레임워크** | LangChain, LangGraph |
+| **벡터 DB** | Qdrant (로컬 파일 모드) |
+| **임베딩 (로컬)** | HuggingFace — KoSimCSE, E5, BGE-M3, all-MiniLM |
+| **임베딩 (API)** | OpenAI text-embedding-3, Upstage Solar Embeddings |
+| **Sparse 검색** | KoreanBM25 (KoNLPy OKt), SPLADE |
+| **Reranker** | ColBERT (PyLate/jina-colbert-v2), FlashRank (ONNX) |
+| **평가** | RAGAS v0.4+ (16개 메트릭, 4개 프리셋) |
+| **문서 처리** | pymupdf4llm, LangChain Text Splitters |
+| **LLM Provider** | OpenAI (gpt-4o-mini 기본) |
+
 ## 아키텍처
+
+### 모듈 의존성 다이어그램
+
+```mermaid
+graph TD
+    subgraph Core["코어 모듈"]
+        BASE["base.py<br/>BaseRAGStrategy (ABC)"]
+        CONFIG["config.py<br/>전역 설정 + .env"]
+        RUNNER["runner.py<br/>BenchmarkRunner"]
+        TRACKER["run_tracker.py<br/>RunTracker"]
+        CLI["cli.py<br/>RAGChat"]
+    end
+
+    subgraph Strategies["strategies/ — 7개 전략"]
+        DS["DenseSparseStrategy<br/>Dense+Sparse Hybrid"]
+        CB["ColBERTStrategy<br/>Late Interaction"]
+        CBR["ColBERTRerankStrategy<br/>2-Stage Rerank"]
+        FR["FlashRankRerankStrategy<br/>ONNX 경량 Rerank"]
+        CR["ContextualRetrievalStrategy<br/>Anthropic 방식"]
+        OAI["OpenAIEmbedStrategy"]
+        UPS["UpstageEmbedStrategy"]
+    end
+
+    subgraph Eval["evaluation/ — RAGAS 평가"]
+        EVALUATOR["evaluator.py<br/>ExtendedRAGEvaluator"]
+        METRICS["metrics.py<br/>MetricRegistry"]
+    end
+
+    subgraph Graph["graph/ — LangGraph Agent"]
+        BUILDER["builder.py<br/>build_agent_graph()"]
+        NODES["nodes.py<br/>검색 도구 + 노드"]
+        STATE["state.py<br/>State/AgentState"]
+        PROMPTS["prompts.py<br/>System Prompts"]
+    end
+
+    subgraph Indexing["indexing/ — 문서 전처리"]
+        PDF["pdf_converter.py<br/>PDF → Markdown"]
+        CHUNK["chunker.py<br/>Parent-Child 청킹"]
+    end
+
+    subgraph Combo["combo/ — 조합 관리"]
+        SPEC["spec.py<br/>ComboSpec + 프리셋"]
+        CBUILDER["builder.py<br/>전략 팩토리"]
+        CACHE["cache.py<br/>IndexCacheManager"]
+    end
+
+    subgraph Utils["utils/ — 유틸리티"]
+        DEV["device.py<br/>CUDA/CPU 감지"]
+        QA["qa_loader.py<br/>QA 데이터셋"]
+        REPORT["report.py<br/>결과 포맷"]
+    end
+
+    BASE --> DS & CB & CBR & FR & CR & OAI & UPS
+    RUNNER --> BASE
+    RUNNER --> EVALUATOR
+    EVALUATOR --> METRICS
+    BUILDER --> NODES & STATE & PROMPTS
+    SPEC --> CBUILDER
+    CACHE --> CBUILDER
+    CBUILDER --> DS & CBR & FR & CR
+```
+
+### E2E 데이터 흐름
+
+```mermaid
+graph TB
+    PDF["docs/ (PDF 파일들)"] -->|pymupdf4llm| MD["_benchdata/markdown/"]
+    MD -->|Parent-Child 청킹| PC["Parent 청크 (JSON)"]
+    MD -->|Parent-Child 청킹| CC["Child 청크 (in-memory)"]
+
+    CC -->|DenseSparseStrategy.index| QDRANT["Qdrant 벡터 DB<br/>_benchdata/qdrant_db_*"]
+    CC -->|ContextualRetrievalStrategy| LLM_ENRICH["LLM 문맥 부착"]
+    LLM_ENRICH --> QDRANT
+
+    QA["qa_dataset.json"] --> RUNNER["BenchmarkRunner.run()"]
+    QDRANT --> RUNNER
+    RUNNER -->|전략별 검색| RESULTS["검색 결과"]
+    RESULTS -->|LLM 답변 생성| EVAL["ExtendedRAGEvaluator"]
+    EVAL -->|RAGAS 메트릭| REPORT["CSV / HTML 보고서"]
+```
+
+### 전략 계층 구조
+
+```
+BaseRAGStrategy (ABC)
+├── DenseSparseStrategy     # Qdrant 하이브리드 (핵심 base retriever)
+├── ColBERTStrategy         # PyLate ColBERT 독립 검색
+├── OpenAIEmbedStrategy     # OpenAI 임베딩 Dense
+├── UpstageEmbedStrategy    # Upstage Solar 임베딩 Dense
+│
+├── ColBERTRerankStrategy   # Decorator: base → ColBERT 리랭킹
+├── FlashRankRerankStrategy # Decorator: base → FlashRank 리랭킹
+└── ContextualRetrievalStrategy # Decorator: LLM 문맥 부착 → base
+```
 
 ### 전체 시스템 구조
 
