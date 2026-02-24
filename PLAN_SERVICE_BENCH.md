@@ -50,7 +50,7 @@
 | Sparse 모델 | 현재 유지 (korean_bm25, splade) |
 | **리랭커** | **ColBERT 고정** (서비스 파이프라인에서 항상 적용) |
 | **Contextual** | **고정 적용** (서비스 파이프라인에서 항상 적용) |
-| 비교 조합 수 | 3(HF Dense) × 2 Sparse = **6 기본 조합** (API 2종 포함 시 최대 10개, **≤10 제약 충족**) |
+| 비교 조합 수 | 3(HF Dense) × 2 Sparse = **6개** (≤10 제약 충족) |
 | 문서 포맷 | PDF, DOCX, HTML, TXT, MD 지원 |
 | **문서 타입** | **5종** (GENERAL, LEGAL, BUSINESS, MEDICAL, TECHNICAL) — `ACADEMIC` → `MEDICAL` 변경 |
 | **분석 출력** | **타입별 순위 + 강/약점 + 선정 근거** |
@@ -95,12 +95,12 @@
 | 변경 | 이유 |
 |------|------|
 | `ACADEMIC` → `MEDICAL` | publichealth-qa (CDC/WHO FAQ) 데이터셋이 의료 도메인을 대변 |
-| Dense 모델 3종 → **4종** | snowflake-arctic-embed-l-v2.0-ko 추가 (한국어 Retrieval SOTA 0.7404) |
 
 ---
 
-## 신규 Dense 모델: snowflake-arctic-embed-l-v2.0-ko
+## 레퍼런스: snowflake-arctic-embed-l-v2.0-ko 검토 이력
 
+> 조사 단계에서 검토한 모델. 벤치마크 조합에는 포함하지 않기로 결정.
 > 상세 분석: `docs/research/service_bench/report_structure_and_model_analysis.md`
 
 | 항목 | 내용 |
@@ -113,7 +113,7 @@
 | **한국어 평균** | **0.7404** (BGE-M3 0.7242, BGE-M3-ko 0.7300 초과) |
 | **특이사항** | 1300 토큰 이상 긴 문서는 다른 모델 권장 |
 
-**데이터셋별 강점** (우리 벤치마크 데이터셋 기준):
+**데이터셋별 성능** (우리 벤치마크 데이터셋 기준):
 
 | 데이터셋 → 카테고리 | snowflake-ko | BAAI/bge-m3 | 우위 |
 |--------------------|-------------|------------|------|
@@ -122,9 +122,10 @@
 | MIRACL → GENERAL | 0.6685 | **0.7015** | bge-m3 +4.9% |
 | MrTiDy → GENERAL | 0.5712 | **0.6471** | bge-m3 +13.3% |
 
-**결론**: snowflake-ko는 실무 문서(LEGAL/BUSINESS/MEDICAL) 카테고리에서 SOTA. bge-m3는 대규모 Wikipedia(GENERAL)에서 강점. 두 모델을 모두 포함하면 카테고리별 최적 모델 비교 가능.
+**제외 결정 근거**: 레퍼런스 자료로 검토하였으나 현재 벤치마크 범위에서는 제외.
+모델 정의는 `rag_bench/strategies/dense_sparse.py`에 유지되어 있으며, 필요 시 활성화 가능.
 
-**업데이트된 조합 수**: 4 HF Dense × 2 Sparse = **8개** (≤10 제약 충족 ✅)
+**최종 조합 수**: 3 HF Dense × 2 Sparse = **6개** (≤10 제약 충족 ✅)
 
 ---
 
@@ -205,33 +206,23 @@ def parse_document(path: str | Path, sample: bool = False, doc_type: DocType | N
 **파일**: `rag_bench/combo/spec.py`
 
 ```python
-# combo/spec.py에 snowflake-ko 추가 후
-_HF_DENSE_MODELS = ["kosimcse", "e5", "bge-m3", "snowflake-ko"]  # 3종 → 4종
+# combo/spec.py — HF 3종으로 service 프리셋 구성
+_HF_DENSE_MODELS = ["kosimcse", "e5", "bge-m3"]
 
 PRESETS = {
     ...
     "service": {               # ← 신규 (서비스 모델 선정용)
-        "dense_models": _HF_DENSE_MODELS,           # kosimcse, e5, bge-m3, snowflake-ko
+        "dense_models": _HF_DENSE_MODELS,           # kosimcse, e5, bge-m3
         "sparse_models": list(SPARSE_TYPES),         # korean_bm25, splade
         "rerankers": ["colbert"],                    # ColBERT 고정
         "llm_support": ["contextual"],               # Contextual 고정
     },
 }
 ```
-→ 유효 조합: 4 × 2 × 1 × 1 = **8개** (≤10 제약 충족 ✅)
+→ 유효 조합: 3 × 2 × 1 × 1 = **6개** (≤10 제약 충족 ✅)
 
-**`dense_sparse.py`에도 snowflake-ko 추가**:
-```python
-DENSE_MODELS = {
-    ...
-    "snowflake-ko": {
-        "model_name": "dragonkue/snowflake-arctic-embed-l-v2.0-ko",
-        "dim": 1024,
-        "max_tokens": 8192,
-        "note": "한국어 실무문서 SOTA (법률/금융/의료). 1300토큰 이하 권장",
-    },
-}
-```
+> **참고**: snowflake-ko는 조사 단계에서 검토하였으나 벤치마크 조합에서 제외 결정.
+> 모델 정의는 `dense_sparse.py`에 유지됨 (향후 활성화 가능).
 
 **의존성 변경**: `pyproject.toml`에 `python-docx`, `beautifulsoup4` 추가
 
@@ -407,7 +398,7 @@ Markdown 보고서 구조 (W&B Horangi v3 패턴 적용):
 ---
 ## Section 1: 평가 개요
 - 고정 파이프라인: [Dense] + [Sparse] + ColBERT Reranker + Contextual Retrieval
-- 비교 변수: 8개 조합 (4 Dense × 2 Sparse)
+- 비교 변수: 6개 조합 (3 Dense × 2 Sparse)
 - 평가 데이터셋: 5개 카테고리 (GENERAL/LEGAL/BUSINESS/MEDICAL/TECHNICAL)
 - 평가 지표: NDCG@10 (주) + RAGAS 4종 (부)
 - 실행 환경: [플랫폼, GPU, 모델 캐시 경로]
@@ -417,8 +408,10 @@ Markdown 보고서 구조 (W&B Horangi v3 패턴 적용):
 
 | 조합 | GENERAL | LEGAL | BUSINESS | MEDICAL | TECHNICAL | **평균** |
 |------|---------|-------|----------|---------|-----------|---------|
-| snowflake-ko + korean_bm25 | 0.XX | **0.XX** | **0.XX** | **0.XX** | 0.XX | **0.XX** |
 | bge-m3 + splade | **0.XX** | 0.XX | 0.XX | 0.XX | 0.XX | 0.XX |
+| bge-m3 + korean_bm25 | 0.XX | 0.XX | 0.XX | 0.XX | 0.XX | 0.XX |
+| e5 + splade | 0.XX | 0.XX | 0.XX | **0.XX** | 0.XX | 0.XX |
+| kosimcse + korean_bm25 | 0.XX | **0.XX** | **0.XX** | 0.XX | **0.XX** | 0.XX |
 | ... | | | | | | |
 
 ---
@@ -436,10 +429,10 @@ Markdown 보고서 구조 (W&B Horangi v3 패턴 적용):
 [레이더 차트: 조합당 1개]
 [히트맵: 조합 × 카테고리 성능 격자]
 
-예: snowflake-ko + korean_bm25
-- 강점: LEGAL(1위), BUSINESS(1위), MEDICAL(1위)
-- 약점: GENERAL 대규모(MrTiDy에서 bge-m3 대비 -13%)
-- 패턴: "실무 특화 문서(법률/금융/의료)에서 압도적, 대용량 Wikipedia 검색에서 약점"
+예: bge-m3 + splade
+- 강점: GENERAL(1위), 다국어 Wikipedia 대용량 검색
+- 약점: (벤치마크 실행 후 확인)
+- 패턴: (벤치마크 실행 후 확인)
 
 ---
 ## Section 5: 동점 그룹 압축
@@ -450,15 +443,14 @@ Markdown 보고서 구조 (W&B Horangi v3 패턴 적용):
 ## Section 6: 최종 선정 가이드
 | 문서 타입 | 1순위 조합 | 선정 이유 |
 |-----------|-----------|---------|
-| GENERAL | bge-m3 + splade | MIRACL 벤치마크 최강 |
-| LEGAL | snowflake-ko + korean_bm25 | AutoRAG 법률 SOTA +9.5% |
-| BUSINESS | snowflake-ko + korean_bm25 | 금융법률 학습 데이터 |
-| MEDICAL | snowflake-ko + splade | PublicHealth 최강 |
-| TECHNICAL | e5 + korean_bm25 | 기술 용어 정확 매칭 |
+| GENERAL | (벤치마크 실행 후 확인) | — |
+| LEGAL | (벤치마크 실행 후 확인) | — |
+| BUSINESS | (벤치마크 실행 후 확인) | — |
+| MEDICAL | (벤치마크 실행 후 확인) | — |
+| TECHNICAL | (벤치마크 실행 후 확인) | — |
 
 공통 추천 (문서 타입 혼용 시):
-→ snowflake-ko + korean_bm25 (LEGAL/BUSINESS/MEDICAL 3개 카테고리 1위)
-→ bge-m3 + splade (GENERAL 특화, 대용량 Wikipedia)
+→ (벤치마크 실행 후 확인)
 ```
 
 ---
