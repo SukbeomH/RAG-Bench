@@ -97,16 +97,30 @@ class IndexCacheManager:
             texts = [doc.page_content for doc in fit_docs]
             strategy._sparse_embeddings.fit(texts)
 
-    def get_or_build(self, spec: ComboSpec, child_chunks, reindex=False):
+    def get_or_build(
+        self,
+        spec: ComboSpec,
+        child_chunks,
+        reindex: bool = False,
+        qdrant_base_dir: Optional[Path] = None,
+    ):
         """base DenseSparseStrategy를 캐시에서 가져오거나 새로 빌드.
 
         디스크에 기존 Qdrant 인덱스가 있고 reindex=False면 재인덱싱 없이 연결만 한다.
         BM25 어휘는 {qdrant_path}_bm25_vocab.json에 영속화하여 재시작 시 재fit을 생략한다.
+
+        Args:
+            spec: 인덱스 스펙 (dense, sparse 모델 정보).
+            child_chunks: 인덱싱에 사용할 child 청크 목록.
+            reindex: True이면 기존 인덱스를 무시하고 재인덱싱한다.
+            qdrant_base_dir: Qdrant DB 경로의 기준 디렉토리.
+                             None이면 BENCH_DATA_DIR을 사용한다.
         """
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
 
         key = spec.index_key
-        qdrant_path = str(BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}{spec.dense}_{spec.sparse}")
+        base_dir = qdrant_base_dir or BENCH_DATA_DIR
+        qdrant_path = str(base_dir / f"{QDRANT_DB_PREFIX}{spec.dense}_{spec.sparse}")
         vocab_path = qdrant_path + "_bm25_vocab.json"
 
         if key in self.cache and not reindex:
@@ -142,8 +156,9 @@ class IndexCacheManager:
         spec: ComboSpec,
         child_chunks,
         parent_pairs,
-        reindex=False,
+        reindex: bool = False,
         pre_enriched: Optional[List] = None,
+        qdrant_base_dir: Optional[Path] = None,
     ):
         """contextual 전략을 캐시에서 가져오거나 새로 빌드.
 
@@ -152,8 +167,14 @@ class IndexCacheManager:
         BM25 어휘는 {ctx_qdrant_path}_bm25_vocab.json에 영속화하여 재시작 시 재fit을 생략한다.
 
         Args:
+            spec: 인덱스 스펙 (dense, sparse 모델 정보).
+            child_chunks: 인덱싱에 사용할 child 청크 목록.
+            parent_pairs: parent 문서 쌍 목록.
+            reindex: True이면 기존 인덱스를 무시하고 재인덱싱한다.
             pre_enriched: 사전 생성된 enriched 청크 목록. 제공 시 LLM 호출 없이
                           pre_enriched를 직접 ctx_base에 인덱싱한다.
+            qdrant_base_dir: Qdrant DB 경로의 기준 디렉토리.
+                             None이면 BENCH_DATA_DIR을 사용한다.
         """
         from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
         from rag_bench.strategies.dense_sparse import DenseSparseStrategy
@@ -163,8 +184,9 @@ class IndexCacheManager:
         if key in self.ctx_cache and not reindex:
             return self.ctx_cache[key]
 
+        base_dir = qdrant_base_dir or BENCH_DATA_DIR
         ctx_qdrant_path = str(
-            BENCH_DATA_DIR / f"{QDRANT_DB_PREFIX}ctx_{spec.dense}_{spec.sparse}"
+            base_dir / f"{QDRANT_DB_PREFIX}ctx_{spec.dense}_{spec.sparse}"
         )
         ctx_vocab_path = ctx_qdrant_path + "_bm25_vocab.json"
 
