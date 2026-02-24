@@ -37,6 +37,10 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "expected_top": "e5+korean_bm25",
         # 설명
         "description": "API 문서, 개발 가이드, 기술 매뉴얼. 코드+구조 밀집 문서.",
+        # 표시용 메타데이터
+        "label": "기술 (API·매뉴얼)",
+        "data_source": "사용자 업로드 기술 문서 (별도 확보 필요)",
+        "characteristic": "코드·명령어·버전 번호 등 구조화된 기술 용어 정밀 매칭 필요.",
     },
     DocType.LEGAL: {
         "sampling_ratio": 0.20,
@@ -46,6 +50,10 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "secondary_datasets": [],
         "expected_top": "snowflake-ko+korean_bm25",
         "description": "법률, 계약서, 판례. AutoRAG 법률 SOTA: snowflake-ko +9.5%.",
+        # 표시용 메타데이터
+        "label": "법률 (계약서·판례)",
+        "data_source": "markers_bm 법률 판례·계약서 데이터셋",
+        "characteristic": "'제N조 제N항'처럼 조문·번호 정확 매칭이 답변 품질을 결정.",
     },
     DocType.BUSINESS: {
         "sampling_ratio": 0.20,
@@ -55,6 +63,10 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "secondary_datasets": [],
         "expected_top": "snowflake-ko+korean_bm25",
         "description": "금융/공공/상업 보고서. 수치+요약 밀집 문서.",
+        # 표시용 메타데이터
+        "label": "금융·비즈니스 (보고서·공시)",
+        "data_source": "markers_bm 금융·공공·상업 보고서 데이터셋",
+        "characteristic": "수치·지표·회사명 등 고유명사 정확도가 높아야 하는 도메인.",
     },
     DocType.MEDICAL: {
         "sampling_ratio": 1.00,      # 소규모 데이터셋이므로 전량 사용
@@ -64,6 +76,10 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "secondary_datasets": [],
         "expected_top": "snowflake-ko+splade",
         "description": "의료/공중보건 FAQ. CDC/WHO 기반 77개 QA.",
+        # 표시용 메타데이터
+        "label": "의료 (FAQ·공중보건)",
+        "data_source": "publichealth-qa CDC/WHO 한국어 FAQ, 77개 QA",
+        "characteristic": "질환명·약어 등 전문 용어와 FAQ 형식 응답 정확도가 중요.",
     },
     DocType.GENERAL: {
         "sampling_ratio": 0.10,
@@ -77,6 +93,10 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         ],
         "expected_top": "bge-m3+splade",
         "description": "백과사전/위키. MIRACL(primary) + Ko-StrategyQA + Belebele + MrTiDy.",
+        # 표시용 메타데이터
+        "label": "일반 (백과사전·위키)",
+        "data_source": "MIRACL(ko) 위키피디아 기반 국제 표준 데이터셋, 쿼리 1,081개",
+        "characteristic": "위키피디아 수준의 대용량 범용 텍스트. 광범위한 주제 커버가 핵심.",
     },
 }
 

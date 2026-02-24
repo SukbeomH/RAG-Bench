@@ -63,11 +63,13 @@ def _compute_composite(row: pd.Series) -> float:
     return round(score, 4)
 
 
-def _compute_pass_rate(row: pd.Series) -> float:
-    """context_recall > 0.5 기반 pass_rate (이미 집계된 평균값으로 계산)."""
-    # 집계된 평균값 기준 (개별 샘플 없이)
+def _compute_recall_pct(row: pd.Series) -> float:
+    """context_recall을 백분율(%p)로 변환한 값.
+
+    집계된 평균 recall 값을 기준으로 계산한다 (개별 샘플 없이).
+    평균 recall × 100을 반환하며 최대 100.0으로 클리핑한다.
+    """
     recall = row.get("context_recall", 0.0)
-    # 평균 recall이 0.5 이상이면 pass_rate=100, 아니면 스케일 추정
     return round(min(recall * 100, 100.0), 1)
 
 
@@ -102,9 +104,10 @@ def rank_by_doc_type(
                 df[col] = 0.0
             df[col] = df[col].fillna(0.0).clip(0.0, 1.0)
 
-        # 복합 점수 + pass_rate
+        # 복합 점수 + recall_pct
         df["composite"] = df.apply(_compute_composite, axis=1)
-        df["pass_rate"] = df.apply(_compute_pass_rate, axis=1)
+        df["recall_pct"] = df.apply(_compute_recall_pct, axis=1)
+        df["pass_rate"] = df["recall_pct"]  # DEPRECATED: recall_pct 사용 권장
 
         # 레이턴시 로드 (있으면)
         if latency_dir is not None:

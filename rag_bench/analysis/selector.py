@@ -90,7 +90,7 @@ def generate_selection_report(
         winner_row = top_group[top_group["tie_winner"]].iloc[0] if not top_group[top_group["tie_winner"]].empty else top_group.iloc[0]
         winner = winner_row["strategy"]
         composite = float(winner_row["composite"])
-        pass_rate = float(winner_row.get("pass_rate", 0.0))
+        pass_rate = float(winner_row.get("recall_pct", winner_row.get("pass_rate", 0.0)))
         avg_lat = float(winner_row["avg_latency_ms"]) if pd.notna(winner_row.get("avg_latency_ms")) else None
 
         # 2위

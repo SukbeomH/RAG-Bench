@@ -255,6 +255,40 @@ DENSE_DIMS: Dict[str, int] = {
 
 SPARSE_TYPES: List[str] = ["korean_bm25", "splade"]
 
+# 표시용 메타데이터 레지스트리 — 보고서 생성 시 사용
+DENSE_MODEL_DISPLAY: Dict[str, Dict[str, str]] = {
+    "kosimcse": {
+        "display": "KoSimCSE",
+        "params": "110M",
+        "note": "한국어 SimCSE 대조 학습",
+    },
+    "e5": {
+        "display": "E5-multilingual",
+        "params": "560M",
+        "note": "다국어 E5, 명령어 prefix 방식",
+    },
+    "bge-m3": {
+        "display": "BGE-M3",
+        "params": "570M",
+        "note": "100+ 언어, MIRACL 한국어 SOTA",
+    },
+    "snowflake-ko": {
+        "display": "snowflake-ko",
+        "params": "600M",
+        "note": "한국어 실무 문서 SOTA (법률/금융/의료)",
+    },
+    "openai-large": {
+        "display": "OpenAI (API)",
+        "params": "—",
+        "note": "text-embedding-3-large, 외부 API",
+    },
+    "upstage": {
+        "display": "Upstage Solar (API)",
+        "params": "—",
+        "note": "solar-embedding-1-query, 외부 API",
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # DenseSparseStrategy

@@ -185,7 +185,7 @@ def _section1_overview(
         f"| 평가 카테고리 | {len(categories)}개 ({', '.join(c.upper() for c in categories)}) |",
         f"| 총 QA 수 | {total_qa:,}개 |",
         "| 주요 지표 | RAGAS 복합 점수 (Recall×0.35 + Precision×0.30 + Faith×0.20 + Relevancy×0.15) |",
-        "| 보조 지표 | pass_rate (context_recall 기반 %) |",
+        "| 보조 지표 | recall_pct (context_recall 기반 %) |",
         f"| 결과 디렉토리 | `{run_dir}` |",
         "",
         "### RAGAS 가중치 근거",
@@ -267,8 +267,8 @@ def _section3_category_detail(
         ]
 
         # 상세 테이블
-        col_headers = "| 순위 | 조합 | Recall | Precision | Faithfulness | Relevancy | **복합** | Pass% |"
-        col_sep = "|------|------|--------|-----------|--------------|-----------|----------|-------|"
+        col_headers = "| 순위 | 조합 | Recall | Precision | Faithfulness | Relevancy | **복합** | Recall(%) |"
+        col_sep = "|------|------|--------|-----------|--------------|-----------|----------|-----------|"
         lines += [col_headers, col_sep]
 
         for _, row in df.iterrows():
@@ -279,8 +279,8 @@ def _section3_category_detail(
             faith = f"{row['faithfulness']:.3f}"
             relev = f"{row['answer_relevancy']:.3f}"
             composite = f"**{row['composite']:.3f}**" if rank == 1 else f"{row['composite']:.3f}"
-            pass_rate = f"{row['pass_rate']:.1f}%"
-            lines.append(f"| {rank} | `{strategy}` | {recall} | {precision} | {faith} | {relev} | {composite} | {pass_rate} |")
+            recall_pct = f"{row.get('recall_pct', row.get('pass_rate', 0.0)):.1f}%"
+            lines.append(f"| {rank} | `{strategy}` | {recall} | {precision} | {faith} | {relev} | {composite} | {recall_pct} |")
 
         lines += [""]
 
