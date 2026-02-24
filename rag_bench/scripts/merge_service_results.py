@@ -26,7 +26,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from rag_bench.config import BENCH_DATA_DIR
 
@@ -114,13 +114,55 @@ def load_latency(run_dir: Path, dir_to_category: Dict[str, str]) -> Dict[str, Li
 RAGAS_METRICS = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
 
 
-def aggregate_ragas(all_results: Dict[str, Dict]) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
+def validate_and_collect_ragas(all_results: Dict[str, Dict]) -> None:
+    """병합 전 RAGAS 지표 완전성 검증.
+
+    카테고리 × 전략 조합 중 하나라도 지표가 누락되어 있으면
+    ValueError를 발생시켜 병합을 중단한다.
+
+    누락 기준:
+      - result.json에 "ragas" 키 자체가 없는 경우
+      - ragas 항목에서 RAGAS_METRICS 중 하나라도 None / 누락인 경우
+      - ragas 항목이 빈 리스트인 경우 (RAGAS 평가 미실행)
+    """
+    errors: List[str] = []
+
+    for category, data in all_results.items():
+        ragas_list = data.get("ragas")
+
+        if ragas_list is None:
+            errors.append(f"  [{category}] 'ragas' 키가 result.json에 없음 (RAGAS 평가 미실행)")
+            continue
+
+        if len(ragas_list) == 0:
+            errors.append(f"  [{category}] ragas 리스트가 비어 있음 (전략 결과 0개)")
+            continue
+
+        for entry in ragas_list:
+            strategy = entry.get("strategy", "unknown")
+            missing = [m for m in RAGAS_METRICS if entry.get(m) is None]
+            if missing:
+                errors.append(
+                    f"  [{category}] 전략 '{strategy}': "
+                    f"지표 누락 → {missing}"
+                )
+
+    if errors:
+        raise ValueError(
+            "병합 중단: 아래 항목에서 RAGAS 지표가 누락되었습니다.\n"
+            + "\n".join(errors)
+            + "\n\n누락된 카테고리/전략의 벤치마크를 완료한 후 다시 실행하세요."
+        )
+
+
+def aggregate_ragas(all_results: Dict[str, Dict]) -> Dict[str, Dict[str, Dict[str, float]]]:
     """strategy → category → metric → score 구조로 집계.
 
-    - 지표 누락 시 0.0이 아닌 None으로 저장 (0점과 구별)
-    - 동일 (strategy, category) 중복 시 경고 출력 후 기존 값 유지 (덮어쓰기 방지)
+    사전 조건: validate_and_collect_ragas() 통과 후 호출해야 한다.
+    모든 지표가 완전한 것이 보장된 상태에서 집계하므로 None 처리 불필요.
+    동일 (strategy, category) 중복 시 경고 출력 후 기존 값 유지 (덮어쓰기 방지).
     """
-    agg: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
+    agg: Dict[str, Dict[str, Dict[str, float]]] = {}
     for category, data in all_results.items():
         ragas_list = data.get("ragas", [])
         for entry in ragas_list:
@@ -130,7 +172,7 @@ def aggregate_ragas(all_results: Dict[str, Dict]) -> Dict[str, Dict[str, Dict[st
             if category in agg[strategy]:
                 print(f"[경고] 중복 감지: strategy='{strategy}', category='{category}' — 기존 값 유지")
                 continue
-            scores = {m: entry.get(m) for m in RAGAS_METRICS}  # 누락 시 None
+            scores = {m: float(entry[m]) for m in RAGAS_METRICS}
             agg[strategy][category] = scores
     return agg
 
@@ -158,7 +200,7 @@ def aggregate_latency(all_latency: Dict[str, List[dict]]) -> Dict[str, Dict[str,
 # CSV 출력
 # ---------------------------------------------------------------------------
 
-def save_ragas_csv(agg: Dict, categories: List[str], output: Path) -> None:
+def save_ragas_csv(agg: Dict[str, Dict[str, Dict[str, float]]], categories: List[str], output: Path) -> None:
     """전략별 카테고리 RAGAS 점수 CSV."""
     header = ["strategy"]
     for cat in categories:
@@ -463,8 +505,16 @@ def main():
     print(f"[병합] 카테고리: {categories}")
     print(f"[병합] RAGAS 있는 카테고리: {[c for c in categories if all_results.get(c, {}).get('ragas')]}")
 
+    # 지표 완전성 검증 — 누락 시 여기서 중단
+    ragas_targets = {c: all_results[c] for c in categories if c in all_results}
+    try:
+        validate_and_collect_ragas(ragas_targets)
+    except ValueError as e:
+        print(f"\n[오류] {e}")
+        return
+
     # 집계
-    ragas_agg = aggregate_ragas({c: all_results[c] for c in categories if c in all_results})
+    ragas_agg = aggregate_ragas(ragas_targets)
     latency_agg = aggregate_latency({c: all_latency[c] for c in categories if c in all_latency})
 
     # 출력 경로
