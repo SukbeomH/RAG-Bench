@@ -1035,3 +1035,70 @@ a376319 refactor(metadata): 도메인 메타데이터 단일 원천 통합 + pas
 | RAG 벤치마크 최신 레퍼런스 조사 보고서 | 311e4f18b43d80eeb983c70021fab01a |
 | 벤치마크 데이터셋 분석 보고서 | 311e4f18b43d80f48d7de4c99f59177b |
 | **서비스 벤치마크 시스템 구현 현황 보고서** | **311e4f18b43d8119bd80ec134a8b14c0** |
+
+---
+
+## 2026-02-24: 벤치마크 범위 확정 + 조합 구성 정비
+
+### 배경
+이전 세션(Ollama LLM 마이그레이션, per-component 모델 설정) 이후
+벤치마크 평가 범위와 조합 구성에 대한 설계 결정을 코드·문서에 반영.
+
+### 주요 결정 사항
+
+#### 1. 레이턴시 평가 제외 (1차 지표에서)
+- **이유**: 로컬 M2 Pro + Ollama 환경에서 LLM 추론 시간이 전체 레이턴시 80%+ 지배
+  → 전략 간 검색 차이가 노이즈에 묻혀 신뢰 불가
+- **프로덕션 비전이성**: 개발 환경 수치가 GPU 서버에서 재현되지 않음
+- **처리**: `RunTracker`로 인덱싱 시간·검색 ms 기록 유지 (보조 참고값, 동점 시 타이브레이커)
+- **문서화**: `docs/benchmark_scope_guideline.md` 신규 작성
+
+#### 2. 조합 구성 제약 확정
+- **하이브리드 필수**: 단일 Dense 전용 / 단일 Sparse 전용 조합 불허
+- **ColBERT 리랭커 항시 적용**: None 없음 (모든 프리셋)
+- **Contextual Retrieval 항시 적용**: None 없음 (모든 프리셋)
+- **코드 강제**: `ComboSpec.__post_init__`에서 4개 필드 모두 필수 검증 (ValueError)
+
+#### 3. snowflake-ko Dense 모델 제외
+- **결정**: 조사 단계 레퍼런스로 검토했으나 벤치마크 조합에서 제외
+- **유지**: `dense_sparse.py`에 모델 정의는 남겨둠 (향후 활성화 가능)
+- **영향**: service 프리셋 조합 수 **8개 → 6개** (HF 4종→3종)
+
+### 수정된 파일
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `rag_bench/combo/spec.py` | `_HF_DENSE_MODELS`에서 snowflake-ko 제거, 모든 프리셋 reranker/llm_support None 제거, `ComboSpec.__post_init__` 4개 필드 필수 검증 추가 |
+| `rag_bench/document_types/types.py` | LEGAL/BUSINESS/MEDICAL `expected_top` snowflake-ko → bge-m3 대체, description 정정 |
+| `rag_bench/analysis/reporter_exec.py` | snowflake-ko 관련 hardcoded 설명·단축 이유·분기 제거 |
+| `docs/benchmark_scope_guideline.md` | **신규 작성**: 평가 범위 가이드라인 (조합 범위, 레이턴시 제외 근거, 예외 조건) |
+| `PLAN_SERVICE_BENCH.md` | snowflake-ko 섹션 "레퍼런스 검토 이력"으로 변경, 조합 수 6개로 정정, 예시 출력 현행화 |
+
+### 프리셋별 최종 조합 수
+
+| 프리셋 | Dense | Sparse | Reranker | Contextual | 합계 |
+|--------|-------|--------|----------|------------|------|
+| `quick` | 1 (bge-m3) | 1 | 1 (flashrank) | 1 | **1개** |
+| `standard` | 5 (HF 3+API 2) | 2 | 1 (flashrank) | 1 | **10개** |
+| `full` | 5 (HF 3+API 2) | 2 | 2 (colbert/flashrank) | 1 | **20개** |
+| `service` | 3 (HF만) | 2 | 1 (colbert) | 1 | **6개** |
+
+### service 프리셋 최종 조합 목록 (6개)
+```
+kosimcse + korean_bm25 + colbert + contextual
+kosimcse + splade      + colbert + contextual
+e5       + korean_bm25 + colbert + contextual
+e5       + splade      + colbert + contextual
+bge-m3   + korean_bm25 + colbert + contextual
+bge-m3   + splade      + colbert + contextual
+```
+
+### Ollama LLM 설정 (이전 세션 연속)
+| 컴포넌트 | 모델 | 제공자 |
+|---------|------|--------|
+| 답변 생성 (BenchmarkRunner) | qwen3:4b-instruct-2507-q4_K_M | Ollama |
+| 문맥 요약 (ContextualRetrieval) | qwen3:4b-instruct-2507-q4_K_M | Ollama |
+| Agent (LangGraph) | qwen3:4b-instruct-2507-q4_K_M | Ollama |
+| RAGAS 평가 지표 | gpt-4o-mini | OpenAI 고정 |
+| 역질문 생성 | gpt-4o-mini | OpenAI 고정 |
+| RAGAS QA 생성 | gpt-4o-mini | OpenAI 고정 |
