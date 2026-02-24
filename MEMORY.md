@@ -742,3 +742,46 @@ CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
 
 ### 다음 세션 예정 작업
 - 없음 (식별된 모든 기술 부채 처리 완료)
+
+## 2026-02-24: 서비스 벤치마크 Phase 1 구현 완료
+
+### 주요 활동
+
+#### 계획 수립 (gsd:planner)
+- **PLAN_SERVICE_BENCH.md** 신규 작성: RAG-as-a-Service 문서 종류별 최적 모델 선정 벤치마크
+- **연구 문서 3종** 작성 (`docs/research/service_bench/`):
+  - `rag_benchmark_references.md`: 웹 리서치 보고서 (25+ 레퍼런스)
+  - `dataset_analysis.md`: 6개 HuggingFace 데이터셋 분석
+  - `report_structure_and_model_analysis.md`: W&B Horangi v3 구조 + snowflake-ko 분석
+- **핵심 설계 결정**:
+  - ACADEMIC → MEDICAL 카테고리 변경 (publichealth-qa 데이터셋 근거)
+  - Dense 모델 4종: kosimcse, e5, bge-m3, snowflake-ko
+  - 8개 서비스 조합: 4 Dense × 2 Sparse × ColBERT × Contextual (≤10 제약 충족)
+  - 6섹션 보고서 구조: W&B Horangi v3 패턴
+
+#### Phase 1 구현 (3 커밋)
+
+**커밋 1: `feat(document_types)` — 49f7cfb**
+- `rag_bench/document_types/__init__.py`
+- `rag_bench/document_types/types.py`: DocType Enum + DOC_TYPE_METADATA
+- `rag_bench/document_types/classifier.py`: 키워드 점수 투표 분류기 + 파일명 힌트
+- `rag_bench/document_types/sampler.py`: 비율 기반 샘플링 (앞50% 고정 + 랜덤50%)
+
+**커밋 2: `feat(indexing)` — d706dc8**
+- `rag_bench/indexing/multi_parser.py`: PDF/DOCX/HTML/TXT 통합 파서
+- `rag_bench/datasets/__init__.py`: Phase 2용 패키지 기반
+
+**커밋 3: `feat(models+preset)` — eb02167**
+- `rag_bench/strategies/dense_sparse.py`: DENSE_MODELS에 snowflake-ko 추가
+- `rag_bench/combo/spec.py`: _HF_DENSE_MODELS 4종, service 프리셋 신설
+- `pyproject.toml`: python-docx, beautifulsoup4, lxml 추가
+
+### 검증 결과
+- DocType 분류기: 5종 모든 카테고리 정상 분류 확인
+- service 프리셋: 8개 조합 정상 생성 (≤10 제약 충족 ✅)
+- snowflake-ko: DENSE_MODELS 레지스트리 정상 등록
+- multi_parser: PDF/DOCX/HTML/TXT/MD 모든 포맷 파서 정상 초기화
+
+### 다음 작업 (Phase 2)
+- `rag_bench/datasets/hf_loader.py`: 6개 HF 데이터셋 통합 로더
+- `rag_bench/scripts/run_service_bench.py`: hf/docs 듀얼 모드 오케스트레이터
