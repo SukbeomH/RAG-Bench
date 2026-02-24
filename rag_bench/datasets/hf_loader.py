@@ -263,10 +263,11 @@ def _load_mrtidy_ko(max_corpus: int = 50_000, max_queries: int = 200) -> BeirDat
                        doc_type=DocType.GENERAL, source_name="mrtidy-ko")
 
 
-def _load_markers_bm(subset: str) -> BeirDataset:
+def _load_markers_bm(subset: str, max_queries: int = 0) -> BeirDataset:
     """yjoonjang/markers_bm 로드 (law / finance / public / commerce).
 
     subset: "law" | "finance" | "public" | "commerce" | "finance+public+commerce"
+    max_queries: 0이면 전체 로드, 양수이면 해당 수만큼 샘플링.
     """
     from datasets import load_dataset
 
@@ -295,10 +296,12 @@ def _load_markers_bm(subset: str) -> BeirDataset:
                     "text": row.get("text", row.get("passage", "")),
                 }
 
-        # queries split 처리
+        # queries split 처리 (max_queries 적용)
         queries_split = ds.get("queries") or ds.get("test")
         if queries_split is not None:
             for row in queries_split:
+                if max_queries > 0 and len(queries) >= max_queries:
+                    break
                 qid = str(row.get("_id", row.get("id", _make_id(row.get("text", "")))))
                 queries[qid] = row.get("text", row.get("query", ""))
 
@@ -318,8 +321,11 @@ def _load_markers_bm(subset: str) -> BeirDataset:
                        doc_type=doc_type, source_name=f"markers_bm-{subset}")
 
 
-def _load_publichealth_qa_ko() -> BeirDataset:
-    """xhluca/publichealth-qa (korean) 로드."""
+def _load_publichealth_qa_ko(max_queries: int = 0) -> BeirDataset:
+    """xhluca/publichealth-qa (korean) 로드.
+
+    max_queries: 0이면 전체 로드, 양수이면 해당 수만큼 샘플링.
+    """
     from datasets import load_dataset
 
     print("  [publichealth-qa/ko] 로드 중...")
@@ -333,6 +339,8 @@ def _load_publichealth_qa_ko() -> BeirDataset:
         split = "train" if "train" in splits else splits[0]
 
         for i, row in enumerate(ds[split]):
+            if max_queries > 0 and len(queries) >= max_queries:
+                break
             question = row.get("question", "") or row.get("query", "")
             answer = row.get("answer", "") or row.get("passage", "")
             if not question:
@@ -398,11 +406,11 @@ class HFDatasetLoader:
         if doc_type == DocType.GENERAL:
             return _load_miracl_ko(max_corpus=self.max_corpus, max_queries=self.max_queries)
         elif doc_type == DocType.LEGAL:
-            return _load_markers_bm("law")
+            return _load_markers_bm("law", max_queries=self.max_queries)
         elif doc_type == DocType.BUSINESS:
-            return _load_markers_bm("finance+public+commerce")
+            return _load_markers_bm("finance+public+commerce", max_queries=self.max_queries)
         elif doc_type == DocType.MEDICAL:
-            return _load_publichealth_qa_ko()
+            return _load_publichealth_qa_ko(max_queries=self.max_queries)
         else:
             raise ValueError(f"지원하지 않는 DocType: {doc_type}")
 
