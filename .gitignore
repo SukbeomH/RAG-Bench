@@ -48,6 +48,7 @@ VERIFICATION_*.md
 markdown/
 
 # 기타
+.playwright-mcp/
 .mypy_cache/
 .ruff_cache/
 .sessions/
