@@ -14,6 +14,7 @@ from rag_bench.config import (
     DEFAULT_COLBERT_MODEL,
     DEFAULT_CONTEXTUAL_LLM,
     DEFAULT_FLASHRANK_MODEL,
+    MODELS_DIR,
     QDRANT_DB_PREFIX,
 )
 from rag_bench.combo.spec import ComboSpec
@@ -66,10 +67,13 @@ class IndexCacheManager:
         if self._flashrank_ranker is not None:
             return self._flashrank_ranker
         from flashrank import Ranker
+        flashrank_cache_dir = MODELS_DIR / "flashrank"
+        flashrank_cache_dir.mkdir(parents=True, exist_ok=True)
         print("[FlashRank 캐시] Ranker 최초 로드 중 (이후 공유)...")
         self._flashrank_ranker = Ranker(
             model_name=self.config.flashrank_model,
             max_length=self.config.flashrank_max_length,
+            cache_dir=str(flashrank_cache_dir),
         )
         print("[FlashRank 캐시] Ranker 로드 완료.")
         return self._flashrank_ranker

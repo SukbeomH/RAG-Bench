@@ -607,6 +607,29 @@ def _run_preset_mode(args):
             print(f"Error: --dense-filter '{args.dense_filter}'에 해당하는 조합이 없습니다.")
             sys.exit(1)
 
+    if getattr(args, "reranker_filter", None):
+        raw = [m.strip() for m in args.reranker_filter.split(",")]
+        values = [None if m == "none" else m for m in raw]
+        combos = [c for c in combos if c.reranker in values]
+        if not combos:
+            print(f"Error: --reranker-filter '{args.reranker_filter}'에 해당하는 조합이 없습니다.")
+            sys.exit(1)
+
+    if getattr(args, "sparse_filter", None):
+        filter_sparse = [m.strip() for m in args.sparse_filter.split(",")]
+        combos = [c for c in combos if c.sparse in filter_sparse]
+        if not combos:
+            print(f"Error: --sparse-filter '{args.sparse_filter}'에 해당하는 조합이 없습니다.")
+            sys.exit(1)
+
+    if getattr(args, "contextual_filter", None):
+        raw = [m.strip() for m in args.contextual_filter.split(",")]
+        values = [None if m == "none" else m for m in raw]
+        combos = [c for c in combos if c.llm_support in values]
+        if not combos:
+            print(f"Error: --contextual-filter '{args.contextual_filter}'에 해당하는 조합이 없습니다.")
+            sys.exit(1)
+
     print(f"\n{'═' * 60}")
     print(f" 4-Layer 조합 벤치마크 — 프리셋: {preset_name}")
     print(f"{'═' * 60}")
@@ -1131,6 +1154,12 @@ def main():
                         help="스코어링 프로파일 (기본: balanced)")
     parser.add_argument("--dense-filter", type=str, default=None,
                         help="실행할 dense 모델 필터 (쉼표 구분). 예: --dense-filter upstage,openai-large")
+    parser.add_argument("--reranker-filter", type=str, default=None,
+                        help="실행할 reranker 필터 (쉼표 구분). 'none' 포함 가능. 예: --reranker-filter flashrank,none")
+    parser.add_argument("--sparse-filter", type=str, default=None,
+                        help="실행할 sparse 모델 필터 (쉼표 구분). 예: --sparse-filter korean_bm25")
+    parser.add_argument("--contextual-filter", type=str, default=None,
+                        help="실행할 contextual 필터 (쉼표 구분). 'none' 포함 가능. 예: --contextual-filter contextual,none")
     parser.add_argument("--append-results", action="store_true",
                         help="기존 latency/RAGAS CSV에 결과를 병합(append)하여 저장")
     # PDF 페이지 샘플링
