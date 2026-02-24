@@ -322,12 +322,6 @@ def _run_category_bench(
     queries = [qa["question"] for qa in qa_pairs]
     ground_truths = [qa.get("ground_truth", "") for qa in qa_pairs]
 
-    # 카테고리별 Qdrant 경로 주입
-    from rag_bench.config import QDRANT_DB_PREFIX
-    for spec in combos:
-        # 인덱스 키에 카테고리 접미어 포함 → 카테고리별 독립 인덱스
-        cat_cache.cache  # 이미 빈 상태
-
     # Contextual 청크 사전 생성
     pre_enriched: Optional[List] = None
     if any(c.llm_support == "contextual" for c in combos):
@@ -348,125 +342,24 @@ def _run_category_bench(
         progress = f"[{i}/{len(combos)}]"
         print(f"\n  {progress} [{cat_name}] {label} 빌드 중...")
 
-        # 카테고리별 경로를 사용하도록 spec의 index_key를 기반으로 qdrant_path 재정의
-        qdrant_path = str(cat_qdrant_dir / f"{QDRANT_DB_PREFIX}{spec.dense}_{spec.sparse}")
-        ctx_qdrant_path = str(cat_qdrant_dir / f"{QDRANT_DB_PREFIX}ctx_{spec.dense}_{spec.sparse}")
-
-        # IndexCacheManager의 경로를 카테고리별로 오버라이드
-        from rag_bench.strategies.dense_sparse import DenseSparseStrategy
-
-        # base 전략 직접 생성 (카테고리별 경로)
-        base_key = spec.index_key
-        if base_key not in cat_cache.cache:
-            base_strategy = DenseSparseStrategy(
-                dense_model=spec.dense,
-                sparse_type=spec.sparse,
-                qdrant_path=qdrant_path,
-                device=cat_cache_cfg.dense_device,
-            )
-            vocab_path = qdrant_path + "_bm25_vocab.json"
-            qdrant_dir = Path(qdrant_path)
-            index_exists = qdrant_dir.exists() and any(qdrant_dir.iterdir())
-
-            if index_exists and not args.reindex:
-                print(f"    [기존 인덱스 재사용] {qdrant_path}")
-                base_strategy._ensure_initialized()
-                IndexCacheManager._restore_bm25_vocab(base_strategy, vocab_path, child_chunks)
-                base_strategy._is_ready = True
-            else:
-                base_strategy.index(child_chunks)
-                from rag_bench.strategies.dense_sparse import KoreanBM25Encoder
-                if isinstance(base_strategy._sparse_embeddings, KoreanBM25Encoder):
-                    base_strategy._sparse_embeddings.save(vocab_path)
-
-            cat_cache.cache[base_key] = (base_strategy, qdrant_path)
-        else:
-            base_strategy, _ = cat_cache.cache[base_key]
-
-        # LLM Support 적용
-        if spec.llm_support == "contextual":
-            from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
-            from rag_bench.strategies.dense_sparse import DenseSparseStrategy, KoreanBM25Encoder
-
-            ctx_key = f"ctx:{base_key}"
-            if ctx_key not in cat_cache.ctx_cache:
-                ctx_base = DenseSparseStrategy(
-                    dense_model=spec.dense,
-                    sparse_type=spec.sparse,
-                    qdrant_path=ctx_qdrant_path,
-                    device=cat_cache_cfg.dense_device,
-                )
-                # Dense/Sparse 모델 공유
-                if base_strategy._dense_embeddings is not None:
-                    ctx_base.share_embeddings(
-                        dense_embeddings=base_strategy._dense_embeddings,
-                        sparse_embeddings=base_strategy._sparse_embeddings,
-                        embedding_dim=base_strategy._embedding_dim,
-                        use_langchain_sparse=base_strategy._use_langchain_sparse,
-                    )
-                ctx_strategy = ContextualRetrievalStrategy(
-                    base_strategy=ctx_base,
-                    parent_pairs=parent_pairs,
-                    llm_model=args.contextual_llm,
-                )
-                ctx_vocab_path = ctx_qdrant_path + "_bm25_vocab.json"
-                ctx_qdrant_dir_path = Path(ctx_qdrant_path)
-                ctx_exists = ctx_qdrant_dir_path.exists() and any(ctx_qdrant_dir_path.iterdir())
-
-                if ctx_exists and not args.reindex:
-                    print(f"    [기존 Contextual 인덱스 재사용] {ctx_qdrant_path}")
-                    ctx_base._ensure_initialized()
-                    fit_docs = pre_enriched if pre_enriched is not None else child_chunks
-                    IndexCacheManager._restore_bm25_vocab(ctx_base, ctx_vocab_path, fit_docs)
-                    ctx_base._is_ready = True
-                    ctx_strategy._is_ready = True
-                else:
-                    if pre_enriched is not None:
-                        ctx_base._ensure_initialized()
-                        if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
-                            texts = [d.page_content for d in pre_enriched]
-                            ctx_base._sparse_embeddings.fit(texts)
-                        ctx_base.index(pre_enriched)
-                        if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
-                            ctx_base._sparse_embeddings.save(ctx_vocab_path)
-                        ctx_strategy._is_ready = True
-                    else:
-                        ctx_strategy.index(child_chunks)
-                        if isinstance(ctx_base._sparse_embeddings, KoreanBM25Encoder):
-                            ctx_base._sparse_embeddings.save(ctx_vocab_path)
-
-                cat_cache.ctx_cache[ctx_key] = ctx_strategy
-            current = cat_cache.ctx_cache[ctx_key]
-        else:
-            current = base_strategy
-
-        # Reranker 적용
-        if spec.reranker == "colbert":
-            from rag_bench.strategies.colbert_rerank import ColBERTRerankStrategy
-            shared_model = cat_cache.get_colbert_model()
-            # global index_cache에도 공유 (다른 카테고리에서 재사용)
-            index_cache._colbert_model = cat_cache._colbert_model
-            current = ColBERTRerankStrategy(
-                base_strategy=current,
-                model_name=cat_cache_cfg.colbert_model,
-                rerank_n=cat_cache_cfg.rerank_n,
-                device=cat_cache_cfg.colbert_device,
-                shared_model=shared_model,
-                shared_lock=cat_cache.get_colbert_lock(),
-            )
-        elif spec.reranker == "flashrank":
-            from rag_bench.strategies.flashrank_rerank import FlashRankRerankStrategy
-            shared_ranker = cat_cache.get_flashrank_ranker()
-            index_cache._flashrank_ranker = cat_cache._flashrank_ranker
-            current = FlashRankRerankStrategy(
-                base_strategy=current,
-                model_name=cat_cache_cfg.flashrank_model,
-                rerank_n=cat_cache_cfg.rerank_n,
-                shared_ranker=shared_ranker,
-            )
+        current = build_strategy_from_spec(
+            spec=spec,
+            index_cache=cat_cache,
+            child_chunks=child_chunks,
+            parent_pairs=parent_pairs,
+            reindex=args.reindex,
+            pre_enriched=pre_enriched,
+            qdrant_base_dir=cat_qdrant_dir,
+        )
 
         strategies.append(current)
         _release_memory()
+
+    # ColBERT/FlashRank 모델을 전역 캐시에 공유 (다른 카테고리에서 재사용)
+    if cat_cache._colbert_model is not None:
+        index_cache._colbert_model = cat_cache._colbert_model
+    if cat_cache._flashrank_ranker is not None:
+        index_cache._flashrank_ranker = cat_cache._flashrank_ranker
 
     if not strategies:
         print(f"  [{cat_name}] 생성된 전략이 없습니다.")
