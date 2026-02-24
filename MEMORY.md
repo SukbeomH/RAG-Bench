@@ -1102,3 +1102,50 @@ bge-m3   + splade      + colbert + contextual
 | RAGAS 평가 지표 | gpt-4o-mini | OpenAI 고정 |
 | 역질문 생성 | gpt-4o-mini | OpenAI 고정 |
 | RAGAS QA 생성 | gpt-4o-mini | OpenAI 고정 |
+
+---
+
+## 2026-02-24: HF 데이터셋 로더 오류 수정 + 서비스 벤치마크 실행
+
+### 완료 작업
+
+#### 1. max_queries LEGAL/BUSINESS/MEDICAL 확장 (커밋: 1e068fb)
+- `_load_markers_bm`, `_load_publichealth_qa_ko`에 `max_queries` 파라미터 추가
+- `HFDatasetLoader.load()`에서 모든 카테고리에 일관되게 전달
+
+#### 2. `--mode hf --max_queries 20` 실행 → 오류 3종 발견 후 수정 (커밋: 1681f91)
+
+| 카테고리 | 오류 | 해결 |
+|---------|------|------|
+| GENERAL | `miracl/miracl-corpus` 커스텀 스크립트 지원 종료 | `klue/klue` (mrc) streaming 대체 |
+| LEGAL | `markers_bm` subset명 `'law'` 없음 + CAS 네트워크 오류 | streaming=True + `_id` 기반 카테고리 필터 |
+| BUSINESS | `markers_bm` subset명 `'finance'` 등 없음 + CAS 오류 | 동일 |
+| RAGAS | `MetricPreset('standard')` 유효하지 않음 | `MetricPreset('core_only')` |
+
+#### 3. markers_bm 실제 데이터셋 구조 확인
+- config: `['corpus', 'default', 'queries']` (subset명 아님)
+- corpus `_id` 형식: `"<category> - <file> - <page>"` → `startswith('<sub> - ')` 필터
+- queries `_id` 형식: `"<index>_<category>"` → `endswith('_<sub>')` 필터
+- qrels: `default` config → `test` split → `query-id`, `corpus-id`, `score`
+
+#### 4. klue/klue mrc 데이터셋 매핑
+- `context` → corpus text, `title` → corpus title
+- `question` → query, `guid` → query ID
+- `answers.text[0]` → ground_truth (via `get_qa_pairs()`)
+- `is_impossible=True` 행 스킵
+
+### MEDICAL Pass 1 결과 (20 QA × 6전략, 652초)
+| 전략 | 레이턴시 |
+|------|---------|
+| KoSimCSE + korean_bm25 + ColBERT | 3,886 ms |
+| KoSimCSE + splade + ColBERT | 3,838 ms ← 최저 |
+| E5 + korean_bm25 + ColBERT | 4,140 ms |
+| E5 + splade + ColBERT | 5,631 ms |
+| BGE-M3 + korean_bm25 + ColBERT | 5,260 ms |
+| BGE-M3 + splade + ColBERT | 6,068 ms ← 최고 |
+
+### 남은 작업
+- 수정된 로더로 `general,legal,business` 카테고리 재실행 필요
+  (`medical`은 체크포인트 완료 → 자동 스킵됨)
+- RAGAS Pass 2 검증 (`core_only` preset 기준)
+- 명령: `uv run python -m rag_bench.scripts.run_service_bench --mode hf --max_queries 20 --categories general,legal,business`
