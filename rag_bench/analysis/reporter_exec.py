@@ -624,26 +624,9 @@ def _explain_winner_reason(
     winner_display = _format_model_name(winner)
 
     explanations: Dict[str, Dict[str, str]] = {
-        "legal": {
-            "snowflake-ko": (
-                f"> {winner_display}는 한국어 법률·금융 문서로 추가 학습된 모델입니다. "
-                f"법률 문서는 '제N조 제N항'처럼 정확한 조문 번호와 용어 매칭이 답변 품질을 결정하는데, "
-                f"이 모델은 한국어 실무 문서 패턴을 깊이 학습해 이 특성에서 강점을 보입니다."
-            ),
-        },
-        "business": {
-            "snowflake-ko": (
-                f"> {winner_display}는 금융·공공·상업 보고서 도메인 데이터를 포함해 학습했습니다. "
-                f"수치, 기업명, 상품명 등 고유 명사의 정확한 의미 파악이 필요한 금융 문서에서 "
-                f"타 모델 대비 높은 정확도를 보입니다."
-            ),
-        },
-        "medical": {
-            "snowflake-ko": (
-                f"> {winner_display}는 의료·공중보건 도메인의 전문 용어와 FAQ 구조를 처리하는 데 강점을 보입니다. "
-                f"질환명, 약어 등 전문 용어의 의미론적 이해와 함께 BM25 키워드 매칭이 결합되어 높은 정확도를 달성했습니다."
-            ),
-        },
+        "legal": {},
+        "business": {},
+        "medical": {},
         "general": {
             "bge-m3": (
                 f"> {winner_display}는 100개 이상 언어를 학습한 대규모 다국어 모델입니다. "
@@ -656,9 +639,7 @@ def _explain_winner_reason(
 
     # 모델명에서 핵심 키워드 추출
     model_key = winner.lower()
-    if "snowflake" in model_key:
-        model_key = "snowflake-ko"
-    elif "bge" in model_key or "bge-m3" in model_key:
+    if "bge" in model_key:
         model_key = "bge-m3"
 
     cat_explanations = explanations.get(category, {})
@@ -919,9 +900,9 @@ def _shorten_reason(reason: str, category: str, winner: str) -> str:
     model_key = winner.lower()
 
     short_reasons: Dict[str, Dict[str, str]] = {
-        "legal":    {"snowflake": "한국어 법률 용어 정밀 매칭 최강"},
-        "business": {"snowflake": "금융·공시 문서 의미 이해 최강"},
-        "medical":  {"snowflake": "의료 FAQ 전문 용어 처리 최강"},
+        "legal":    {},
+        "business": {},
+        "medical":  {},
         "general":  {"bge": "대용량 범용 검색 국제 표준 SOTA"},
         "technical": {"e5": "기술 용어 구조적 매칭 강점"},
     }

@@ -48,8 +48,8 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "hf_dataset": "yjoonjang/markers_bm",
         "hf_subset": "law",
         "secondary_datasets": [],
-        "expected_top": "snowflake-ko+korean_bm25",
-        "description": "법률, 계약서, 판례. AutoRAG 법률 SOTA: snowflake-ko +9.5%.",
+        "expected_top": "bge-m3+korean_bm25",
+        "description": "법률, 계약서, 판례. 조문 번호·용어 정밀 매칭이 품질을 결정.",
         # 표시용 메타데이터
         "label": "법률 (계약서·판례)",
         "data_source": "markers_bm 법률 판례·계약서 데이터셋",
@@ -61,7 +61,7 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "hf_dataset": "yjoonjang/markers_bm",
         "hf_subset": "finance+public+commerce",
         "secondary_datasets": [],
-        "expected_top": "snowflake-ko+korean_bm25",
+        "expected_top": "bge-m3+korean_bm25",
         "description": "금융/공공/상업 보고서. 수치+요약 밀집 문서.",
         # 표시용 메타데이터
         "label": "금융·비즈니스 (보고서·공시)",
@@ -74,7 +74,7 @@ DOC_TYPE_METADATA: Dict[DocType, Dict[str, Any]] = {
         "hf_dataset": "xhluca/publichealth-qa",
         "hf_subset": "korean",
         "secondary_datasets": [],
-        "expected_top": "snowflake-ko+splade",
+        "expected_top": "bge-m3+splade",
         "description": "의료/공중보건 FAQ. CDC/WHO 기반 77개 QA.",
         # 표시용 메타데이터
         "label": "의료 (FAQ·공중보건)",
