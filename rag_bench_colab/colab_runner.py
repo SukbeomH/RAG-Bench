@@ -44,7 +44,9 @@ class CheckpointManager:
     def save(self, key: str, data: Any) -> None:
         """체크포인트 저장."""
         path = self.session_dir / f"{key}.json"
-        path.write_text(json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8")
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8"
+        )
 
     def load(self, key: str) -> Optional[Any]:
         """체크포인트 로드. 없으면 None."""
@@ -62,7 +64,8 @@ class CheckpointManager:
     def list_completed(self, prefix: str) -> List[str]:
         """완료된 체크포인트 키 목록."""
         return [
-            p.stem for p in self.session_dir.glob(f"{prefix}*.json")
+            p.stem
+            for p in self.session_dir.glob(f"{prefix}*.json")
             if not p.stem.startswith("_")
         ]
 
@@ -93,6 +96,7 @@ class ColabBenchmarkRunner:
         device: Optional[str] = None,
         session_id: Optional[str] = None,
         parallel_queries: int = 0,
+        parallel_eval: int = 0,
         reindex: bool = False,
         metric_preset: str = "core_only",
         scoring_profile: str = "balanced",
@@ -102,12 +106,14 @@ class ColabBenchmarkRunner:
         self.top_n = top_n
         self.qdrant_mode = qdrant_mode
         self.parallel_queries = parallel_queries
+        self.parallel_eval = parallel_eval
         self.reindex = reindex
         self.metric_preset = metric_preset
         self.scoring_profile = scoring_profile
 
         if device is None:
             from rag_bench_colab.colab_config import get_device
+
             device = get_device()
         self.device = device
 
@@ -115,33 +121,41 @@ class ColabBenchmarkRunner:
         self.checkpoint = CheckpointManager(self.session_id)
 
         # 세션 메타데이터 저장
-        self.checkpoint.save_metadata({
-            "preset": preset,
-            "k": k,
-            "top_n": top_n,
-            "qdrant_mode": qdrant_mode,
-            "device": device,
-            "metric_preset": metric_preset,
-            "scoring_profile": scoring_profile,
-            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        self.checkpoint.save_metadata(
+            {
+                "preset": preset,
+                "k": k,
+                "top_n": top_n,
+                "qdrant_mode": qdrant_mode,
+                "device": device,
+                "metric_preset": metric_preset,
+                "scoring_profile": scoring_profile,
+                "parallel_eval": parallel_eval,
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
 
-        self._index_cache: Optional[Any] = None   # IndexCacheManager, lazy init
+        self._index_cache: Optional[Any] = None  # IndexCacheManager, lazy init
         self._tqdm: Optional[Any] = None
-        self._pass1_results: Dict[str, List[dict]] = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
-        self._tracker: Optional[Any] = None       # RunTracker 인스턴스
+        self._pass1_results: Dict[
+            str, List[dict]
+        ] = {}  # Pass 1 검색 결과 (Pass 2 재사용용)
+        self._tracker: Optional[Any] = None  # RunTracker 인스턴스
         self._reports: Dict[str, Any] = {}  # EvaluationReport 저장
         self._cached_parent_pairs: Optional[list] = None  # prepare_qa() 청킹 결과 캐시
         self._cached_child_chunks: Optional[list] = None  # prepare_qa() 청킹 결과 캐시
+        self._pre_enriched_chunks: Optional[list] = None  # Step 2.5 enriched 청크 캐시
 
     def _get_tqdm(self):
         """노트북 tqdm 또는 표준 tqdm 반환."""
         if self._tqdm is None:
             try:
                 from tqdm.notebook import tqdm
+
                 self._tqdm = tqdm
             except ImportError:
                 from tqdm import tqdm
+
                 self._tqdm = tqdm
         return self._tqdm
 
@@ -155,6 +169,7 @@ class ColabBenchmarkRunner:
             return
         try:
             from rag_bench.run_tracker import RunTracker
+
             self._tracker = RunTracker(output_dir=DRIVE_BENCHDATA_DIR)
         except ImportError:
             self._tracker = None
@@ -250,7 +265,9 @@ class ColabBenchmarkRunner:
             markdown_dir=str(COLAB_DOCS_DIR),
             parent_store_path=str(parent_store_path),
         )
-        print(f"[QA Step 1] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+        print(
+            f"[QA Step 1] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개"
+        )
         # prepare_data()에서 재사용할 수 있도록 캐시
         self._cached_parent_pairs = parent_pairs
         self._cached_child_chunks = child_chunks
@@ -259,16 +276,21 @@ class ColabBenchmarkRunner:
             raise RuntimeError("Parent 청크가 생성되지 않았습니다.")
 
         # Step 2: 유효 QA 수 계산
-        args = argparse.Namespace(sample_pages=sample_pages, max_qa_per_page=max_qa_per_page)
+        args = argparse.Namespace(
+            sample_pages=sample_pages, max_qa_per_page=max_qa_per_page
+        )
         effective_num_qa = _compute_effective_num_qa(args, parent_pairs)
 
         # Step 3: RAGAS KG QA 생성
         # KG_SAVE_PATH를 Drive 경로로 임시 오버라이드
         import rag_bench.scripts.generate_qa as _gqa_mod
+
         _orig_kg_path = _gqa_mod.KG_SAVE_PATH
         _gqa_mod.KG_SAVE_PATH = DRIVE_BENCHDATA_DIR / "ragas_knowledge_graph.json"
 
-        print(f"\n[QA Step 2] RAGAS KG QA 생성 (n={effective_num_qa}, dist={query_dist})")
+        print(
+            f"\n[QA Step 2] RAGAS KG QA 생성 (n={effective_num_qa}, dist={query_dist})"
+        )
         try:
             qa_pairs = _generate_qa_ragas(
                 parent_pairs=parent_pairs,
@@ -295,7 +317,9 @@ class ColabBenchmarkRunner:
             "qa_pairs": qa_pairs,
         }
         qa_path.parent.mkdir(parents=True, exist_ok=True)
-        qa_path.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
+        qa_path.write_text(
+            json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print(f"\n[QA] 완료: {len(qa_pairs)}개 → {qa_path}")
         return qa_path
 
@@ -320,9 +344,11 @@ class ColabBenchmarkRunner:
         if not qa_path.exists():
             # Colab data 디렉토리에서 복사
             from rag_bench_colab.colab_config import COLAB_DATA_DIR
+
             src = COLAB_DATA_DIR / "qa_dataset.json"
             if src.exists():
                 import shutil
+
                 qa_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, qa_path)
             else:
@@ -342,7 +368,9 @@ class ColabBenchmarkRunner:
         if self._cached_parent_pairs is not None:
             parent_pairs = self._cached_parent_pairs
             child_chunks = self._cached_child_chunks
-            print(f"[Data] 청킹 캐시 재사용: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+            print(
+                f"[Data] 청킹 캐시 재사용: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개"
+            )
         elif self._tracker:
             with self._tracker.phase("chunking"):
                 parent_store_path = BENCH_DATA_DIR / "parent_store"
@@ -350,14 +378,18 @@ class ColabBenchmarkRunner:
                     markdown_dir=str(BENCH_DOCS_DIR),
                     parent_store_path=str(parent_store_path),
                 )
-            print(f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+            print(
+                f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개"
+            )
         else:
             parent_store_path = BENCH_DATA_DIR / "parent_store"
             parent_pairs, child_chunks = create_parent_child_chunks(
                 markdown_dir=str(BENCH_DOCS_DIR),
                 parent_store_path=str(parent_store_path),
             )
-            print(f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개")
+            print(
+                f"[Data] 청킹 완료: Parent {len(parent_pairs)}개, Child {len(child_chunks)}개"
+            )
 
         # 트래커에 설정 기록
         if self._tracker:
@@ -383,12 +415,56 @@ class ColabBenchmarkRunner:
         from rag_bench.combo import PRESETS, generate_valid_combinations
 
         if self.preset not in PRESETS:
-            raise ValueError(f"알 수 없는 프리셋: {self.preset}. 사용 가능: {list(PRESETS.keys())}")
+            raise ValueError(
+                f"알 수 없는 프리셋: {self.preset}. 사용 가능: {list(PRESETS.keys())}"
+            )
 
         config = PRESETS[self.preset]
         combos = generate_valid_combinations(config)
         print(f"[Combos] 프리셋 '{self.preset}': {len(combos)}개 조합")
         return combos
+
+    # ------------------------------------------------------------------
+    # Step 2.5: Contextual 청크 사전 생성 (최적화)
+    # ------------------------------------------------------------------
+
+    def prepare_contextual_chunks(
+        self,
+        combos: list,
+        child_chunks: list,
+        parent_pairs: list,
+    ) -> Optional[list]:
+        """Contextual Retrieval 청크를 1회만 사전 생성한다.
+
+        run_all_combos.py의 _step25_enrich_contextual 패턴을 적용:
+        - contextual 조합이 있을 때만 enrich_only() 1회 호출
+        - 중복 LLM 호출 방지 (API 비용 대폭 절감)
+
+        Args:
+            combos: ComboSpec 목록
+            child_chunks: Child 청크 목록
+            parent_pairs: Parent-child 쌍 목록
+
+        Returns:
+            pre_enriched_chunks 또는 None (contextual 조합 미포함 시)
+        """
+        if not any(s.llm_support == "contextual" for s in combos):
+            print("[Step 2.5] Contextual 조합 없음 — 건너뜀")
+            return None
+
+        print("\n[Step 2.5] Contextual Retrieval 청크 사전 생성")
+        from rag_bench.strategies.contextual_retrieval import (
+            ContextualRetrievalStrategy,
+        )
+
+        _ctx_prep = ContextualRetrievalStrategy(
+            base_strategy=None,
+            parent_pairs=parent_pairs,
+        )
+        pre_enriched = _ctx_prep.enrich_only(child_chunks)
+        print(f"  사전 생성 완료: {len(pre_enriched)}개 enriched 청크")
+        self._pre_enriched_chunks = pre_enriched
+        return pre_enriched
 
     # ------------------------------------------------------------------
     # Pass 1: 레이턴시 벤치마크
@@ -437,9 +513,7 @@ class ColabBenchmarkRunner:
             strategy = None
             try:
                 # Qdrant 경로 오버라이드
-                strategy = self._build_strategy(
-                    spec, child_chunks, parent_pairs
-                )
+                strategy = self._build_strategy(spec, child_chunks, parent_pairs)
 
                 if strategy is None:
                     continue
@@ -474,15 +548,15 @@ class ColabBenchmarkRunner:
             # Reranker 래핑 전략만 cleanup
             # ctx_cache에 있는 ContextualRetrieval 또는 그것을 base로 가진 전략은
             # cleanup cascade를 금지 (_is_ready가 False로 오염되는 것 방지)
-            if strategy is not None and hasattr(strategy, '_base_strategy'):
+            if strategy is not None and hasattr(strategy, "_base_strategy"):
                 ctx_values = (
                     set(id(v) for v in self._index_cache.ctx_cache.values())
-                    if self._index_cache else set()
+                    if self._index_cache
+                    else set()
                 )
-                base = getattr(strategy, '_base_strategy', None)
-                is_cached = (
-                    id(strategy) in ctx_values
-                    or (base is not None and id(base) in ctx_values)
+                base = getattr(strategy, "_base_strategy", None)
+                is_cached = id(strategy) in ctx_values or (
+                    base is not None and id(base) in ctx_values
                 )
                 if not is_cached:
                     try:
@@ -501,7 +575,12 @@ class ColabBenchmarkRunner:
                 .agg(["mean", "std", "count"])
                 .reset_index()
             )
-            summary.columns = ["strategy", "avg_latency_ms", "std_latency_ms", "query_count"]
+            summary.columns = [
+                "strategy",
+                "avg_latency_ms",
+                "std_latency_ms",
+                "query_count",
+            ]
             summary["avg_latency"] = summary["avg_latency_ms"] / 1000
             summary = summary.sort_values("avg_latency")
             print(f"\n[Pass 1] 완료: {len(summary)}개 전략 측정")
@@ -525,6 +604,8 @@ class ColabBenchmarkRunner:
         """Pass 2: 상위 N개 전략 RAGAS 평가 (체크포인트 지원).
 
         MetricPreset과 ScoringProfile을 활용하여 확장 평가를 수행한다.
+        run_all_combos.py의 _step5_pass2 패턴을 적용하여
+        BenchmarkRunner.evaluate()를 직접 호출하고 RAGAS 병렬 평가를 지원한다.
 
         Returns:
             RAGAS 점수 DataFrame.
@@ -533,18 +614,22 @@ class ColabBenchmarkRunner:
         from rag_bench.evaluation.metrics import MetricPreset
         from rag_bench.runner import BenchmarkRunner
         from rag_bench.combo import IndexCacheManager
-
-        tqdm = self._get_tqdm()
+        from rag_bench.run_tracker import track_openai_tokens
 
         # 상위 N개 선별
+
         if "avg_latency" in latency_df.columns:
-            top_strategies = latency_df.nsmallest(self.top_n, "avg_latency")["strategy"].tolist()
+            top_strategies = latency_df.nsmallest(self.top_n, "avg_latency")[
+                "strategy"
+            ].tolist()
         else:
             top_strategies = latency_df["strategy"].head(self.top_n).tolist()
 
         print("\n[Pass 2] RAGAS 평가 시작")
         print(f"  메트릭 프리셋: {self.metric_preset}")
         print(f"  스코어링 프로파일: {self.scoring_profile}")
+        if self.parallel_eval > 1:
+            print(f"  병렬 평가: {self.parallel_eval} workers")
         print(f"  상위 {len(top_strategies)}개 전략:")
         for i, name in enumerate(top_strategies, 1):
             lat = latency_df.loc[latency_df["strategy"] == name, "avg_latency"].values
@@ -555,7 +640,9 @@ class ColabBenchmarkRunner:
         try:
             preset_enum = MetricPreset(self.metric_preset)
         except (ValueError, KeyError):
-            print(f"  [Warning] 알 수 없는 메트릭 프리셋: {self.metric_preset}, core_only 사용")
+            print(
+                f"  [Warning] 알 수 없는 메트릭 프리셋: {self.metric_preset}, core_only 사용"
+            )
             preset_enum = MetricPreset.CORE_ONLY
 
         evaluator = ExtendedRAGEvaluator(
@@ -564,109 +651,92 @@ class ColabBenchmarkRunner:
         )
 
         self._ensure_tracker()
-        completed_labels = set(self.checkpoint.list_completed("pass2_"))
-        all_scores = []
-
-        # 이전 체크포인트 결과 로드
-        for label in completed_labels:
-            data = self.checkpoint.load(label)
-            if data:
-                all_scores.append(data)
 
         if self._index_cache is None:
             self._index_cache = IndexCacheManager(config=get_cache_config(self.device))
 
-        for strategy_name in tqdm(top_strategies, desc="Pass 2: RAGAS 평가"):
-            ckpt_key = f"pass2_{strategy_name}"
-            if ckpt_key in completed_labels:
-                continue
-
-            # 전략 빌드 (캐시 활용)
+        # 평가 대상 전략 빌드
+        eval_strategies = []
+        for strategy_name in top_strategies:
             spec = None
             for s in combos:
-                if s.label == strategy_name or self._strategy_name_from_spec(s) == strategy_name:
+                if (
+                    s.label == strategy_name
+                    or self._strategy_name_from_spec(s) == strategy_name
+                ):
                     spec = s
                     break
-
             if spec is None:
                 print(f"  [Skip] {strategy_name}: ComboSpec 매칭 실패")
                 continue
-
             try:
                 strategy = self._build_strategy(spec, child_chunks, parent_pairs)
-                if strategy is None:
-                    continue
-
-                runner = BenchmarkRunner(
-                    strategies=[strategy],
-                    queries=queries,
-                    k=self.k,
-                    evaluator=None,
-                    parallel_queries=self.parallel_queries,
-                )
-
-                # Pass 1 결과 재사용 (재검색 방지)
-                strategy_name_candidate = strategy.name
-                if self._pass1_results and strategy_name_candidate in self._pass1_results:
-                    runner.inject_results({strategy_name_candidate: self._pass1_results[strategy_name_candidate]})
-                else:
-                    runner.run()  # 폴백: Pass 1 결과 없으면 재검색
-
-                # 검색 결과에서 RAGAS 평가 (토큰 추적 포함)
-                from rag_bench.run_tracker import track_openai_tokens
-                results = runner._results
-                for name, query_results in results.items():
-                    questions = [r["query"] for r in query_results]
-                    contexts = [[d["content"] for d in r["results"]] for r in query_results]
-
-                    # Answer 생성은 evaluator 내부에서 처리하지 않으므로 별도 생성
-                    answers = self._generate_answers(questions, contexts)
-
-                    with track_openai_tokens() as ragas_tokens:
-                        report = evaluator.evaluate_strategy(
-                            strategy_name=name,
-                            questions=questions,
-                            contexts=contexts,
-                            answers=answers,
-                            ground_truths=ground_truths,
-                        )
-
-                    # RunTracker: RAGAS 토큰 + 점수 기록
-                    if self._tracker:
-                        if ragas_tokens.total_tokens > 0:
-                            self._tracker.record_ragas_tokens(ragas_tokens)
-                        timing = self._tracker.find_timing(spec.label)
-                        if timing:
-                            self._tracker.record_ragas(timing, report.aggregate_dict)
-
-                    score_dict: Dict[str, Any] = {"strategy": name}
-                    score_dict.update(report.aggregate_dict)
-
-                    # weighted_score 추가
-                    ws = report.weighted_score
-                    if ws:
-                        score_dict[f"weighted_{self.scoring_profile}"] = ws.get(self.scoring_profile, 0.0)
-
-                    all_scores.append(score_dict)
-                    self._reports[name] = report
-
-                    # 체크포인트 저장
-                    self.checkpoint.save(ckpt_key, score_dict)
-
-                    print(f"  [{name}] {report.aggregate_dict}")
-                    if ws:
-                        print(f"    weighted({self.scoring_profile}): {ws.get(self.scoring_profile, 0.0):.4f}")
-                    if ragas_tokens.total_tokens > 0:
-                        print(f"    tokens: {ragas_tokens.total_tokens:,} (cost: ${ragas_tokens.total_cost_usd:.4f})")
-
+                if strategy is not None:
+                    eval_strategies.append((spec, strategy))
             except Exception as e:
-                print(f"  [Error] {strategy_name}: {e}")
+                print(f"  [Build Error] {strategy_name}: {e}")
 
-            release_memory()
+        if not eval_strategies:
+            print("  [Warning] 평가 대상 전략이 없습니다.")
+            return pd.DataFrame()
 
-        ragas_df = pd.DataFrame(all_scores)
-        print(f"\n[Pass 2] 완료: {len(all_scores)}개 전략 평가")
-        return ragas_df
+        # BenchmarkRunner로 일괄 평가 (run_all_combos 패턴)
+        eval_runner = BenchmarkRunner(
+            strategies=[s for _, s in eval_strategies],
+            queries=queries,
+            k=self.k,
+            evaluator=evaluator,
+            parallel_eval=self.parallel_eval,
+        )
+
+        # Pass 1 결과 inject (재검색 방지)
+        if self._pass1_results:
+            eval_runner.inject_results(self._pass1_results)
+        else:
+            # 폴백: 검색 재실행
+            eval_runner.run()
+
+        # RAGAS 평가 실행 (토큰 추적)
+        with track_openai_tokens() as ragas_tokens:
+            scores_df = eval_runner.evaluate(ground_truths=ground_truths)
+
+        if ragas_tokens.total_tokens > 0:
+            print(
+                f"  RAGAS 토큰: {ragas_tokens.total_tokens:,} (비용: ${ragas_tokens.total_cost_usd:.4f})"
+            )
+            if self._tracker:
+                self._tracker.record_ragas_tokens(ragas_tokens)
+
+        # EvaluationReport 수집
+        if hasattr(eval_runner, "_evaluation_reports"):
+            self._reports.update(eval_runner._evaluation_reports)
+
+        # 체크포인트 저장 (전략별)
+        if scores_df is not None and not scores_df.empty:
+            for _, row in scores_df.iterrows():
+                name = row.get("strategy", "")
+                ckpt_key = f"pass2_{name}"
+                score_dict = row.to_dict()
+                self.checkpoint.save(ckpt_key, score_dict)
+
+        # RunTracker에 RAGAS 점수 기록
+        if self._tracker and scores_df is not None:
+            for spec, strategy in eval_strategies:
+                timing = self._tracker.find_timing(spec.label)
+                if timing and strategy.name in scores_df["strategy"].values:
+                    row = scores_df[scores_df["strategy"] == strategy.name].iloc[0]
+                    metrics = {c: row[c] for c in scores_df.columns if c != "strategy"}
+                    self._tracker.record_ragas(timing, metrics)
+
+        release_memory()
+
+        if scores_df is not None:
+            print(f"\n[Pass 2] 완료: {len(scores_df)}개 전략 평가")
+        else:
+            scores_df = pd.DataFrame()
+            print("\n[Pass 2] 평가 결과 없음")
+
+        return scores_df
 
     @property
     def reports(self) -> Dict[str, Any]:
@@ -709,7 +779,9 @@ class ColabBenchmarkRunner:
                 if hasattr(report, "per_sample_df") and not report.per_sample_df.empty:
                     safe_name = strat_name.replace("/", "_").replace(" ", "_")
                     csv_path = per_sample_dir / f"{safe_name}.csv"
-                    report.per_sample_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+                    report.per_sample_df.to_csv(
+                        csv_path, index=False, encoding="utf-8-sig"
+                    )
                     saved += 1
             if saved > 0:
                 print(f"  per-sample 결과: {per_sample_dir}/ ({saved}개)")
@@ -720,6 +792,7 @@ class ColabBenchmarkRunner:
                 tracker_path = self._tracker.finalize()
                 # 수행 이력을 결과 디렉토리에도 복사
                 import shutil
+
                 dest = output_dir / tracker_path.name
                 shutil.copy2(tracker_path, dest)
                 print(f"  수행 이력: {dest}")
@@ -735,6 +808,7 @@ class ColabBenchmarkRunner:
         # HTML 보고서 생성
         try:
             from rag_bench.scripts.generate_html_report import generate_html_report
+
             html_path = output_dir / "report.html"
             run_record = self.get_run_record()
             generate_html_report(
@@ -774,7 +848,11 @@ class ColabBenchmarkRunner:
 
         try:
             strategy = build_strategy_from_spec(
-                spec, self._index_cache, child_chunks, parent_pairs, reindex=self.reindex
+                spec,
+                self._index_cache,
+                child_chunks,
+                parent_pairs,
+                reindex=self.reindex,
             )
             return strategy
         except Exception as e:
@@ -887,7 +965,9 @@ class ColabBenchmarkRunner:
 
         # 단계별 소요 시간
         if run_record and run_record.get("phase_times"):
-            phases = [p for p in run_record["phase_times"] if p.get("duration_s", 0) > 0]
+            phases = [
+                p for p in run_record["phase_times"] if p.get("duration_s", 0) > 0
+            ]
             if phases:
                 total_s = run_record.get("duration_s", 1) or 1
                 lines += [
@@ -901,7 +981,9 @@ class ColabBenchmarkRunner:
                     tok = ""
                     if p.get("tokens") and p["tokens"].get("total_tokens", 0) > 0:
                         tok = f"{p['tokens']['total_tokens']:,}"
-                    lines.append(f"| {p['phase']} | {p['duration_s']}s | {pct:.1f}% | {tok} |")
+                    lines.append(
+                        f"| {p['phase']} | {p['duration_s']}s | {pct:.1f}% | {tok} |"
+                    )
                 lines.append("")
 
         # 토큰 사용량 총계
@@ -927,7 +1009,11 @@ class ColabBenchmarkRunner:
             lines.append("| # | 전략 | 평균 레이턴시 |")
             lines.append("|---|------|:----------:|")
 
-            sort_col = "avg_latency" if "avg_latency" in latency_df.columns else "avg_latency_ms"
+            sort_col = (
+                "avg_latency"
+                if "avg_latency" in latency_df.columns
+                else "avg_latency_ms"
+            )
             if sort_col in latency_df.columns:
                 sorted_df = latency_df.sort_values(sort_col)
                 for i, (_, row) in enumerate(sorted_df.iterrows(), 1):
@@ -955,6 +1041,7 @@ class ColabBenchmarkRunner:
         if ragas_df is not None and not ragas_df.empty and self._reports:
             try:
                 from rag_bench.evaluation.evaluator import SCORING_PROFILES
+
                 profile_names = list(SCORING_PROFILES.keys())
                 lines.append("## 가중 점수 (Scoring Profiles)")
                 lines.append("")
