@@ -497,10 +497,8 @@ def main():
             sys.exit(1)
         # docs 모드에서 TECHNICAL 포함 가능
     else:
-        # hf 모드에서 TECHNICAL은 제외
-        if DocType.TECHNICAL in categories:
-            print("[경고] TECHNICAL 카테고리는 HF 데이터셋이 없어 hf 모드에서 제외됩니다.")
-            categories = [c for c in categories if c != DocType.TECHNICAL]
+        # hf 모드에서 TECHNICAL도 nanobeir-ko/NanoSCIDOCS로 지원
+        pass
         if not categories:
             print("실행할 카테고리가 없습니다.")
             sys.exit(0)

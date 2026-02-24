@@ -1191,3 +1191,51 @@ bge-m3   + splade      + colbert + contextual
 - Notion root URL: https://www.notion.so/310e4f18b43d80e983d8d1a8dc305974
 - 관련 코드: `rag_bench/analysis/ranker.py` (RAGAS_WEIGHTS 상수)
 - 관련 문서: `docs/benchmark_scope_guideline.md`
+
+## 2026-02-25: TECHNICAL 카테고리 HF 데이터셋 로더 구현 + 영어 데이터셋 조사
+
+### 완료 작업
+
+#### 1. TECHNICAL 카테고리 HF 데이터셋 선정 및 구현
+- **선정 데이터셋**: `sionic-ai/nanobeir-ko` (NanoSCIDOCS split)
+  - BeIR NanoSCIDOCS의 한국어 번역 버전 (과학/기술 문서 검색)
+  - corpus 2,210개, queries 50개, qrels 244개
+- **데이터 구조 발견**: config='NanoSCIDOCS'가 아닌 3개 config(corpus/queries/qrels) × 13개 split 방식
+  - `load_dataset("sionic-ai/nanobeir-ko", "corpus", split="NanoSCIDOCS", streaming=True)`
+- `hf_loader.py`에 `_load_nanobeir_ko_scidocs()` 함수 추가 (65줄)
+  - streaming=True로 CAS 다운로드 오류 우회
+  - max_queries 제한 지원
+  - corpus/queries/qrels 3단계 로드
+
+#### 2. HFDatasetLoader TECHNICAL 카테고리 활성화
+- `_PRIMARY` dict에 `DocType.TECHNICAL: "nanobeir_scidocs"` 추가
+- `load()` 메서드: ValueError 예외 → `_load_nanobeir_ko_scidocs()` 호출로 변경
+- `run_service_bench.py`: TECHNICAL 제외 로직 제거 (hf 모드에서도 실행 가능)
+
+#### 3. 영어 코드/API 문서 데이터셋 조사
+- 1순위: **CoIR StackOverflowQA** (~2K queries, ~20K corpus, BeIR 호환)
+  - 하이브리드 text+code 검색, 프로그래밍 QA 특화
+- 2순위: CoIR CodeSearchNet (Python) — text-to-code 검색 골드 표준
+- 3순위: CoIR CosQA — 실제 웹 쿼리 500개, 코드 검색
+- 한국어 코드/API 문서 데이터셋은 현재 존재하지 않음
+
+#### 4. general/legal/business 카테고리 벤치마크 실행
+- `--mode hf --max_queries 20 --categories general,legal,business` 실행 (백그라운드)
+
+### 트러블슈팅
+- `load_dataset("sionic-ai/nanobeir-ko", "NanoSCIDOCS")` → BuilderConfig 오류
+  - NanoSCIDOCS는 config가 아니라 split 이름
+  - 해결: config='corpus'/'queries'/'qrels', split='NanoSCIDOCS'
+- `trust_remote_code=True` → deprecation 오류 → 파라미터 제거
+- non-streaming 다운로드 → CAS ReqwestMiddleware 오류 → `streaming=True` 적용
+
+### 남은 작업
+- MEDICAL Pass 2 RAGAS 평가 실행
+- TECHNICAL 카테고리 벤치마크 실행 (`--categories technical`)
+- 영어 코드 데이터셋 적용 검토 (CoIR StackOverflowQA)
+- Notion 문서에 TECHNICAL 카테고리 상태 업데이트 ("HF 없음" → "nanobeir-ko/NanoSCIDOCS")
+
+### 참고
+- 데이터셋: https://huggingface.co/datasets/sionic-ai/nanobeir-ko
+- 5개 카테고리 전체 HF 데이터셋 확보 완료 (GENERAL/LEGAL/BUSINESS/MEDICAL/TECHNICAL)
+- 관련 파일: `rag_bench/datasets/hf_loader.py`, `rag_bench/scripts/run_service_bench.py`

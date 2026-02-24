@@ -10,7 +10,7 @@ HuggingFace 데이터셋 로더 (hf_loader).
   LEGAL    → yjoonjang/markers_bm (law 서브셋)
   BUSINESS → yjoonjang/markers_bm (finance+public+commerce)
   MEDICAL  → xhluca/publichealth-qa (korean)
-  TECHNICAL → (HF 데이터셋 없음 — 사용자 문서 기반)
+  TECHNICAL → sionic-ai/nanobeir-ko (NanoSCIDOCS — 과학/기술 문서 검색)
 
 BeIR 포맷:
   corpus  : {doc_id: {"title": str, "text": str}}
@@ -331,6 +331,71 @@ def _load_markers_bm(subset: str, max_queries: int = 0) -> BeirDataset:
                        doc_type=doc_type, source_name=f"markers_bm-{subset}")
 
 
+def _load_nanobeir_ko_scidocs(max_queries: int = 0) -> BeirDataset:
+    """sionic-ai/nanobeir-ko (NanoSCIDOCS) 로드 — TECHNICAL 카테고리용.
+
+    과학/기술 문서 검색 벤치마크. BeIR NanoSCIDOCS의 한국어 번역 버전.
+    3개 config(corpus/queries/qrels) × NanoSCIDOCS split으로 구성.
+    max_queries: 0이면 전체 로드(50개), 양수이면 해당 수만큼 샘플링.
+    """
+    from datasets import load_dataset
+
+    print("  [NanoBEIR-ko/SCIDOCS] 로드 중 (streaming)...")
+    corpus: Dict[str, Dict[str, str]] = {}
+    queries: Dict[str, str] = {}
+    qrels: Dict[str, Dict[str, int]] = {}
+
+    try:
+        # --- corpus: config='corpus', split='NanoSCIDOCS' ---
+        corpus_ds = load_dataset(
+            "sionic-ai/nanobeir-ko", "corpus",
+            split="NanoSCIDOCS", streaming=True,
+        )
+        for row in corpus_ds:
+            did = str(row.get("_id", ""))
+            if did:
+                corpus[did] = {
+                    "title": row.get("title", ""),
+                    "text": row.get("text", ""),
+                }
+        print(f"  [NanoBEIR-ko/SCIDOCS] corpus: {len(corpus):,}개")
+
+        # --- queries: config='queries', split='NanoSCIDOCS' ---
+        queries_ds = load_dataset(
+            "sionic-ai/nanobeir-ko", "queries",
+            split="NanoSCIDOCS", streaming=True,
+        )
+        count = 0
+        for row in queries_ds:
+            if max_queries > 0 and count >= max_queries:
+                break
+            qid = str(row.get("_id", ""))
+            text = row.get("text", "")
+            if qid and text:
+                queries[qid] = text
+                count += 1
+        print(f"  [NanoBEIR-ko/SCIDOCS] queries: {len(queries):,}개")
+
+        # --- qrels: config='qrels', split='NanoSCIDOCS' ---
+        qrels_ds = load_dataset(
+            "sionic-ai/nanobeir-ko", "qrels",
+            split="NanoSCIDOCS", streaming=True,
+        )
+        for row in qrels_ds:
+            qid = str(row.get("query-id", ""))
+            did = str(row.get("corpus-id", ""))
+            score = int(row.get("score", 1))
+            if qid in queries and did in corpus:
+                qrels.setdefault(qid, {})[did] = score
+        print(f"  [NanoBEIR-ko/SCIDOCS] qrels: {len(qrels):,}개 queries")
+
+    except Exception as e:
+        print(f"  [NanoBEIR-ko/SCIDOCS] 로드 실패: {e}")
+
+    return BeirDataset(corpus=corpus, queries=queries, qrels=qrels,
+                       doc_type=DocType.TECHNICAL, source_name="nanobeir-ko-scidocs")
+
+
 def _load_publichealth_qa_ko(max_queries: int = 0) -> BeirDataset:
     """xhluca/publichealth-qa (korean) 로드.
 
@@ -382,7 +447,7 @@ class HFDatasetLoader:
         DocType.LEGAL:    "markers_bm_law",
         DocType.BUSINESS: "markers_bm_biz",
         DocType.MEDICAL:  "publichealth",
-        # DocType.TECHNICAL: 사용자 문서 기반 (HF 없음)
+        DocType.TECHNICAL: "nanobeir_scidocs",
     }
 
     def __init__(
@@ -408,10 +473,7 @@ class HFDatasetLoader:
             ValueError: HF 데이터셋이 없는 카테고리(TECHNICAL)이면 에러.
         """
         if doc_type == DocType.TECHNICAL:
-            raise ValueError(
-                "TECHNICAL 카테고리는 HuggingFace 데이터셋이 없습니다. "
-                "--mode docs로 사용자 문서를 직접 제공하세요."
-            )
+            return _load_nanobeir_ko_scidocs(max_queries=self.max_queries)
 
         if doc_type == DocType.GENERAL:
             return _load_klue_mrc(max_corpus=self.max_corpus, max_queries=self.max_queries)
