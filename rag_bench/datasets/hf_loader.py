@@ -104,49 +104,47 @@ def _make_id(text: str, prefix: str = "doc") -> str:
     return f"{prefix}_{h}"
 
 
-def _load_miracl_ko(max_corpus: int = 50_000, max_queries: int = 1_081) -> BeirDataset:
-    """miracl/miracl (ko) 로드."""
+def _load_klue_mrc(max_corpus: int = 50_000, max_queries: int = 500) -> BeirDataset:
+    """klue/klue (mrc) 로드 — GENERAL 카테고리용 한국어 MRC 데이터셋.
+
+    miracl/miracl-corpus는 커스텀 스크립트 방식으로 더 이상 지원되지 않아
+    klue/klue mrc 데이터셋으로 대체한다.
+    corpus: context(뉴스 본문), queries: question, qrels: context ↔ question 매핑.
+    """
     from datasets import load_dataset
 
-    print("  [MIRACL-ko] 코퍼스 로드 중...")
-    corpus_ds = load_dataset("miracl/miracl-corpus", "ko", split="train", trust_remote_code=True)
-    corpus = {}
-    for row in corpus_ds:
-        docid = str(row.get("docid", _make_id(row.get("text", ""))))
-        corpus[docid] = {
-            "title": row.get("title", ""),
-            "text": row.get("text", ""),
-        }
+    print("  [KLUE-MRC] 로드 중 (streaming)...")
+    ds = load_dataset("klue/klue", "mrc", streaming=True)
 
-    corpus = _sample_corpus(corpus, max_corpus)
-    print(f"  [MIRACL-ko] 코퍼스: {len(corpus):,}개")
-
-    print("  [MIRACL-ko] 쿼리 로드 중...")
-    queries_ds = load_dataset("miracl/miracl", "ko", split="train", trust_remote_code=True)
+    corpus: Dict[str, Dict[str, str]] = {}
     queries: Dict[str, str] = {}
     qrels: Dict[str, Dict[str, int]] = {}
 
-    for row in queries_ds:
-        qid = str(row.get("query_id", _make_id(row.get("query", ""))))
-        if qid in queries:
-            continue
-        queries[qid] = row.get("query", "")
-        qrels[qid] = {}
-        for pos in row.get("positive_passages", []):
-            did = str(pos.get("docid", ""))
-            if did and did in corpus:
-                qrels[qid][did] = 1
-        for neg in row.get("negative_passages", []):
-            did = str(neg.get("docid", ""))
-            if did and did in corpus:
-                qrels[qid].setdefault(did, 0)
-
-        if len(queries) >= max_queries:
+    count = 0
+    for row in ds["train"]:
+        if max_queries > 0 and count >= max_queries:
             break
+        if row.get("is_impossible", False):
+            continue
+        context = row.get("context", "")
+        question = row.get("question", "")
+        if not context or not question:
+            continue
 
-    print(f"  [MIRACL-ko] 쿼리: {len(queries):,}개")
+        did = _make_id(context)
+        qid = f"klue_{row.get('guid', _make_id(question, 'q'))}"
+
+        if did not in corpus:
+            corpus[did] = {"title": row.get("title", ""), "text": context}
+
+        queries[qid] = question
+        qrels[qid] = {did: 1}
+        count += 1
+
+    corpus = _sample_corpus(corpus, max_corpus)
+    print(f"  [KLUE-MRC] 코퍼스: {len(corpus):,}개 | 쿼리: {len(queries):,}개")
     return BeirDataset(corpus=corpus, queries=queries, qrels=qrels,
-                       doc_type=DocType.GENERAL, source_name="miracl-ko")
+                       doc_type=DocType.GENERAL, source_name="klue-mrc")
 
 
 def _load_ko_strategyqa(max_queries: int = 500) -> BeirDataset:
@@ -268,6 +266,11 @@ def _load_markers_bm(subset: str, max_queries: int = 0) -> BeirDataset:
 
     subset: "law" | "finance" | "public" | "commerce" | "finance+public+commerce"
     max_queries: 0이면 전체 로드, 양수이면 해당 수만큼 샘플링.
+
+    데이터셋 구조 (streaming=True 필수 — CAS 다운로드 오류 우회):
+      corpus  config → "corpus" split : _id, text, title  (_id 형식: "<category> - <file> - <page>")
+      queries config → "queries" split: _id, text         (_id 형식: "<index>_<category>")
+      default config → "test"   split : query-id, corpus-id, score  (qrels)
     """
     from datasets import load_dataset
 
@@ -278,44 +281,51 @@ def _load_markers_bm(subset: str, max_queries: int = 0) -> BeirDataset:
     queries: Dict[str, str] = {}
     qrels: Dict[str, Dict[str, int]] = {}
 
-    for sub in subsets:
-        print(f"  [markers_bm/{sub}] 로드 중...")
-        try:
-            ds = load_dataset("yjoonjang/markers_bm", sub, trust_remote_code=True)
-        except Exception as e:
-            print(f"  [markers_bm/{sub}] 로드 실패: {e}")
-            continue
-
-        # corpus split 처리
-        corpus_split = ds.get("corpus") or ds.get("train")
-        if corpus_split is not None:
-            for row in corpus_split:
-                did = str(row.get("_id", row.get("id", _make_id(row.get("text", "")))))
+    # --- corpus: _id 형식 "<category> - <file> - <page>" 기준 필터링 ---
+    print(f"  [markers_bm] corpus 로드 중 (subsets: {subsets})...")
+    try:
+        corpus_ds = load_dataset("yjoonjang/markers_bm", "corpus", streaming=True)
+        for row in corpus_ds["corpus"]:
+            did = str(row.get("_id", ""))
+            if not did:
+                continue
+            if any(did.startswith(sub + " - ") for sub in subsets):
                 corpus[did] = {
                     "title": row.get("title", ""),
-                    "text": row.get("text", row.get("passage", "")),
+                    "text": row.get("text", ""),
                 }
+        print(f"  [markers_bm] corpus: {len(corpus):,}개")
+    except Exception as e:
+        print(f"  [markers_bm] corpus 로드 실패: {e}")
 
-        # queries split 처리 (max_queries 적용)
-        queries_split = ds.get("queries") or ds.get("test")
-        if queries_split is not None:
-            for row in queries_split:
-                if max_queries > 0 and len(queries) >= max_queries:
-                    break
-                qid = str(row.get("_id", row.get("id", _make_id(row.get("text", "")))))
-                queries[qid] = row.get("text", row.get("query", ""))
+    # --- queries: _id 형식 "<index>_<category>" 기준 필터링 ---
+    print(f"  [markers_bm] queries 로드 중...")
+    try:
+        queries_ds = load_dataset("yjoonjang/markers_bm", "queries", streaming=True)
+        for row in queries_ds["queries"]:
+            if max_queries > 0 and len(queries) >= max_queries:
+                break
+            qid = str(row.get("_id", ""))
+            if not qid:
+                continue
+            if any(qid.endswith("_" + sub) for sub in subsets):
+                queries[qid] = row.get("text", "")
+        print(f"  [markers_bm] queries: {len(queries):,}개")
+    except Exception as e:
+        print(f"  [markers_bm] queries 로드 실패: {e}")
 
-        # qrels 처리 (별도 split 또는 컬럼)
-        qrels_split = ds.get("qrels")
-        if qrels_split is not None:
-            for row in qrels_split:
-                qid = str(row.get("query-id", row.get("qid", "")))
-                did = str(row.get("corpus-id", row.get("did", "")))
-                score = int(row.get("score", 1))
-                if qid and did:
-                    qrels.setdefault(qid, {})[did] = score
-
-        print(f"  [markers_bm/{sub}] corpus: {len(corpus):,}개, queries: {len(queries):,}개")
+    # --- qrels: 로드된 query/corpus 집합 내 항목만 수집 ---
+    print(f"  [markers_bm] qrels 로드 중...")
+    try:
+        qrels_ds = load_dataset("yjoonjang/markers_bm", "default", streaming=True)
+        for row in qrels_ds["test"]:
+            qid = str(row.get("query-id", ""))
+            did = str(row.get("corpus-id", ""))
+            if qid in queries and did in corpus:
+                qrels.setdefault(qid, {})[did] = int(row.get("score", 1))
+        print(f"  [markers_bm] qrels: {len(qrels):,}개 queries")
+    except Exception as e:
+        print(f"  [markers_bm] qrels 로드 실패: {e}")
 
     return BeirDataset(corpus=corpus, queries=queries, qrels=qrels,
                        doc_type=doc_type, source_name=f"markers_bm-{subset}")
@@ -404,7 +414,7 @@ class HFDatasetLoader:
             )
 
         if doc_type == DocType.GENERAL:
-            return _load_miracl_ko(max_corpus=self.max_corpus, max_queries=self.max_queries)
+            return _load_klue_mrc(max_corpus=self.max_corpus, max_queries=self.max_queries)
         elif doc_type == DocType.LEGAL:
             return _load_markers_bm("law", max_queries=self.max_queries)
         elif doc_type == DocType.BUSINESS:

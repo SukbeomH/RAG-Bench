@@ -387,7 +387,7 @@ def _run_category_bench(
         try:
             from rag_bench.evaluation import ExtendedRAGEvaluator
             from rag_bench.evaluation.metrics import MetricPreset
-            evaluator = ExtendedRAGEvaluator(preset=MetricPreset("standard"))
+            evaluator = ExtendedRAGEvaluator(preset=MetricPreset("core_only"))
             eval_runner = BenchmarkRunner(
                 strategies=strategies,
                 queries=queries,
