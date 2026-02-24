@@ -30,7 +30,7 @@ from typing import List, Optional
 from rag_bench.config import (
     BENCH_DATA_DIR,
     BENCH_DOCS_DIR,
-    DEFAULT_CONTEXTUAL_LLM,
+    DEFAULT_RAGAS_QA_LLM,
     DOCS_DIR,
     make_async_http_client,
     make_http_client,
@@ -90,13 +90,13 @@ def generate_qa_ragas(
         MultiHopSpecificQuerySynthesizer,
     )
 
-    # 1. LLM/Embedding 초기화
+    # 1. LLM/Embedding 초기화 (OpenAI 고정 — QA 생성 품질)
     print("  [RAGAS] LLM/Embedding 초기화...")
     openai_client = AsyncOpenAI(
         api_key=os.environ.get("OPENAI_API_KEY"),
         http_client=make_async_http_client(),
     )
-    ragas_llm = llm_factory(model=DEFAULT_CONTEXTUAL_LLM, client=openai_client)
+    ragas_llm = llm_factory(model=DEFAULT_RAGAS_QA_LLM, client=openai_client)
 
     embeddings = OpenAIEmbeddings(http_client=make_http_client())
     ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)

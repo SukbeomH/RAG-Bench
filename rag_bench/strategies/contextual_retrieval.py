@@ -35,7 +35,7 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 
 from rag_bench.base import BaseRAGStrategy, StrategyRetriever
-from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM
+from rag_bench.config import BENCH_DATA_DIR, DEFAULT_CONTEXTUAL_LLM, make_llm
 
 # Anthropic 공식 프롬프트 (원문 유지, 한국어 응답 유도)
 _CONTEXT_PROMPT = """\
@@ -116,13 +116,7 @@ class ContextualRetrievalStrategy(BaseRAGStrategy):
         """LLM lazy 초기화."""
         if self._llm is not None:
             return
-        from langchain_openai import ChatOpenAI
-
-        self._llm = ChatOpenAI(
-            model=self._llm_model,
-            temperature=0,
-            max_tokens=256,
-        )
+        self._llm = make_llm(self._llm_model, temperature=0, max_tokens=256)
 
     @staticmethod
     def _chunk_hash(content: str) -> str:

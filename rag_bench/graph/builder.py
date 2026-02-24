@@ -4,16 +4,16 @@ Graph Builder 모듈.
 전략(strategy) 객체를 주입받아 LangGraph 에이전트를 구성/컴파일한다.
 """
 
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from rag_bench.base import BaseRAGStrategy
 from rag_bench.config import (
-    DEFAULT_LLM_MODEL,
+    DEFAULT_AGENT_LLM,
     DEFAULT_LLM_TEMPERATURE,
     PARENT_STORE_PATH,
+    make_llm,
 )
 from rag_bench.graph.nodes import (
     create_tools,
@@ -30,7 +30,7 @@ from rag_bench.graph.state import AgentState, State
 
 def build_agent_graph(
     strategy: BaseRAGStrategy,
-    llm_model: str = DEFAULT_LLM_MODEL,
+    llm_model: str = DEFAULT_AGENT_LLM,
     llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
     parent_store_path: str = str(PARENT_STORE_PATH),
 ):
@@ -47,7 +47,7 @@ def build_agent_graph(
         compiled graph (agent_graph).
     """
     # LLM 초기화
-    llm = ChatOpenAI(model=llm_model, temperature=llm_temperature)  # type: ignore[call-arg]
+    llm = make_llm(llm_model, temperature=llm_temperature)
 
     # 전략 기반 도구 생성
     tools = create_tools(strategy, parent_store_path)

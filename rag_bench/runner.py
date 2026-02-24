@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from rag_bench.evaluation.evaluator import ExtendedRAGEvaluator
 
 from rag_bench.base import BaseRAGStrategy
-from rag_bench.config import DEFAULT_ANSWER_LLM, DEFAULT_LLM_WORKERS, make_http_client
+from rag_bench.config import DEFAULT_ANSWER_LLM, DEFAULT_LLM_WORKERS, make_llm
 from rag_bench.evaluation.evaluator import EvaluationReport
 
 
@@ -59,11 +59,7 @@ class BenchmarkRunner:
         if self._generator is not None:
             return
         try:
-            from langchain_openai import ChatOpenAI
-
-            self._generator = ChatOpenAI(
-                model=DEFAULT_ANSWER_LLM, http_client=make_http_client()
-            )
+            self._generator = make_llm(DEFAULT_ANSWER_LLM)
         except Exception:
             self._generator = None
 

@@ -64,16 +64,43 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(PROJECT_ROOT / ".env")
 
 # ---------------------------------------------------------------------------
+# LLM 제공자 설정
+# LLM_PROVIDER: "ollama" (기본) 또는 "openai"
+#
+# 용도별 모델을 환경변수로 독립 지정 가능:
+#   LLM_PROVIDER=openai              → 전체 OpenAI 전환
+#   OLLAMA_BASE_URL=http://...       → Ollama 서버 주소 (기본: localhost:11434)
+#   OLLAMA_MODEL=qwen3:4b-instruct-2507-q4_K_M  → 기본 Ollama 모델
+#   OLLAMA_ANSWER_MODEL=qwen3:8b     → 답변 생성 전용 모델 (미설정 시 OLLAMA_MODEL 사용)
+#   OLLAMA_CONTEXTUAL_MODEL=qwen3:4b-instruct-2507-q4_K_M → Contextual 전용 (속도 우선)
+#   OLLAMA_AGENT_MODEL=qwen3:8b      → LangGraph Agent 전용 모델
+#
+# M2 Pro 16GB 벤치마크 동시 실행 기준 권장 설정:
+#   OLLAMA_MODEL=qwen3:4b-instruct-2507-q4_K_M   (2.5 GB — 안전 마진 확보)
+#   OLLAMA_CONTEXTUAL_MODEL=qwen3:4b-instruct-2507-q4_K_M  (청크 수백 개 처리, 속도 우선)
+# ---------------------------------------------------------------------------
+LLM_PROVIDER: str = os.environ.get("LLM_PROVIDER", "ollama")  # "ollama" | "openai"
+OLLAMA_BASE_URL: str = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_DEFAULT_MODEL: str = os.environ.get(
+    "OLLAMA_MODEL", "qwen3:4b-instruct-2507-q4_K_M"
+)
+# 용도별 Ollama 모델 (미설정 시 OLLAMA_DEFAULT_MODEL로 통일)
+OLLAMA_ANSWER_MODEL: str = os.environ.get("OLLAMA_ANSWER_MODEL", OLLAMA_DEFAULT_MODEL)
+OLLAMA_CONTEXTUAL_MODEL: str = os.environ.get("OLLAMA_CONTEXTUAL_MODEL", OLLAMA_DEFAULT_MODEL)
+OLLAMA_AGENT_MODEL: str = os.environ.get("OLLAMA_AGENT_MODEL", OLLAMA_DEFAULT_MODEL)
+
+# ---------------------------------------------------------------------------
 # LLM 기본 설정
 # ---------------------------------------------------------------------------
-DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_LLM_MODEL = OLLAMA_DEFAULT_MODEL if LLM_PROVIDER == "ollama" else "gpt-4o-mini"
 DEFAULT_LLM_TEMPERATURE = 0
 
 # 용도별 LLM 모델 상수
-# 이 상수를 수정하면 모든 관련 컴포넌트에 일괄 적용된다.
-DEFAULT_ANSWER_LLM = "gpt-4o-mini"  # 답변 생성용 (BenchmarkRunner)
-DEFAULT_EVAL_LLM = "gpt-4o-mini"  # RAGAS 평가용 (ExtendedRAGEvaluator)
-DEFAULT_CONTEXTUAL_LLM = "gpt-4o-mini"  # Contextual Retrieval 압축용
+DEFAULT_ANSWER_LLM = OLLAMA_ANSWER_MODEL if LLM_PROVIDER == "ollama" else "gpt-4o-mini"
+DEFAULT_CONTEXTUAL_LLM = OLLAMA_CONTEXTUAL_MODEL if LLM_PROVIDER == "ollama" else "gpt-4o-mini"
+DEFAULT_AGENT_LLM = OLLAMA_AGENT_MODEL if LLM_PROVIDER == "ollama" else "gpt-4o-mini"
+DEFAULT_EVAL_LLM = "gpt-4o-mini"      # RAGAS 평가용 — OpenAI 고정 (평가 신뢰도)
+DEFAULT_RAGAS_QA_LLM = "gpt-4o-mini"  # RAGAS QA 생성용 — OpenAI 고정 (품질)
 
 # ---------------------------------------------------------------------------
 # 실행 파라미터 상수
@@ -82,6 +109,42 @@ DEFAULT_RERANK_N = 10  # 리랭킹 후보 수 (ColBERT/FlashRank)
 DEFAULT_LLM_WORKERS = 8  # LLM 답변 생성 병렬 워커 수
 CONV_SUMMARY_MIN_MESSAGES = 4  # 대화 요약 최소 메시지 수
 CONV_HISTORY_WINDOW = 6  # 대화 이력 window 크기
+
+
+def make_llm(model: str | None = None, temperature: float = 0, **kwargs):
+    """LLM_PROVIDER 설정에 따라 ChatOllama 또는 ChatOpenAI를 반환한다.
+
+    Args:
+        model: 모델명. None이면 DEFAULT_LLM_MODEL 사용.
+        temperature: 샘플링 온도.
+        **kwargs: 모델별 추가 파라미터.
+            - max_tokens: ChatOllama의 경우 num_predict로 자동 변환.
+    """
+    model = model or DEFAULT_LLM_MODEL
+    if LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+
+        # ChatOllama는 num_predict를 사용하므로 max_tokens 자동 변환
+        if "max_tokens" in kwargs:
+            kwargs["num_predict"] = kwargs.pop("max_tokens")
+        # Ollama는 http_client 파라미터 불필요
+        kwargs.pop("http_client", None)
+        kwargs.pop("http_async_client", None)
+        return ChatOllama(
+            model=model,
+            temperature=temperature,
+            base_url=OLLAMA_BASE_URL,
+            **kwargs,
+        )
+    else:
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            http_client=make_http_client(),
+            **kwargs,
+        )
 
 
 def make_http_client(verify: bool = False):
