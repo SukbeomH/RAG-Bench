@@ -937,3 +937,34 @@ python -m rag_bench.analysis.reporter --run_dir _benchdata/service_run
 jupyter lab rag_bench_local/rag_benchmark.ipynb
 # Section 10~12 실행
 ```
+
+---
+
+## 2026-02-24: 노션 문서화 — 서비스 벤치마크 구현 현황 정리
+
+### 주요 활동
+
+#### Notion 페이지 신규 생성
+- **대상 페이지**: [RAG Benchmarks](https://www.notion.so/310e4f18b43d80e983d8d1a8dc305974) 하위
+- **신규 페이지**: [서비스 벤치마크 시스템 구현 현황 보고서](https://www.notion.so/311e4f18b43d8119bd80ec134a8b14c0)
+
+#### 정리 내용 (8섹션)
+1. 목표 및 배경 — 고정 파이프라인(ColBERT+Contextual) + 8개 비교 조합
+2. 구현 현황 요약 — Phase 1~4 완료 테이블
+3. Phase별 구현 상세
+   - Phase 1: DocType 5종 + multi_parser + snowflake-ko + service 프리셋
+   - Phase 2: hf_loader(6개 HF 데이터셋) + run_service_bench CLI + 체크포인트
+   - Phase 3: analysis 모듈 6종 + RAGAS 가중치 + 6섹션 보고서 구조
+   - Phase 4: visualizer 4종 + 노트북 Section 10~12
+4. 예상 최종 출력 — 카테고리별 예상 1위 조합 및 근거
+5. 파일 변경 목록 — 전체 신규/수정 파일 (20종)
+6. 핵심 설계 결정 — snowflake-ko 추가 근거, reporter_exec.py 추가 배경
+7. 리스크 및 대응
+8. DoD 체크리스트 (7항목 전체 체크)
+
+### Notion 페이지 구조 (RAG Benchmarks)
+| 페이지 | URL |
+|--------|-----|
+| RAG 벤치마크 최신 레퍼런스 조사 보고서 | 311e4f18b43d80eeb983c70021fab01a |
+| 벤치마크 데이터셋 분석 보고서 | 311e4f18b43d80f48d7de4c99f59177b |
+| **서비스 벤치마크 시스템 구현 현황 보고서** | **311e4f18b43d8119bd80ec134a8b14c0** |
