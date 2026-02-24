@@ -211,10 +211,18 @@ def classify_file(
         if hint in filename:
             return doc_type
 
-    # 파일 내용 읽기 (지원 포맷: txt, md)
+    # 파일 내용 읽기 — multi_parser를 우선 사용, 실패 시 직접 읽기로 폴백
     try:
-        if path.suffix.lower() in (".txt", ".md"):
-            text = path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            from rag_bench.indexing.multi_parser import parse_document
+            text = parse_document(path)
+        except Exception:
+            # multi_parser 미설치 또는 지원하지 않는 포맷 — 텍스트 파일만 직접 읽기
+            if path.suffix.lower() in (".txt", ".md"):
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            else:
+                text = ""
+        if text:
             return classify_document(text, sample_chars=sample_chars)
     except (OSError, PermissionError):
         pass
