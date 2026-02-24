@@ -23,10 +23,9 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from rag_bench.analysis.ranker import load_results, rank_by_doc_type
-from rag_bench.analysis.insight import analyze_strengths_weaknesses, rank_strategies_overall
-from rag_bench.analysis.deduplication import compress_similar_results, format_tie_groups_summary
-from rag_bench.analysis.selector import generate_selection_report, SelectionReport
+from rag_bench.analysis.insight import rank_strategies_overall
+from rag_bench.analysis.selector import SelectionReport
+from rag_bench.analysis.pipeline import run_analysis_pipeline, AnalysisResult
 
 
 # ---------------------------------------------------------------------------
@@ -64,33 +63,17 @@ def generate_report(
     _log(f"{'=' * 60}")
     _log(f"  run_dir: {run_dir}")
 
-    # 1. 데이터 로드
-    _log("\n[1/5] 결과 로드 중...")
-    raw_results = load_results(run_dir)
-    if not raw_results:
-        print(f"오류: {run_dir} 에서 result.json 파일을 찾을 수 없습니다.")
+    # 분석 파이프라인 실행 (pipeline.py 공통 로직)
+    result = run_analysis_pipeline(run_dir, similarity_threshold=similarity_threshold, verbose=verbose)
+    if not result.raw_results:
         return SelectionReport()
 
-    _log(f"  로드된 카테고리: {list(raw_results.keys())}")
-
-    # 2. 순위 계산
-    _log("\n[2/5] 순위 계산 중...")
-    ranked = rank_by_doc_type(raw_results, latency_dir=run_dir)
-    _log(f"  순위 완료: {list(ranked.keys())}")
-
-    # 3. 인사이트 분석
-    _log("\n[3/5] 강점/약점 분석 중...")
-    insights = analyze_strengths_weaknesses(ranked)
-    _log(f"  분석 완료: {len(insights)}개 조합")
-
-    # 4. 동점 그룹 압축
-    _log("\n[4/5] 동점 그룹 압축 중...")
-    compressed = compress_similar_results(ranked, similarity_threshold)
-    tie_summary = format_tie_groups_summary(compressed)
-
-    # 5. 선정 보고서
-    _log("\n[5/5] 선정 보고서 생성 중...")
-    selection = generate_selection_report(ranked, insights, compressed)
+    raw_results = result.raw_results
+    ranked = result.ranked
+    insights = result.insights
+    compressed = result.compressed
+    tie_summary = result.tie_summary
+    selection = result.selection
 
     # 6. 파일 생성
     md_path = output_dir / "selection_report.md"

@@ -16,6 +16,8 @@ from rag_bench.analysis.insight import analyze_strengths_weaknesses
 from rag_bench.analysis.deduplication import compress_similar_results
 from rag_bench.analysis.selector import generate_selection_report
 from rag_bench.analysis.reporter import generate_report
+from rag_bench.analysis.pipeline import run_analysis_pipeline, AnalysisResult
+from rag_bench.analysis.reporter_exec import generate_exec_report
 
 __all__ = [
     "load_results",
@@ -24,4 +26,7 @@ __all__ = [
     "compress_similar_results",
     "generate_selection_report",
     "generate_report",
+    "run_analysis_pipeline",
+    "AnalysisResult",
+    "generate_exec_report",
 ]
