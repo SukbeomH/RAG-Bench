@@ -894,3 +894,46 @@ ad6cd59 feat(analysis/report): selector + reporter + CLI 구현
 ### 다음 작업
 - `run_service_bench.py` 실제 실행 (HF 데이터셋 로드 + 8개 조합 벤치마크)
 - `generate_report()` 실제 벤치마크 결과에 적용하여 보고서 생성
+
+---
+
+## 2026-02-24: 서비스 벤치마크 Phase 4 구현 완료
+
+### 주요 활동
+
+#### 시각화 함수 4종 추가 (`rag_bench_local/visualizer.py`)
+- `plot_doctype_heatmap(ranked_by_type, metric)`: 조합 × 문서 타입 성능 히트맵 (seaborn, ★ 최고 점수 표시)
+- `plot_model_radar(insights, top_n)`: 조합별 카테고리 강점 레이더 차트 (plotly, 상위 N개)
+- `plot_selection_summary(selection)`: SelectionReport → 스타일 추천 요약 테이블
+- `plot_score_distribution(ranked_by_type, compressed, metric)`: 카테고리별 점수 분포 + 동점 그룹 색상 시각화
+
+#### 노트북 섹션 3개 추가 (`rag_bench_local/rag_benchmark.ipynb`)
+- Section 10: 서비스 벤치마크 결과 로드 + 타입별 히트맵
+- Section 11: 점수 분포 박스플롯 + 레이더 차트
+- Section 12: 최종 선정 요약 테이블 + 전체 보고서 생성 (Markdown 인라인 표시)
+
+### 커밋
+- `feat(visualizer)`: 시각화 4종 추가
+- `feat(notebook)`: Section 10~12 추가
+- `docs(memory)`: Phase 4 완료 기록
+
+### 서비스 벤치마크 전체 완료 (Phase 1~4)
+| Phase | 내용 | 상태 |
+|-------|------|------|
+| Phase 1 | DocType 시스템 + multi_parser + service 프리셋 | 완료 |
+| Phase 2 | hf_loader + run_service_bench 오케스트레이터 | 완료 |
+| Phase 3 | analysis 모듈 (ranker/insight/deduplication/selector/reporter) | 완료 |
+| Phase 4 | 시각화 4종 + 노트북 Section 10~12 | 완료 |
+
+### 전체 E2E 실행 방법
+```bash
+# 1. 벤치마크 실행
+python -m rag_bench.scripts.run_service_bench --mode hf --categories general,legal,business,medical
+
+# 2. 보고서 생성
+python -m rag_bench.analysis.reporter --run_dir _benchdata/service_run
+
+# 3. Jupyter 노트북에서 확인
+jupyter lab rag_bench_local/rag_benchmark.ipynb
+# Section 10~12 실행
+```
