@@ -831,3 +831,66 @@ CONV_HISTORY_WINDOW = 6      # 대화 이력 window 크기
 - `rag_bench/analysis/deduplication.py`: 점수 차 5% 이내 동점 그룹 압축
 - `rag_bench/analysis/selector.py`: 카테고리별 최종 선정 근거 생성
 - `rag_bench/analysis/reporter.py`: W&B Horangi 6섹션 Markdown + JSON 보고서 (pass_rate 포함)
+
+## 2026-02-24: 서비스 벤치마크 Phase 3 구현 완료
+
+### 주요 활동
+
+#### Phase 3 구현 (커밋 af7dbcd, ad6cd59)
+
+**`rag_bench/analysis/` 패키지 신규 생성 (6개 파일)**:
+
+**`__init__.py`**:
+- 분석 파이프라인 공개 API: `load_results`, `rank_by_doc_type`, `analyze_strengths_weaknesses`, `compress_similar_results`, `generate_selection_report`, `generate_report`
+
+**`ranker.py`**:
+- RAGAS 가중치: context_recall×0.35, context_precision×0.30, faithfulness×0.20, answer_relevancy×0.15
+- `load_results()`: run_dir 하위 카테고리별 result.json 로드
+- `rank_by_doc_type()`: 복합 점수 계산 + latency.csv 병합 + 순위 정렬
+
+**`insight.py`**:
+- `analyze_strengths_weaknesses()`: 카테고리 간 비교로 조합별 강점/약점 프로파일 도출
+- `rank_strategies_overall()`: 전체 평균 복합 점수 기반 전략 순위 반환
+
+**`deduplication.py`**:
+- `compress_similar_results()`: 점수 차 5% 이내 동점 그룹 압축 + tie_group/tie_winner 컬럼 추가
+- `format_tie_groups_summary()`: 사람이 읽기 쉬운 동점 그룹 요약 변환
+
+**`selector.py`**:
+- `SelectionReport` 데이터 구조: per_category, common_winners, default_recommendation
+- `generate_selection_report()`: 카테고리별 1위 선정 + 공통 우승자 + 기본 추천 생성
+
+**`reporter.py`**:
+- `generate_report()`: 전체 파이프라인 오케스트레이터 → Markdown + JSON 보고서 생성
+- W&B Horangi v3 패턴 6섹션 구조:
+  - Section 1: 평가 개요 + RAGAS 가중치 근거
+  - Section 2: 종합 성능 리더보드
+  - Section 3: 카테고리별 상세 비교
+  - Section 4: 조합별 강점/약점 프로파일
+  - Section 5: 동점 그룹 압축 결과
+  - Section 6: 최종 선정 가이드
+- CLI: `python -m rag_bench.analysis.reporter --run_dir <path> [--threshold 0.05]`
+
+### 검증 결과
+- import 검증: `from rag_bench.analysis import generate_report` 정상 ✅
+- 더미 데이터 E2E 검증: 2카테고리 × 4전략 파이프라인 정상 ✅
+  - per_category: ['general', 'legal'] 정상 생성
+  - default_recommendation: 복합 점수 기반 정상 선정
+  - selection_report.md, selection_report.json 파일 생성 확인
+
+### 커밋 히스토리
+```
+af7dbcd feat(analysis/core): ranker + insight + deduplication 구현
+ad6cd59 feat(analysis/report): selector + reporter + CLI 구현
+```
+
+### 서비스 벤치마크 Phase 1~3 완료 현황
+| Phase | 내용 | 커밋 |
+|-------|------|------|
+| Phase 1 | document_types + indexing + models/preset | 49f7cfb, d706dc8, eb02167 |
+| Phase 2 | hf_loader + run_service_bench | 85b19af |
+| Phase 3 | analysis 모듈 6개 | af7dbcd, ad6cd59 |
+
+### 다음 작업
+- `run_service_bench.py` 실제 실행 (HF 데이터셋 로드 + 8개 조합 벤치마크)
+- `generate_report()` 실제 벤치마크 결과에 적용하여 보고서 생성
