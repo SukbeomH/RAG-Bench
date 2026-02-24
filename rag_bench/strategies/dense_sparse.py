@@ -237,6 +237,7 @@ DENSE_MODELS: Dict[str, str] = {
     "kosimcse": "BM-K/KoSimCSE-roberta-multitask",
     "e5": "intfloat/multilingual-e5-large",
     "bge-m3": "BAAI/bge-m3",
+    "snowflake-ko": "dragonkue/snowflake-arctic-embed-l-v2.0-ko",  # 한국어 Retrieval SOTA (0.7404)
     # OpenAI API
     "openai-large": "text-embedding-3-large",
     # Upstage API
@@ -247,6 +248,7 @@ DENSE_DIMS: Dict[str, int] = {
     "BM-K/KoSimCSE-roberta-multitask": 768,
     "intfloat/multilingual-e5-large": 1024,
     "BAAI/bge-m3": 1024,
+    "dragonkue/snowflake-arctic-embed-l-v2.0-ko": 1024,  # 256 압축 지원, 기본 1024
     "text-embedding-3-large": 3072,
     "embedding-query": 4096,
 }
