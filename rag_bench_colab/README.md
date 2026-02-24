@@ -125,6 +125,7 @@ runner = ColabBenchmarkRunner(
     qdrant_mode="ephemeral",      # ephemeral | drive | memory
     device=None,                  # cuda | cpu | None (자동 감지)
     parallel_queries=0,           # 쿼리 병렬화 (0=비활성, T4에서 4~8 권장)
+    parallel_eval=0,              # RAGAS 병렬 평가 (0=비활성, 4~8 권장)
     reindex=False,                # True: 기존 인덱스 삭제 후 재구축
     metric_preset="core_only",    # core_only (4) | comprehensive (7) | full (11+) | reference_free
     scoring_profile="balanced",   # balanced | precision_critical | speed_critical | comprehensive
@@ -222,5 +223,7 @@ rag_bench_colab/
 | 3 | IMPORTANT | 전략 cleanup 호출 | `colab_runner.py` | Reranker 래핑 전략의 Qdrant 파일 잠금/메모리 누수 방지 |
 | 4 | MODERATE | `parallel_queries` 연결 | `colab_runner.py` | T4 GPU 쿼리 병렬화 활용 가능 |
 | 5 | MODERATE | `reindex` 파라미터 노출 | `colab_runner.py` | 사용자가 인덱스 재구축 가능 (`reindex=True`) |
-| 6 | LOW | ColBERT `_device` 일관성 | `colab_config.py` | `build_strategy_from_spec` 래핑으로 CUDA 디바이스 자동 적용 |
-| 7 | LOW | `DENSE_DIMS` 룩업 활용 | `colab_config.py` | 알려진 Dense 모델은 test inference 생략하여 초기화 가속 |
+| 6 | MODERATE | Pass 2 RAGAS 병렬 평가 | `colab_runner.py` | `parallel_eval` 파라미터로 RunConfig 병렬화 제어 |
+| 7 | MODERATE | Step 2.5 Contextual enrichment | `colab_runner.py` | `enrich_only()` 1회 호출로 LLM 중복 제거, API 비용 대폭 절감 |
+| 8 | LOW | ColBERT `_device` 일관성 | `colab_config.py` | `build_strategy_from_spec` 래핑으로 CUDA 디바이스 자동 적용 |
+| 9 | LOW | `DENSE_DIMS` 룩업 활용 | `colab_config.py` | 알려진 Dense 모델은 test inference 생략하여 초기화 가속 |
