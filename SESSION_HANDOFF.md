@@ -72,21 +72,18 @@
 
 ## 3. 현재 진행 상태
 
-### 테스트 실행 중
+### K8s 테스트 상태
 
-```
-오케스트레이터 실행 중:
-  카테고리: general (소규모 테스트)
-  max_corpus: 100, max_queries: 10
-  리소스: CPU 1/2, MEM 4Gi/8Gi
-```
+- Prep Job (general) 완료, 데이터 PVC에 보존됨
+- Bench Job 6개: `einops` 누락으로 전체 실패 → 이미지 리빌드 완료 (einops+datasets+httpx+requests 추가)
+- Harbor Secret 갱신 완료, bench Job 재실행 필요
 
 ### 남은 작업
 
 #### P0: 즉시 필요
-1. **테스트 실행 결과 확인** — general 카테고리 소규모 테스트 성공 여부
-2. **전체 카테고리 실행** — 4카테고리 × 6조합 = 28 Jobs
-3. ~~**torch CPU-only 이미지 최적화**~~ — **완료**: Dockerfile에 CPU torch 강제 재설치 + nvidia 패키지 제거 추가
+1. **K8s bench Job 재실행** — `--skip-prep --skip-setup`으로 오케스트레이터 실행
+2. **TECHNICAL 로컬 벤치마크 실행** — `uv run python -m rag_bench.scripts.run_service_bench --mode hf --max_queries 20 --categories technical`
+3. **전체 카테고리 K8s 실행** — 5카테고리 × 6조합 = 30 Jobs
 
 #### P1: 모델 서빙 구현
 4. ~~**TEI 기반 임베딩 서빙 Pod 구현**~~ — **완료**: `k8s/manifests/tei-deployment.yaml` 생성

@@ -1310,3 +1310,52 @@ bge-m3   + splade      + colbert + contextual
 ### 참고
 - 벤치마크 결과 경로: `rag_bench/_benchdata/service_run/{category}/result.json`
 - 세션 핸드오프 문서: `SESSION_HANDOFF.md` 작성 완료
+
+## 2026-02-25: K8s 워커 의존성 수정 + 벤치마크 디버깅
+
+### 완료 작업
+
+#### 1. K8s 워커 이미지 의존성 감사 및 수정
+- **크래시 원인 발견**: `einops` 패키지 누락 → `jinaai/jina-colbert-v2` ColBERT 모델 로드 시 `ImportError`
+- KoSimCSE Job만 실패한 것이 아니라 **전체 6개 bench Job 모두 동일 원인으로 실패**
+- 전체 import chain 감사 수행, 추가 누락 패키지 발견:
+
+| 패키지 | 심각도 | 원인 |
+|--------|--------|------|
+| `einops>=0.7` | CRITICAL | jina-colbert-v2 동적 import |
+| `datasets>=2.14` | CRITICAL | hf_loader.py Phase 1 로드 |
+| `httpx>=0.27` | HIGH | config.py SSL bypass + OpenAI |
+| `requests>=2.32` | MEDIUM | config.py setup_ssl_bypass |
+
+- `k8s/requirements-worker.txt` 수정 완료
+
+#### 2. K8s 원격 빌더로 이미지 리빌드
+- `docker buildx create --driver kubernetes` → K8s management 노드에서 네이티브 amd64 빌드
+- Harbor 푸시 성공 (`ags-registry.ags.cloudzcp.net/rag-bench-test/worker:latest`)
+- 빌더 제거 완료 (`docker buildx rm k8s-amd64`)
+
+#### 3. Harbor 인증 이슈 대응
+- `.env`의 `HARBOR_CLI_SECRET` 만료 → ImagePullBackOff (401 Unauthorized)
+- CLI Secret 갱신 후 docker login + K8s Secret(`harbor-cred`) 재생성으로 해결
+
+#### 4. K8s 테스트 환경 정리
+- Prep Job 완료 확인 (general 카테고리, max_corpus=100, max_queries=10)
+- 실패한 bench Job 전체 삭제
+- 갱신된 이미지 + Secret으로 재실행 시도 → MFA 만료로 중단
+
+### 트러블슈팅
+- `einops` 누락: `requirements-worker.txt`에서 "코드베이스 미사용"으로 제외했으나 jina-colbert-v2가 동적 import
+- Harbor 401: buildx push는 캐시된 토큰 사용, kubelet은 Secret 기반 → Secret 재생성 필요
+- MFA 주기적 만료: kubectl 명령 실행 전 반드시 갱신 필요
+- `--skip-setup` 누락: 오케스트레이터가 namespace.yaml apply 시 MFA 에러로 크래시
+
+### 남은 작업
+- **TECHNICAL 로컬 벤치마크 실행**: `uv run python -m rag_bench.scripts.run_service_bench --mode hf --max_queries 20 --categories technical`
+- **K8s bench Job 재실행**: MFA 갱신 후 오케스트레이터 `--skip-prep --skip-setup` 실행
+- MEDICAL RAGAS 평가 보충 (체크포인트 리셋 필요)
+- 전체 결과 병합 리포트
+
+### 참고
+- K8s 워커 이미지: `ags-registry.ags.cloudzcp.net/rag-bench-test/worker:latest` (einops+datasets+httpx+requests 포함)
+- Prep 데이터 PVC에 보존됨 → bench phase만 재실행 가능 (`--skip-prep`)
+- 관련 파일: `k8s/requirements-worker.txt`, `k8s/worker_entrypoint.py`
