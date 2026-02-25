@@ -1230,8 +1230,7 @@ bge-m3   + splade      + colbert + contextual
 - non-streaming 다운로드 → CAS ReqwestMiddleware 오류 → `streaming=True` 적용
 
 ### 남은 작업
-- MEDICAL Pass 2 RAGAS 평가 실행
-- TECHNICAL 카테고리 벤치마크 실행 (`--categories technical`)
+- MEDICAL Pass 2 RAGAS 평가 실행 (체크포인트 completed → 리셋 필요)
 - 영어 코드 데이터셋 적용 검토 (CoIR StackOverflowQA)
 - Notion 문서에 TECHNICAL 카테고리 상태 업데이트 ("HF 없음" → "nanobeir-ko/NanoSCIDOCS")
 
@@ -1239,3 +1238,75 @@ bge-m3   + splade      + colbert + contextual
 - 데이터셋: https://huggingface.co/datasets/sionic-ai/nanobeir-ko
 - 5개 카테고리 전체 HF 데이터셋 확보 완료 (GENERAL/LEGAL/BUSINESS/MEDICAL/TECHNICAL)
 - 관련 파일: `rag_bench/datasets/hf_loader.py`, `rag_bench/scripts/run_service_bench.py`
+
+## 2026-02-25: 4개 카테고리 벤치마크 실행 완료 + TECHNICAL 실행 중
+
+### 벤치마크 실행 결과 (20 QA × 6 조합)
+
+#### GENERAL 결과 (완료: 02-24 16:58)
+| 전략 | Recall | Precision | Faithfulness | Relevancy | 가중합 |
+|------|--------|-----------|--------------|-----------|--------|
+| KoSimCSE + korean_bm25 | 0.821 | 0.921 | 0.858 | 0.832 | 0.856 |
+| KoSimCSE + splade | 0.858 | 0.933 | 0.867 | 0.799 | **0.870** |
+| E5 + korean_bm25 | 0.835 | 0.942 | 0.867 | 0.810 | **0.870** |
+| E5 + splade | 0.868 | 0.933 | 0.810 | 0.798 | 0.863 |
+| BGE-M3 + korean_bm25 | 0.861 | 0.933 | 0.844 | 0.788 | 0.864 |
+| BGE-M3 + splade | 0.832 | 0.933 | 0.857 | 0.848 | 0.867 |
+
+→ **공동 1위**: KoSimCSE+splade / E5+korean_bm25 (0.870)
+
+#### LEGAL 결과 (완료: 02-25 09:53)
+| 전략 | Recall | Precision | Faithfulness | Relevancy | 가중합 |
+|------|--------|-----------|--------------|-----------|--------|
+| KoSimCSE + korean_bm25 | 0.752 | 0.979 | 0.841 | 0.888 | 0.856 |
+| KoSimCSE + splade | 0.704 | 1.000 | 0.851 | 0.876 | 0.848 |
+| E5 + korean_bm25 | 0.734 | 0.979 | 0.861 | 0.877 | 0.852 |
+| E5 + splade | 0.764 | 0.979 | 0.891 | 0.862 | **0.871** |
+| BGE-M3 + korean_bm25 | 0.721 | 0.979 | 0.879 | 0.866 | 0.852 |
+| BGE-M3 + splade | 0.706 | 1.000 | 0.873 | 0.877 | 0.851 |
+
+→ **1위**: E5+splade (0.871). Precision 매우 높음(0.979~1.0), Recall 상대적 저조
+
+#### BUSINESS 결과 (완료: 02-25 12:27)
+| 전략 | Recall | Precision | Faithfulness | Relevancy | 가중합 |
+|------|--------|-----------|--------------|-----------|--------|
+| KoSimCSE + korean_bm25 | 0.809 | 1.000 | 0.928 | 0.881 | **0.901** |
+| KoSimCSE + splade | 0.787 | 1.000 | 0.908 | 0.897 | 0.892 |
+| E5 + korean_bm25 | 0.751 | 1.000 | 0.874 | 0.884 | 0.870 |
+| E5 + splade | 0.807 | 1.000 | 0.912 | 0.874 | 0.896 |
+| BGE-M3 + korean_bm25 | 0.780 | 1.000 | 0.906 | 0.867 | 0.884 |
+| BGE-M3 + splade | 0.792 | 1.000 | 0.895 | 0.894 | 0.890 |
+
+→ **1위**: KoSimCSE+korean_bm25 (0.901). Precision 전원 1.000, 전체 최고 점수
+
+#### MEDICAL (완료: 02-24 15:15, RAGAS 없음)
+- Pass 1 latency만 측정됨 (RAGAS 평가 미포함)
+- 체크포인트 "completed" 마킹 → 재실행 시 스킵됨
+- RAGAS 보충하려면 체크포인트 리셋 필요
+
+#### TECHNICAL (실행 중)
+- `--mode hf --max_queries 20 --categories medical,technical` 실행
+- MEDICAL 스킵 → TECHNICAL만 실행 중 (5/6 조합 완료, BGE-M3 진행 중)
+- corpus 2,210개, queries 20개 (NanoSCIDOCS)
+
+### 카테고리별 최적 조합 종합 (현재까지)
+| 카테고리 | 1위 조합 | 가중합 | 특이사항 |
+|----------|---------|--------|---------|
+| GENERAL | KoSimCSE+splade / E5+korean_bm25 | 0.870 | 공동 1위 |
+| LEGAL | E5+splade | 0.871 | Precision 극도로 높음 |
+| BUSINESS | KoSimCSE+korean_bm25 | 0.901 | 전체 최고 점수 |
+| MEDICAL | — | — | RAGAS 미측정 |
+| TECHNICAL | — | — | 실행 중 |
+
+> 가중합 = Recall×0.35 + Precision×0.30 + Faithfulness×0.20 + Relevancy×0.15
+
+### 남은 작업
+- TECHNICAL 벤치마크 완료 대기 후 결과 확인
+- MEDICAL RAGAS 평가 보충 (체크포인트 리셋 필요)
+- 전체 결과 병합 리포트 (`merge_results.py`)
+- Notion 문서 업데이트 (실행 현황 + TECHNICAL 상태)
+- 영어 코드 데이터셋 적용 검토 (CoIR StackOverflowQA)
+
+### 참고
+- 벤치마크 결과 경로: `rag_bench/_benchdata/service_run/{category}/result.json`
+- 세션 핸드오프 문서: `SESSION_HANDOFF.md` 작성 완료
