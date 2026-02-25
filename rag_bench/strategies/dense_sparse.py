@@ -305,6 +305,12 @@ class DenseSparseStrategy(BaseRAGStrategy):
     사용법:
         strategy = DenseSparseStrategy(dense_model="kosimcse", sparse_type="splade")
         strategy = DenseSparseStrategy(dense_model="BM-K/KoSimCSE-roberta-multitask", sparse_type="korean_bm25")
+
+    TEI 모드 (API 기반 임베딩 서빙):
+        strategy = DenseSparseStrategy(
+            dense_model="bge-m3", sparse_type="korean_bm25",
+            embedding_api_url="http://tei-bge-m3:8083",
+        )
     """
 
     def __init__(
@@ -314,6 +320,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
         qdrant_path: Optional[str] = None,
         device: Optional[str] = None,   # None이면 _init_dense에서 detect_device() 자동 사용
         collection_name: str = QDRANT_COLLECTION_NAME,
+        embedding_api_url: Optional[str] = None,  # TEI 엔드포인트 URL
     ):
         self._dense_model = DENSE_MODELS.get(dense_model, dense_model)
         self._sparse_type = sparse_type or "korean_bm25"
@@ -325,6 +332,7 @@ class DenseSparseStrategy(BaseRAGStrategy):
 
         self._collection_name = collection_name
         self._device: Optional[str] = device   # None이면 _init_dense에서 detect_device() 사용
+        self._embedding_api_url: Optional[str] = embedding_api_url
 
         self._dense_embeddings: Optional[Embeddings] = None
         self._sparse_embeddings: Optional[Union[KoreanBM25Encoder, "SpladeEncoder", "FastEmbedSparse"]] = None
@@ -373,10 +381,19 @@ class DenseSparseStrategy(BaseRAGStrategy):
         self._use_langchain_sparse = use_langchain_sparse
 
     def _init_dense(self):
-        """Dense 임베딩 모델 초기화 (HuggingFace / OpenAI / Upstage 자동 분기)."""
+        """Dense 임베딩 모델 초기화 (TEI / HuggingFace / OpenAI / Upstage 자동 분기)."""
         model_spec = self._dense_model
 
-        if "text-embedding-3" in model_spec or "ada" in model_spec:
+        if self._embedding_api_url:
+            # TEI (Text Embeddings Inference) — OpenAI 호환 /v1/embeddings API
+            from langchain_openai import OpenAIEmbeddings
+            self._dense_embeddings = OpenAIEmbeddings(
+                model=model_spec,
+                openai_api_base=self._embedding_api_url,
+                openai_api_key="unused",  # TEI는 인증 불필요
+            )
+            print(f"  Dense: {model_spec} (TEI: {self._embedding_api_url})")
+        elif "text-embedding-3" in model_spec or "ada" in model_spec:
             # OpenAI Embeddings API — device 파라미터 불필요
             from langchain_openai import OpenAIEmbeddings
             self._dense_embeddings = OpenAIEmbeddings(model=model_spec)
