@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+rag_bench/_benchdata/
+rag_bench/_models/
+rag_bench/docs/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+node_modules/

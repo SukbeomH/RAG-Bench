@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+rag_bench/_benchdata/
+rag_bench/_models/
+rag_bench/docs/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.gsd/
+.claude/
+node_modules/
+k8s_results/
+pdf_parser/
+*.ipynb
+SESSION_HANDOFF.md

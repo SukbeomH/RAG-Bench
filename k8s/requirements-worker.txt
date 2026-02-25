@@ -1,0 +1,55 @@
+# K8s 워커 전용 경량 의존성
+# pyproject.toml 전체 대신 이 파일로 설치하여 이미지 경량화
+#
+# 제외된 패키지:
+#   jupyter, ipython        — 개발 도구
+#   matplotlib              — 시각화/리포트
+#   langgraph               — graph 에이전트 모듈
+#   langchain-ollama        — K8s는 OpenAI만 사용
+#   langchain-upstage       — service 프리셋 미포함
+#   pymupdf4llm             — PDF 파싱 (indexing 모듈)
+#   python-docx             — DOCX 파싱 (indexing 모듈)
+#   beautifulsoup4, lxml    — HTML 파싱 (indexing 모듈)
+#   rapidfuzz               — 코드베이스 미사용
+
+# === Core LangChain ===
+langchain>=1.0
+langchain-community>=0.3
+langchain-core>=0.3
+langchain-huggingface>=0.1
+langchain-openai>=0.2
+langchain-qdrant>=0.2
+langchain-text-splitters>=0.3
+
+# === Vector DB ===
+qdrant-client>=1.11
+
+# === HuggingFace Dataset Loading (Phase 1) ===
+datasets>=2.14
+
+# === Embedding / Reranking ===
+fastembed>=0.4
+pylate>=1.0
+sentence-transformers>=3.1
+transformers>=4.40
+# torch — Dockerfile에서 CPU-only 인덱스로 별도 설치
+flashrank>=0.2
+einops>=0.7
+
+# === Korean NLP ===
+konlpy>=0.6.0
+
+# === Evaluation ===
+ragas>=0.4.3
+
+# === HTTP / SSL ===
+httpx>=0.27
+requests>=2.32
+
+# === Utilities ===
+pandas>=2.2
+psutil>=5.9
+python-dotenv>=1.0
+
+# === K8s API ===
+kubernetes
