@@ -1,0 +1,12 @@
+# Category 1: Simple PDFs
+pymupdf4llm
+
+# Category 2: Medium Complexity PDFs
+docling
+
+# Category 3: Complex PDFs (VLM)
+PyMuPDF
+google-genai
+
+# Shared
+pathlib
