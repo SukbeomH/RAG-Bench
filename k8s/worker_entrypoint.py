@@ -185,8 +185,10 @@ def phase_bench():
     workspace_dir = Path(os.environ.get("WORKSPACE_DIR", "/workspace"))
 
     # COMBO_LABEL은 오케스트레이터가 주입 — 결과 디렉토리명의 단일 진실 공급원
-    combo_label = os.environ.get("COMBO_LABEL", _safe_label(
-        f"{dense}+{sparse}+{reranker}+{llm_support}"))
+    combo_label = os.environ.get("COMBO_LABEL")
+    if not combo_label:
+        print("ERROR: COMBO_LABEL 환경변수 필수 (오케스트레이터가 주입해야 함)")
+        sys.exit(1)
     combo_display = f"{dense}+{sparse}+{reranker}+{llm_support}"
 
     print(f"\n{'=' * 60}")
@@ -216,18 +218,13 @@ def phase_bench():
     from rag_bench.combo import CacheConfig, ComboSpec, IndexCacheManager
     from rag_bench.combo.builder import build_strategy_from_spec
 
-    embedding_api_url = os.environ.get("EMBEDDING_API_URL", "")
     spec = ComboSpec(dense=dense, sparse=sparse, reranker=reranker, llm_support=llm_support)
     cfg = CacheConfig(
         colbert_model=colbert_model,
         colbert_device="cpu",
         contextual_llm=contextual_llm,
-        embedding_api_url=embedding_api_url or None,
     )
     index_cache = IndexCacheManager(cfg)
-
-    if embedding_api_url:
-        print(f"  TEI 모드: {embedding_api_url}")
 
     qdrant_dir = workspace_dir / category / combo_label / "qdrant"
     qdrant_dir.mkdir(parents=True, exist_ok=True)

@@ -31,7 +31,6 @@ class CacheConfig:
     flashrank_max_length: int = 512
     contextual_llm: str = DEFAULT_CONTEXTUAL_LLM
     rerank_n: int = 20
-    embedding_api_url: Optional[str] = None  # TEI 엔드포인트 URL (설정 시 API 모드)
 
 
 class IndexCacheManager:
@@ -133,7 +132,6 @@ class IndexCacheManager:
             sparse_type=spec.sparse,
             qdrant_path=qdrant_path,
             device=self.config.dense_device,   # None이면 detect_device() 자동 사용
-            embedding_api_url=self.config.embedding_api_url,
         )
 
         qdrant_dir = Path(qdrant_path)
@@ -197,7 +195,6 @@ class IndexCacheManager:
             sparse_type=spec.sparse,
             qdrant_path=ctx_qdrant_path,
             device=self.config.dense_device,   # None이면 detect_device() 자동 사용
-            embedding_api_url=self.config.embedding_api_url,
         )
 
         # 이미 캐시된 base 전략에서 Dense/Sparse 모델 객체 공유 (재로드 방지)

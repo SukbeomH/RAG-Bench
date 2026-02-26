@@ -31,6 +31,11 @@ spec:
         phase: bench
     spec:
       restartPolicy: OnFailure
+      tolerations:
+        - key: ai-platform
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       imagePullSecrets:
         - name: harbor-cred
       containers:
@@ -51,8 +56,6 @@ spec:
               value: "${COMBO_LLM_SUPPORT}"
             - name: COMBO_LABEL
               value: "${COMBO_LABEL}"
-            - name: EMBEDDING_API_URL
-              value: "${EMBEDDING_API_URL}"
             - name: BENCH_K
               value: "3"
             - name: RESULTS_DIR

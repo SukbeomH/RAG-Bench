@@ -29,6 +29,11 @@ spec:
         phase: prep
     spec:
       restartPolicy: OnFailure
+      tolerations:
+        - key: ai-platform
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       imagePullSecrets:
         - name: harbor-cred
       containers:

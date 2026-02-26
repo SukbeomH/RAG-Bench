@@ -43,33 +43,57 @@ NAMESPACE = "rag-bench-test"
 MANIFESTS_DIR = Path(__file__).parent / "manifests"
 PREP_TEMPLATE = MANIFESTS_DIR / "prep-job-template.yaml"
 BENCH_TEMPLATE = MANIFESTS_DIR / "bench-job-template.yaml"
-TEI_TEMPLATE = MANIFESTS_DIR / "tei-deployment.yaml"
 
 DEFAULT_CATEGORIES = ["general", "legal", "business", "medical"]
 POLL_INTERVAL_S = 30
 
-# TEI 모델 레지스트리: 모델 키 → (HF 모델 ID, 서비스 포트)
-TEI_MODELS = {
-    "kosimcse": ("BM-K/KoSimCSE-roberta-multitask", "8081"),
-    "e5":       ("intfloat/multilingual-e5-large",   "8082"),
-    "bge-m3":   ("BAAI/bge-m3",                      "8083"),
-}
-
 # service 프리셋 기준 전략 조합
 SERVICE_COMBOS = [
-    {"dense": "kosimcse", "sparse": "korean_bm25", "reranker": "colbert", "llm_support": "contextual"},
-    {"dense": "kosimcse", "sparse": "splade",      "reranker": "colbert", "llm_support": "contextual"},
-    {"dense": "e5",       "sparse": "korean_bm25", "reranker": "colbert", "llm_support": "contextual"},
-    {"dense": "e5",       "sparse": "splade",      "reranker": "colbert", "llm_support": "contextual"},
-    {"dense": "bge-m3",   "sparse": "korean_bm25", "reranker": "colbert", "llm_support": "contextual"},
-    {"dense": "bge-m3",   "sparse": "splade",      "reranker": "colbert", "llm_support": "contextual"},
+    {
+        "dense": "kosimcse",
+        "sparse": "korean_bm25",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
+    {
+        "dense": "kosimcse",
+        "sparse": "splade",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
+    {
+        "dense": "e5",
+        "sparse": "korean_bm25",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
+    {
+        "dense": "e5",
+        "sparse": "splade",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
+    {
+        "dense": "bge-m3",
+        "sparse": "korean_bm25",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
+    {
+        "dense": "bge-m3",
+        "sparse": "splade",
+        "reranker": "colbert",
+        "llm_support": "contextual",
+    },
 ]
 
 FULL_COMBOS = []
 for d in ["kosimcse", "e5", "bge-m3", "openai-large", "upstage"]:
     for s in ["korean_bm25", "splade"]:
         for r in ["colbert", "flashrank"]:
-            FULL_COMBOS.append({"dense": d, "sparse": s, "reranker": r, "llm_support": "contextual"})
+            FULL_COMBOS.append(
+                {"dense": d, "sparse": s, "reranker": r, "llm_support": "contextual"}
+            )
 
 PRESET_COMBOS = {
     "service": SERVICE_COMBOS,
@@ -80,6 +104,7 @@ PRESET_COMBOS = {
 # ---------------------------------------------------------------------------
 # kubectl 래퍼
 # ---------------------------------------------------------------------------
+
 
 def kubectl(*args: str, capture: bool = True, check: bool = True) -> str:
     cmd = ["kubectl"] + list(args)
@@ -101,6 +126,7 @@ def _safe_label(combo: Dict) -> str:
 # Job 렌더링
 # ---------------------------------------------------------------------------
 
+
 def _render_template(template_path: Path, replacements: Dict[str, str]) -> str:
     content = template_path.read_text(encoding="utf-8")
     for k, v in replacements.items():
@@ -121,95 +147,36 @@ def _apply_yaml(yaml_content: str, dry_run: bool) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# TEI 서빙
-# ---------------------------------------------------------------------------
-
-def get_tei_url(dense_key: str) -> str:
-    """Dense 모델 키로 TEI 서비스 URL 반환."""
-    if dense_key not in TEI_MODELS:
-        return ""
-    _, port = TEI_MODELS[dense_key]
-    return f"http://tei-{dense_key}:{port}"
-
-
-def deploy_tei_services(combos: List[Dict], dry_run: bool = False) -> List[str]:
-    """벤치마크에 필요한 Dense 모델의 TEI Deployment + Service 배포.
-
-    Returns:
-        배포된 모델 키 목록.
-    """
-    needed = sorted({c["dense"] for c in combos if c["dense"] in TEI_MODELS})
-    if not needed:
-        print("    TEI 대상 모델 없음 (API 모델만 사용)")
-        return []
-
-    print(f"\n  TEI 서빙 배포: {needed}")
-    for model_key in needed:
-        model_id, port = TEI_MODELS[model_key]
-        yaml = _render_template(TEI_TEMPLATE, {
-            "${MODEL_KEY}": model_key,
-            "${MODEL_ID}": model_id,
-            "${PORT}": port,
-        })
-        _apply_yaml(yaml, dry_run)
-        if not dry_run:
-            print(f"    TEI Deployment/Service: tei-{model_key} (port {port})")
-
-    if dry_run:
-        return needed
-
-    # 모든 TEI Pod Ready 대기
-    print("    TEI 서비스 Ready 대기 중...")
-    for model_key in needed:
-        try:
-            kubectl(
-                "rollout", "status", f"deployment/tei-{model_key}",
-                "-n", NAMESPACE, "--timeout=300s",
-            )
-            print(f"      tei-{model_key}: Ready")
-        except subprocess.CalledProcessError:
-            print(f"      WARN: tei-{model_key} 타임아웃 — 계속 진행")
-
-    return needed
-
-
-def cleanup_tei_services(model_keys: List[str]) -> None:
-    """TEI Deployment + Service 정리."""
-    if not model_keys:
-        return
-    print(f"\n  TEI 서비스 정리: {model_keys}")
-    for model_key in model_keys:
-        kubectl("delete", "deployment", f"tei-{model_key}",
-                "-n", NAMESPACE, "--ignore-not-found", check=False)
-        kubectl("delete", "service", f"tei-{model_key}",
-                "-n", NAMESPACE, "--ignore-not-found", check=False)
-    print("    정리 완료")
-
-
-# ---------------------------------------------------------------------------
 # Phase 1: Prep Jobs
 # ---------------------------------------------------------------------------
 
+
 def create_prep_jobs(
-    categories: List[str], run_id: str, image: str, args,
+    categories: List[str],
+    run_id: str,
+    image: str,
+    args,
     dry_run: bool = False,
 ) -> Dict[str, str]:
     """카테고리별 prep Job 생성. {category: job_name}"""
     jobs = {}
     for cat in categories:
         job_name = f"prep-{cat}-{run_id}"
-        yaml = _render_template(PREP_TEMPLATE, {
-            "${CATEGORY}": cat,
-            "${RUN_ID}": run_id,
-            "${IMAGE}": image,
-            "${MAX_CORPUS}": str(args.max_corpus),
-            "${MAX_QUERIES}": str(args.max_queries),
-            "${CONTEXTUAL_LLM}": args.contextual_llm,
-            "${CPU_REQUEST}": args.prep_cpu_request,
-            "${CPU_LIMIT}": args.prep_cpu_limit,
-            "${MEMORY_REQUEST}": args.prep_memory_request,
-            "${MEMORY_LIMIT}": args.prep_memory_limit,
-        })
+        yaml = _render_template(
+            PREP_TEMPLATE,
+            {
+                "${CATEGORY}": cat,
+                "${RUN_ID}": run_id,
+                "${IMAGE}": image,
+                "${MAX_CORPUS}": str(args.max_corpus),
+                "${MAX_QUERIES}": str(args.max_queries),
+                "${CONTEXTUAL_LLM}": args.contextual_llm,
+                "${CPU_REQUEST}": args.prep_cpu_request,
+                "${CPU_LIMIT}": args.prep_cpu_limit,
+                "${MEMORY_REQUEST}": args.prep_memory_request,
+                "${MEMORY_LIMIT}": args.prep_memory_limit,
+            },
+        )
         _apply_yaml(yaml, dry_run)
         if not dry_run:
             print(f"    prep Job 생성: {job_name}")
@@ -221,10 +188,14 @@ def create_prep_jobs(
 # Phase 2: Bench Jobs
 # ---------------------------------------------------------------------------
 
+
 def create_bench_jobs(
-    categories: List[str], combos: List[Dict],
-    run_id: str, image: str, args,
-    dry_run: bool = False, tei: bool = False,
+    categories: List[str],
+    combos: List[Dict],
+    run_id: str,
+    image: str,
+    args,
+    dry_run: bool = False,
 ) -> Dict[str, str]:
     """(카테고리 × 조합)별 bench Job 생성. {key: job_name}"""
     jobs = {}
@@ -236,29 +207,27 @@ def create_bench_jobs(
             if len(job_name) > 63:
                 job_name = job_name[:63].rstrip("-")
 
-            # TEI 모드: HF 로컬 모델만 API URL 주입 (OpenAI/Upstage는 이미 API)
-            embedding_api_url = get_tei_url(combo["dense"]) if tei else ""
-
-            yaml = _render_template(BENCH_TEMPLATE, {
-                "${CATEGORY}": cat,
-                "${RUN_ID}": run_id,
-                "${IMAGE}": image,
-                "${COMBO_DENSE}": combo["dense"],
-                "${COMBO_SPARSE}": combo["sparse"],
-                "${COMBO_RERANKER}": combo["reranker"],
-                "${COMBO_LLM_SUPPORT}": combo["llm_support"],
-                "${COMBO_LABEL}": label,
-                "${EMBEDDING_API_URL}": embedding_api_url,
-                "${CPU_REQUEST}": args.bench_cpu_request,
-                "${CPU_LIMIT}": args.bench_cpu_limit,
-                "${MEMORY_REQUEST}": args.bench_memory_request,
-                "${MEMORY_LIMIT}": args.bench_memory_limit,
-            })
+            yaml = _render_template(
+                BENCH_TEMPLATE,
+                {
+                    "${CATEGORY}": cat,
+                    "${RUN_ID}": run_id,
+                    "${IMAGE}": image,
+                    "${COMBO_DENSE}": combo["dense"],
+                    "${COMBO_SPARSE}": combo["sparse"],
+                    "${COMBO_RERANKER}": combo["reranker"],
+                    "${COMBO_LLM_SUPPORT}": combo["llm_support"],
+                    "${COMBO_LABEL}": label,
+                    "${CPU_REQUEST}": args.bench_cpu_request,
+                    "${CPU_LIMIT}": args.bench_cpu_limit,
+                    "${MEMORY_REQUEST}": args.bench_memory_request,
+                    "${MEMORY_LIMIT}": args.bench_memory_limit,
+                },
+            )
             _apply_yaml(yaml, dry_run)
             key = f"{cat}/{combo['dense']}+{combo['sparse']}+{combo['reranker']}"
             if not dry_run:
-                mode = f" (TEI: {embedding_api_url})" if embedding_api_url else ""
-                print(f"    bench Job 생성: {job_name}{mode}")
+                print(f"    bench Job 생성: {job_name}")
             jobs[key] = job_name
     return jobs
 
@@ -266,6 +235,7 @@ def create_bench_jobs(
 # ---------------------------------------------------------------------------
 # 모니터링
 # ---------------------------------------------------------------------------
+
 
 def get_job_status(job_name: str) -> Dict:
     try:
@@ -283,15 +253,23 @@ def get_job_status(job_name: str) -> Dict:
 def get_job_logs(job_name: str, tail: int = 30) -> str:
     try:
         return kubectl(
-            "logs", f"job/{job_name}", "-n", NAMESPACE,
-            "-c", "worker", f"--tail={tail}", check=False,
+            "logs",
+            f"job/{job_name}",
+            "-n",
+            NAMESPACE,
+            "-c",
+            "worker",
+            f"--tail={tail}",
+            check=False,
         )
     except Exception:
         return "(로그 조회 불가)"
 
 
 def wait_for_jobs(
-    jobs: Dict[str, str], phase_name: str, timeout_s: int,
+    jobs: Dict[str, str],
+    phase_name: str,
+    timeout_s: int,
 ) -> Dict[str, str]:
     """{key: "succeeded"|"failed"|"timeout"}"""
     results = {}
@@ -338,8 +316,11 @@ def wait_for_jobs(
 # 결과 수집
 # ---------------------------------------------------------------------------
 
+
 def collect_results(
-    categories: List[str], run_id: str, local_output: Path,
+    categories: List[str],
+    run_id: str,
+    local_output: Path,
 ) -> Dict[str, Path]:
     """PVC에서 결과를 로컬로 복사."""
     local_output.mkdir(parents=True, exist_ok=True)
@@ -372,15 +353,26 @@ spec:
     try:
         kubectl_apply(tmp)
         print(f"\n  수집 Pod 생성: {collector_pod}")
-        kubectl("wait", "--for=condition=Ready", f"pod/{collector_pod}",
-                "-n", NAMESPACE, "--timeout=60s")
+        kubectl(
+            "wait",
+            "--for=condition=Ready",
+            f"pod/{collector_pod}",
+            "-n",
+            NAMESPACE,
+            "--timeout=60s",
+        )
 
         for cat in categories:
             local_cat = local_output / cat
             local_cat.mkdir(parents=True, exist_ok=True)
             try:
-                kubectl("cp", f"{NAMESPACE}/{collector_pod}:/results/{cat}/",
-                        str(local_cat), "-c", "collector")
+                kubectl(
+                    "cp",
+                    f"{NAMESPACE}/{collector_pod}:/results/{cat}/",
+                    str(local_cat),
+                    "-c",
+                    "collector",
+                )
 
                 # DONE 파일이 있는 조합만 유효 (원자적 쓰기 보장)
                 found = list(local_cat.rglob("DONE"))
@@ -394,8 +386,15 @@ spec:
             except Exception as e:
                 print(f"    [{cat}] 수집 실패: {e}")
     finally:
-        kubectl("delete", "pod", collector_pod, "-n", NAMESPACE,
-                "--ignore-not-found", check=False)
+        kubectl(
+            "delete",
+            "pod",
+            collector_pod,
+            "-n",
+            NAMESPACE,
+            "--ignore-not-found",
+            check=False,
+        )
 
     return collected
 
@@ -404,9 +403,12 @@ spec:
 # 병합
 # ---------------------------------------------------------------------------
 
+
 def merge_results(
-    local_output: Path, categories: List[str],
-    expected_combos: int, bench_results: Dict[str, str],
+    local_output: Path,
+    categories: List[str],
+    expected_combos: int,
+    bench_results: Dict[str, str],
 ) -> None:
     """수집된 (카테고리/조합) 결과를 merge_service_results 형식으로 재구성 후 병합."""
     print(f"\n  결과 재구성 + 병합...")
@@ -420,7 +422,8 @@ def merge_results(
 
         # DONE 파일이 있는 조합만 유효한 결과
         combo_dirs = [
-            d for d in cat_dir.iterdir()
+            d
+            for d in cat_dir.iterdir()
             if d.is_dir() and d.name != "prepared" and (d / "DONE").exists()
         ]
 
@@ -435,11 +438,14 @@ def merge_results(
         if found < expected_combos:
             # 실패한 조합 식별
             failed_keys = [
-                k for k, v in bench_results.items()
+                k
+                for k, v in bench_results.items()
                 if k.startswith(f"{cat}/") and v != "succeeded"
             ]
-            print(f"    WARN [{cat}] {found}/{expected_combos} 조합만 성공"
-                  f" — 누락: {[k.split('/', 1)[1] for k in failed_keys]}")
+            print(
+                f"    WARN [{cat}] {found}/{expected_combos} 조합만 성공"
+                f" — 누락: {[k.split('/', 1)[1] for k in failed_keys]}"
+            )
 
         if not combo_results:
             print(f"    [{cat}] 유효한 결과 없음 — 건너뜀")
@@ -459,27 +465,37 @@ def merge_results(
                 merged["ragas"].extend(cr["ragas"])
 
         (cat_dir / "result.json").write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(merged, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         print(f"    [{cat}] {found}/{expected_combos} 조합 → 통합 result.json")
 
     # 기존 merge 스크립트 실행
     try:
         subprocess.run(
-            [sys.executable, "-m", "rag_bench.scripts.merge_service_results",
-             "--run_dirs", str(local_output),
-             "--output", str(local_output / "merged_report.html")],
+            [
+                sys.executable,
+                "-m",
+                "rag_bench.scripts.merge_service_results",
+                "--run_dirs",
+                str(local_output),
+                "--output",
+                str(local_output / "merged_report.html"),
+            ],
             check=True,
         )
         print(f"  병합 리포트: {local_output / 'merged_report.html'}")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"  병합 스크립트 실행 실패. 수동 실행:")
-        print(f"    python -m rag_bench.scripts.merge_service_results --run_dirs {local_output}")
+        print(
+            f"    python -m rag_bench.scripts.merge_service_results --run_dirs {local_output}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # 인프라 셋업
 # ---------------------------------------------------------------------------
+
 
 def setup_infrastructure() -> None:
     print("  인프라 셋업...")
@@ -497,8 +513,15 @@ def setup_infrastructure() -> None:
         if not openai_key:
             print("    ERROR: OPENAI_API_KEY 환경변수 필수")
             sys.exit(1)
-        kubectl("create", "secret", "generic", "bench-secrets",
-                "-n", NAMESPACE, f"--from-literal=OPENAI_API_KEY={openai_key}")
+        kubectl(
+            "create",
+            "secret",
+            "generic",
+            "bench-secrets",
+            "-n",
+            NAMESPACE,
+            f"--from-literal=OPENAI_API_KEY={openai_key}",
+        )
         print("    생성: bench-secrets Secret")
 
 
@@ -506,9 +529,7 @@ def _verify_prep_data(categories: List[str], run_id: str) -> None:
     """Phase 1 결과가 PVC에서 읽을 수 있는지 검증 Pod로 확인."""
     verifier_pod = f"prep-verify-{run_id}"
     # 모든 카테고리의 DONE 파일 존재 여부를 한 번에 확인
-    checks = " && ".join(
-        f'test -f /results/{cat}/prepared/DONE' for cat in categories
-    )
+    checks = " && ".join(f"test -f /results/{cat}/prepared/DONE" for cat in categories)
     verifier_yaml = f"""\
 apiVersion: v1
 kind: Pod
@@ -536,20 +557,38 @@ spec:
     try:
         kubectl_apply(tmp)
         # Pod 완료 대기 (최대 120초)
-        kubectl("wait", "--for=condition=Ready", f"pod/{verifier_pod}",
-                "-n", NAMESPACE, "--timeout=30s")
+        kubectl(
+            "wait",
+            "--for=condition=Ready",
+            f"pod/{verifier_pod}",
+            "-n",
+            NAMESPACE,
+            "--timeout=30s",
+        )
         # 실행 결과 확인
         for attempt in range(12):
             time.sleep(10)
             try:
-                status = json.loads(kubectl(
-                    "get", "pod", verifier_pod, "-n", NAMESPACE,
-                    "-o", "jsonpath={.status.phase}",
-                ))
+                status = json.loads(
+                    kubectl(
+                        "get",
+                        "pod",
+                        verifier_pod,
+                        "-n",
+                        NAMESPACE,
+                        "-o",
+                        "jsonpath={.status.phase}",
+                    )
+                )
             except (json.JSONDecodeError, subprocess.CalledProcessError):
                 status = kubectl(
-                    "get", "pod", verifier_pod, "-n", NAMESPACE,
-                    "-o", "jsonpath={.status.phase}",
+                    "get",
+                    "pod",
+                    verifier_pod,
+                    "-n",
+                    NAMESPACE,
+                    "-o",
+                    "jsonpath={.status.phase}",
                 )
             if status == "Succeeded":
                 print("    PVC 가시성 확인 완료")
@@ -563,20 +602,36 @@ spec:
     except subprocess.CalledProcessError as e:
         print(f"    WARN: 검증 Pod 생성 실패 ({e}) — 계속 진행")
     finally:
-        kubectl("delete", "pod", verifier_pod, "-n", NAMESPACE,
-                "--ignore-not-found", check=False)
+        kubectl(
+            "delete",
+            "pod",
+            verifier_pod,
+            "-n",
+            NAMESPACE,
+            "--ignore-not-found",
+            check=False,
+        )
 
 
 def cleanup_run(run_id: str) -> None:
     print(f"\n  Run {run_id} 정리...")
-    kubectl("delete", "jobs", "-n", NAMESPACE, "-l", f"run-id={run_id}",
-            "--ignore-not-found", check=False)
+    kubectl(
+        "delete",
+        "jobs",
+        "-n",
+        NAMESPACE,
+        "-l",
+        f"run-id={run_id}",
+        "--ignore-not-found",
+        check=False,
+    )
     print("  완료")
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -585,29 +640,39 @@ def parse_args() -> argparse.Namespace:
     )
 
     p.add_argument("--image", required=True, help="워커 컨테이너 이미지")
-    p.add_argument("--categories", default=",".join(DEFAULT_CATEGORIES),
-                    help="카테고리 (쉼표 구분)")
-    p.add_argument("--preset", default="service", choices=["service", "full"],
-                    help="전략 프리셋 (기본: service)")
+    p.add_argument(
+        "--categories",
+        default=",".join(DEFAULT_CATEGORIES),
+        help="카테고리 (쉼표 구분)",
+    )
+    p.add_argument(
+        "--preset",
+        default="service",
+        choices=["service", "full"],
+        help="전략 프리셋 (기본: service)",
+    )
     p.add_argument("--run-id", default=None, help="실행 ID (기본: 타임스탬프)")
     p.add_argument("--output", default=None, help="로컬 결과 경로")
-    p.add_argument("--contextual-llm", default="gpt-4o-mini",
-                    help="Contextual Retrieval LLM (기본: gpt-4o-mini)")
+    p.add_argument(
+        "--contextual-llm",
+        default="gpt-4o-mini",
+        help="Contextual Retrieval LLM (기본: gpt-4o-mini)",
+    )
     p.add_argument("--max-corpus", type=int, default=10_000)
     p.add_argument("--max-queries", type=int, default=100)
     p.add_argument("--timeout", type=int, default=7200, help="Phase별 타임아웃 (초)")
 
     # Phase 1 리소스
-    p.add_argument("--prep-cpu-request", default="2")
-    p.add_argument("--prep-cpu-limit", default="4")
-    p.add_argument("--prep-memory-request", default="8Gi")
-    p.add_argument("--prep-memory-limit", default="16Gi")
+    p.add_argument("--prep-cpu-request", default="1")
+    p.add_argument("--prep-cpu-limit", default="1")
+    p.add_argument("--prep-memory-request", default="4Gi")
+    p.add_argument("--prep-memory-limit", default="8Gi")
 
-    # Phase 2 리소스
-    p.add_argument("--bench-cpu-request", default="2")
-    p.add_argument("--bench-cpu-limit", default="4")
-    p.add_argument("--bench-memory-request", default="8Gi")
-    p.add_argument("--bench-memory-limit", default="16Gi")
+    # Phase 2 리소스 (Dense 모델 로딩 + ColBERT + BM25 → CPU 2, 메모리 8Gi 필요)
+    p.add_argument("--bench-cpu-request", default="1")
+    p.add_argument("--bench-cpu-limit", default="2")
+    p.add_argument("--bench-memory-request", default="4Gi")
+    p.add_argument("--bench-memory-limit", default="8Gi")
 
     # 모드
     p.add_argument("--dry-run", action="store_true", help="YAML만 출력")
@@ -616,15 +681,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-merge", action="store_true")
     p.add_argument("--cleanup", action="store_true", help="완료 후 정리")
     p.add_argument("--skip-setup", action="store_true")
-    p.add_argument("--tei", action="store_true",
-                    help="TEI 모드: Dense 임베딩을 TEI 서빙 Pod에서 API로 호출")
-
     return p.parse_args()
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main():
     args = parse_args()
@@ -636,14 +699,15 @@ def main():
     total_jobs = len(categories) * len(combos)
 
     print(f"\n{'=' * 60}")
-    print(f" K8s Benchmark Orchestrator — 2-Phase")
+    print(" K8s Benchmark Orchestrator — 2-Phase")
     print(f"{'=' * 60}")
     print(f"  Run ID       : {run_id}")
     print(f"  Image        : {args.image}")
     print(f"  Categories   : {categories}")
     print(f"  Preset       : {args.preset} ({len(combos)} combos)")
-    print(f"  TEI Mode     : {'ON' if args.tei else 'OFF'}")
-    print(f"  Total Jobs   : Phase1={len(categories)} + Phase2={total_jobs} = {len(categories) + total_jobs}")
+    print(
+        f"  Total Jobs   : Phase1={len(categories)} + Phase2={total_jobs} = {len(categories) + total_jobs}"
+    )
     print(f"  Output       : {local_output}")
     print()
 
@@ -656,13 +720,10 @@ def main():
 
     # ── dry-run ───────────────────────────────────────────────
     if args.dry_run:
-        if args.tei:
-            print("--- TEI Deployments ---\n")
-            deploy_tei_services(combos, dry_run=True)
         print("\n--- Phase 1: Prep Jobs ---\n")
         create_prep_jobs(categories, run_id, args.image, args, dry_run=True)
         print("\n--- Phase 2: Bench Jobs ---\n")
-        create_bench_jobs(categories, combos, run_id, args.image, args, dry_run=True, tei=args.tei)
+        create_bench_jobs(categories, combos, run_id, args.image, args, dry_run=True)
         return
 
     # ── 인프라 ────────────────────────────────────────────────
@@ -693,17 +754,14 @@ def main():
     if not args.skip_prep:
         _verify_prep_data(categories, run_id)
 
-    # ── TEI 서빙 배포 ─────────────────────────────────────────
-    tei_models: List[str] = []
-    if args.tei:
-        tei_models = deploy_tei_services(combos)
-
     # ── Phase 2: Bench ────────────────────────────────────────
     print(f"\n{'─' * 60}")
-    print(f"  Phase 2: Bench ({len(categories)} × {len(combos)} = {len(categories) * len(combos)} Jobs)")
+    print(
+        f"  Phase 2: Bench ({len(categories)} × {len(combos)} = {len(categories) * len(combos)} Jobs)"
+    )
     print(f"{'─' * 60}")
 
-    bench_jobs = create_bench_jobs(categories, combos, run_id, args.image, args, tei=args.tei)
+    bench_jobs = create_bench_jobs(categories, combos, run_id, args.image, args)
     bench_results = wait_for_jobs(bench_jobs, "Phase 2", args.timeout)
 
     # ── 결과 수집 + 병합 ─────────────────────────────────────
@@ -714,10 +772,6 @@ def main():
         collected = collect_results(succeeded_cats, run_id, local_output)
         if collected and not args.no_merge:
             merge_results(local_output, succeeded_cats, len(combos), bench_results)
-
-    # ── TEI 정리 ──────────────────────────────────────────────
-    if tei_models:
-        cleanup_tei_services(tei_models)
 
     # ── 정리 ──────────────────────────────────────────────────
     if args.cleanup:
