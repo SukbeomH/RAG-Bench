@@ -4,9 +4,9 @@
 
 한국어 문서(PDF)를 대상으로 다양한 RAG 파이프라인 성능을 정량 평가하는 프로젝트입니다.
 
-Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 60개 전략 조합을 통일된 인터페이스로 비교합니다. Google Colab T4 GPU에서도 체크포인트 기반 벤치마크를 실행할 수 있습니다.
+Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 다양한 전략 조합을 통일된 인터페이스로 비교합니다. 로컬(60개 조합), K8s 병렬(2-Phase), Google Colab 세 가지 실행 환경을 지원합니다.
 
-> **최근 변경**: Dense 5종(HF 3 + OpenAI-large + Upstage) × Sparse 2종(korean_bm25, splade) × 6 Mode = 60개 조합으로 재편 + Colab Cell 1.2 uv + flash-attn wheel 캐시 최적화
+> **최근 변경**: K8s 2-Phase 병렬 벤치마크 시스템 구축 — 문서 카테고리별(GENERAL/LEGAL/BUSINESS/MEDICAL) 6개 Dense×Sparse 조합을 EKS 클러스터에서 병렬 실행. ColBERT Reranker + Contextual Retrieval 고정 파이프라인.
 
 ## 전체 흐름도
 
@@ -160,6 +160,7 @@ Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 
 | **보고서** | HTML 벤치마크 보고서 자동 생성 (차트 + Bootstrap) | 완료 |
 | **평가** | RAGAS v0.4+ 통합 (Core 4종 + Extended 5종 + Lightweight 2종) | 완료 |
 | **에이전트** | LangGraph Agentic RAG 대화 | 완료 |
+| **인프라** | K8s 2-Phase 병렬 벤치마크 (EKS) | 완료 |
 | **인프라** | Google Colab T4 GPU 벤치마크 환경 | 완료 |
 | **인프라** | HuggingFace 모델 로컬 캐시 (심링크) | 완료 |
 | **최적화** | FlashRank 싱글톤 + LLM 병렬화 + SPLADE 배치 | 완료 |
@@ -332,6 +333,57 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 ---
 
+## K8s 병렬 벤치마크
+
+EKS 클러스터에서 문서 카테고리별 벤치마크를 병렬 실행합니다. 서비스 모델 선정을 위한 대규모 벤치마크에 적합합니다.
+
+### 실행 환경
+
+| 항목 | 값 |
+|------|------|
+| 클러스터 | EKS (ap-northeast-2), 5노드 (~13 vCPU) |
+| 프리셋 | `service` — 3 Dense(kosimcse, e5, bge-m3) × 2 Sparse = 6 조합 |
+| 고정 파이프라인 | ColBERT Reranker + Contextual Retrieval |
+| 카테고리 | GENERAL, LEGAL, BUSINESS, MEDICAL |
+| 리소스 | Prep CPU 1/1, Bench CPU 1/2, Mem 4Gi/8Gi |
+
+### 2-Phase 아키텍처
+
+```
+Phase 1 (Prep)                        Phase 2 (Bench)
+──────────────                        ───────────────
+카테고리당 1 Job (병렬)                카테고리 × 조합 Job (병렬)
+  HF 데이터 로드                         Phase 1 데이터 역직렬화
+  Parent-Child 청킹                      전략 빌드 (Dense+Sparse+ColBERT+Ctx)
+  Contextual enrichment (LLM)            Pass 1: 레이턴시 측정
+  결과 PVC에 직렬화                      Pass 2: RAGAS 평가
+                                         결과 PVC에 직렬화
+         ↓ PVC 가시성 검증 ↓
+                                    → 오케스트레이터가 결과 수집 + 병합
+```
+
+### 실행 방법
+
+```bash
+# 이미지 빌드 + 푸시 (K8s 원격 빌더)
+docker buildx build --builder k8s-amd64 --platform linux/amd64 --push \
+    -t $HARBOR_REGISTRY/rag-bench-test/worker:latest -f k8s/Dockerfile .
+
+# 전체 벤치마크 실행
+python3 k8s/orchestrator.py --image $IMAGE
+
+# 특정 카테고리만
+python3 k8s/orchestrator.py --image $IMAGE --categories general,legal
+
+# 데이터 크기 제한 (테스트용)
+python3 k8s/orchestrator.py --image $IMAGE --categories general \
+    --max-corpus 1000 --max-queries 50
+```
+
+상세 배포 가이드: [`k8s/DEPLOY_GUIDE.md`](k8s/DEPLOY_GUIDE.md)
+
+---
+
 ## 벤치마크 설정
 
 ### run_all_combos.py — 3-Layer 조합 모드
@@ -390,16 +442,19 @@ uv run python -m rag_bench.scripts.prefetch_models
 ```
 .
 ├── README.md                          # 프로젝트 개요 (이 파일)
-├── MEMORY.md                          # 개발 세션 기록
 ├── pyproject.toml                     # 의존성 정의
 ├── uv.lock                            # 의존성 잠금
 ├── .env                               # 환경변수 (OPENAI_API_KEY 등)
 ├── docker-compose.yml                 # Qdrant 컨테이너 (선택)
 ├── docs/                              # 평가 대상 원본 PDF 문서 + 리서치
-│   ├── 20250910_AI 현황 보고서.pdf
-│   ├── SPRi AI Brief_1월호.pdf
-│   ├── service_modularization_proposal.md  # 서비스 모듈화 제안서
-│   └── research/                      # RAG 전략/도구 리서치 문서 8종
+│   └── research/                      # RAG 전략/도구 리서치 문서
+├── k8s/                               # K8s 병렬 벤치마크 시스템
+│   ├── Dockerfile                     # 멀티스테이지 워커 이미지 (CPU-only torch)
+│   ├── orchestrator.py                # Job 생성/모니터링/수집/병합 오케스트레이터
+│   ├── worker_entrypoint.py           # 2-Phase 워커 (prep/bench)
+│   ├── ARCHITECTURE.md                # K8s 설계 문서
+│   ├── DEPLOY_GUIDE.md                # 단계별 배포 가이드
+│   └── manifests/                     # K8s 리소스 템플릿 (namespace, PVC, Job)
 ├── rag_bench/                         # 핵심 패키지
 │   ├── base.py                        # BaseRAGStrategy ABC
 │   ├── config.py                      # 전역 설정 + 모델 캐시 + SSL 우회
@@ -407,7 +462,7 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   ├── run_tracker.py                 # 수행 이력 추적 (플랫폼, 타이밍, 토큰)
 │   ├── cli.py                         # RAGChat 대화 인터페이스
 │   ├── strategies/                    # RAG 전략 7종
-│   │   ├── dense_sparse.py            # Dense+Sparse Hybrid (4종 임베딩)
+│   │   ├── dense_sparse.py            # Dense+Sparse Hybrid (5종 임베딩)
 │   │   ├── colbert.py                 # ColBERT Late Interaction
 │   │   ├── colbert_rerank.py          # ColBERT 2-stage Reranking
 │   │   ├── flashrank_rerank.py        # FlashRank 경량 Reranking (ONNX)
@@ -426,11 +481,13 @@ uv run python -m rag_bench.scripts.prefetch_models
 │   │   ├── nodes.py                   # Agent 노드 (analyze, rewrite, aggregate)
 │   │   ├── state.py                   # State TypedDicts
 │   │   └── prompts.py                 # 프롬프트 템플릿
+│   ├── combo/                         # ComboSpec, IndexCacheManager, builder
+│   ├── datasets/                      # HF 데이터셋 로더
 │   ├── scripts/                       # 벤치마크 실행 스크립트
 │   │   ├── generate_qa.py             # QA 자동 생성 (페이지 샘플링 + QA 수 상한 지원)
 │   │   ├── generate_html_report.py    # HTML 벤치마크 보고서 생성
 │   │   ├── run_bench.py               # 3종 벤치마크
-│   │   ├── run_all_combos.py          # 72개 조합 벤치마크
+│   │   ├── run_all_combos.py          # 60개 조합 벤치마크
 │   │   ├── prefetch_models.py         # HuggingFace 모델 프리페치
 │   │   └── bench_visualize.ipynb      # 시각화 차트 노트북 (10섹션)
 │   ├── docs/                          # 벤치마크 대상 Markdown 문서
