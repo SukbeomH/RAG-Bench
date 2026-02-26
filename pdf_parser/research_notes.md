@@ -1,6 +1,6 @@
 # PDF 파싱 기술 리서치 노트
 
-> 조사일: 2026-02-25
+> 조사일: 2026-02-25 (업데이트: 2026-02-26)
 
 ---
 
@@ -32,6 +32,29 @@
 | GLM-OCR                | 智谱AI       | 2025       | 0.9B 경량, 다국어 문서 이해                                 |
 | olmOCR                 | Allen AI     | 2025       | 7B, 학술 문서 특화                                          |
 | SmolDocling            | HuggingFace  | 2025       | 소형 모델, 경량 배포 특화                                   |
+
+### OCR 전용 VLM (2025.10 "OCR 빅뱅" 이후)
+
+2025년 10월, 한 달간 6개 주요 오픈소스 OCR 모델이 동시 출시되며 "OCR 빅뱅" 발생.
+
+| 프로젝트              | 개발사          | 파라미터 | olmOCR-Bench | 특징                                                      |
+|-----------------------|-----------------|----------|--------------|-----------------------------------------------------------|
+| Chandra-OCR           | Skywork AI      | 8B       | 83.1%        | 현 오픈소스 1위, 97.1% word accuracy, GPT-4o급 실사용 정확도 |
+| OlmOCR-2              | Allen AI        | 7B       | 82.3%        | Unit Test Rewards 학습, 학술 문서 특화                     |
+| DeepSeek-OCR-2        | DeepSeek        | 3B       | 75.4%        | Visual Causal Flow, 경량 대비 준수한 성능                  |
+| Nanonets-OCR2         | Nanonets        | 3B       | -            | 상용 서비스 연계, 정확도 높음                              |
+| PaddleOCR-VL-1.5      | Baidu           | 0.9B     | -            | OmniDocBench v1.5 **94.5%** SOTA, 초경량, 2026.01 출시    |
+| LightOnOCR-1B         | LightOn         | 1B       | -            | 유럽 개발, 경량 특화                                       |
+| GOT-OCR2              | StepFun/UCAS    | 580M     | -            | 통합 end-to-end OCR, 수식/표/악보/분자식까지 지원          |
+
+### 전통 OCR 엔진 + 파이프라인
+
+| 프로젝트              | 개발사          | 특징                                                                  |
+|-----------------------|-----------------|-----------------------------------------------------------------------|
+| PaddleOCR 3.0 (PP-StructureV3) | Baidu  | OmniDocBench SOTA, Markdown+JSON 출력, 레이아웃/표/수식/차트/읽기순서 통합 |
+| Surya                 | Datalab         | 90+ 언어, 레이아웃 분석·표 인식·읽기순서 통합, GPU 불필요 옵션        |
+| Tesseract 5           | Google          | 가장 가벼움, GPU 불필요, 단순 문서에 적합, 복잡 문서 정확도 낮음      |
+| Granite Vision 3.3 2B | IBM             | 2025.06, 표/차트/인포그래픽 특화, 컴팩트 VLM                         |
 
 ### 로컬 VLM 추천 순위 (2026 기준)
 
@@ -86,3 +109,14 @@
 - [Marker vs MinerU vs MarkItDown 비교 (2026)](https://jimmysong.io/blog/pdf-to-markdown-open-source-deep-dive/)
 - [12개 오픈소스 파서 비교](https://liduos.com/en/ai-develope-tools-series-2-open-source-doucment-parsing.html)
 - [Docling 논문 (arXiv)](https://arxiv.org/pdf/2501.17887)
+- [PaddleOCR GitHub](https://github.com/PaddlePaddle/PaddleOCR)
+- [PP-StructureV3 문서](https://paddlepaddle.github.io/PaddleOCR/main/en/version3.x/algorithm/PP-StructureV3/PP-StructureV3.html)
+- [PaddleOCR-VL-1.5 (HuggingFace)](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5)
+- [PaddleOCR-VL-1.5 논문 (arXiv)](https://arxiv.org/abs/2601.21957)
+- [GOT-OCR2 GitHub](https://github.com/Ucas-HaoranWei/GOT-OCR2.0)
+- [Surya OCR GitHub](https://github.com/datalab-to/surya)
+- [Chandra OCR 벤치마크](https://skywork.ai/blog/sheets/chandra-ocr-benchmark/)
+- [DeepSeek-OCR-2 논문 (arXiv)](https://arxiv.org/pdf/2601.20552)
+- [olmOCR-2 논문 (arXiv)](https://arxiv.org/html/2510.19817v1)
+- [8개 오픈소스 OCR 비교 (Modal)](https://modal.com/blog/8-top-open-source-ocr-models-compared)
+- [7개 오픈소스 OCR 벤치마크 (E2E)](https://www.e2enetworks.com/blog/complete-guide-open-source-ocr-models-2025)
