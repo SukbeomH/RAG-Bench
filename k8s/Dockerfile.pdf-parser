@@ -41,12 +41,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 
 # PDF 파서 코드 복사
-COPY pdf_parser/category1_simple.py    ./category1_simple.py
-COPY pdf_parser/category2_medium.py   ./category2_medium.py
-COPY pdf_parser/category3_complex.py  ./category3_complex.py
-COPY pdf_parser/category3_openai.py   ./category3_openai.py
-COPY pdf_parser/category3_upstage.py  ./category3_upstage.py
-COPY pdf_parser/benchmark/            ./benchmark/
+COPY pdf_parser/category1_simple.py      ./category1_simple.py
+COPY pdf_parser/category2_medium.py     ./category2_medium.py
+COPY pdf_parser/category3_openai.py     ./category3_openai.py
+COPY pdf_parser/category3_upstage.py    ./category3_upstage.py
+COPY pdf_parser/category3_opensource.py ./category3_opensource.py
+COPY pdf_parser/benchmark/              ./benchmark/
 
 # 벤치마크 PDF + GT 복사
 COPY pdf_parser/benchmark_pdfs/       ./benchmark_pdfs/

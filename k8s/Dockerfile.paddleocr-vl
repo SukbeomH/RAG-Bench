@@ -29,6 +29,8 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 COPY k8s/paddleocr_vl_server.py ./server.py
 
+# PaddleOCR 모델 캐시: ~/.paddleocr → /models/.paddleocr (PVC 마운트 경로)
+ENV HOME=/models
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
