@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>RAG 서비스 벤치마크 통합 리포트</title>
+<style>
+  body { font-family: 'Pretendard', 'Noto Sans KR', sans-serif; margin: 20px; background: #f8f9fa; }
+  h1 { color: #2c3e50; }
+  h2 { color: #34495e; margin-top: 2em; border-bottom: 2px solid #3498db; padding-bottom: 6px; }
+  .meta { color: #666; font-size: 0.9em; margin-bottom: 1em; }
+  table.heatmap { border-collapse: collapse; font-size: 0.82em; margin-bottom: 2em; }
+  table.heatmap th { background: #2c3e50; color: white; padding: 6px 10px; text-align: center; white-space: nowrap; }
+  table.heatmap td { padding: 5px 8px; text-align: center; border: 1px solid #ddd; white-space: nowrap; }
+  td.strat { text-align: left; font-weight: bold; background: #ecf0f1; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .legend { display: flex; gap: 20px; margin: 10px 0; font-size: 0.85em; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-box { width: 20px; height: 20px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>RAG 서비스 벤치마크 통합 리포트</h1>
+<div class="meta">
+  카테고리: general | QA 수: general: 50개<br>
+  전략 수: 10 | 지표: faithfulness / answer_relevancy / context_precision / context_recall
+</div>
+
+
+<h2>RAGAS 품질 지표 히트맵</h2>
+<div class="legend">
+  <div class="legend-item"><div class="legend-box" style="background:rgb(255,0,80)"></div> 낮음 (&lt;0.7)</div>
+  <div class="legend-item"><div class="legend-box" style="background:rgb(128,100,80)"></div> 중간</div>
+  <div class="legend-item"><div class="legend-box" style="background:rgb(0,200,80)"></div> 높음 (≥1.0)</div>
+</div>
+
+<table class="heatmap">
+  <thead>
+    <tr><th rowspan="2">전략</th><th colspan="4">general</th><th colspan="4">평균</th></tr>
+    <tr><th>faith</th><th>ans_rel</th><th>ctx_prec</th><th>ctx_rec</th><th>faith</th><th>ans_rel</th><th>ctx_prec</th><th>ctx_rec</th></tr>
+  </thead>
+  <tbody><tr><td class="strat">colbert|E5+korean_bm25</td><td style="background:rgb(245,7,80)">0.711</td><td style="background:rgb(112,111,80)">0.868</td><td style="background:rgb(77,138,80)">0.908</td><td style="background:rgb(148,83,80)">0.825</td><td style="background:rgb(245,7,80);font-weight:bold">0.711</td><td style="background:rgb(112,111,80);font-weight:bold">0.868</td><td style="background:rgb(77,138,80);font-weight:bold">0.908</td><td style="background:rgb(148,83,80);font-weight:bold">0.825</td></tr><tr><td class="strat">colbert|E5+splade</td><td style="background:rgb(171,65,80)">0.798</td><td style="background:rgb(119,106,80)">0.860</td><td style="background:rgb(70,144,80)">0.917</td><td style="background:rgb(159,75,80)">0.813</td><td style="background:rgb(171,65,80);font-weight:bold">0.798</td><td style="background:rgb(119,106,80);font-weight:bold">0.860</td><td style="background:rgb(70,144,80);font-weight:bold">0.917</td><td style="background:rgb(159,75,80);font-weight:bold">0.813</td></tr><tr><td class="strat">colbert|KoSimCSE+korean_bm25</td><td style="background:rgb(232,17,80)">0.726</td><td style="background:rgb(100,120,80)">0.881</td><td style="background:rgb(65,148,80)">0.923</td><td style="background:rgb(167,68,80)">0.803</td><td style="background:rgb(232,17,80);font-weight:bold">0.726</td><td style="background:rgb(100,120,80);font-weight:bold">0.881</td><td style="background:rgb(65,148,80);font-weight:bold">0.923</td><td style="background:rgb(167,68,80);font-weight:bold">0.803</td></tr><tr><td class="strat">colbert|KoSimCSE+splade</td><td style="background:rgb(254,0,80)">0.700</td><td style="background:rgb(109,113,80)">0.871</td><td style="background:rgb(69,145,80)">0.918</td><td style="background:rgb(170,66,80)">0.800</td><td style="background:rgb(254,0,80);font-weight:bold">0.700</td><td style="background:rgb(109,113,80);font-weight:bold">0.871</td><td style="background:rgb(69,145,80);font-weight:bold">0.918</td><td style="background:rgb(170,66,80);font-weight:bold">0.800</td></tr><tr><td class="strat">colbert|bge-m3+korean_bm25</td><td style="background:rgb(239,12,80)">0.718</td><td style="background:rgb(129,98,80)">0.848</td><td style="background:rgb(75,141,80)">0.912</td><td style="background:rgb(137,92,80)">0.839</td><td style="background:rgb(239,12,80);font-weight:bold">0.718</td><td style="background:rgb(129,98,80);font-weight:bold">0.848</td><td style="background:rgb(75,141,80);font-weight:bold">0.912</td><td style="background:rgb(137,92,80);font-weight:bold">0.839</td></tr><tr><td class="strat">colbert|bge-m3+splade</td><td style="background:rgb(229,20,80)">0.730</td><td style="background:rgb(101,120,80)">0.880</td><td style="background:rgb(73,142,80)">0.913</td><td style="background:rgb(174,63,80)">0.795</td><td style="background:rgb(229,20,80);font-weight:bold">0.730</td><td style="background:rgb(101,120,80);font-weight:bold">0.880</td><td style="background:rgb(73,142,80);font-weight:bold">0.913</td><td style="background:rgb(174,63,80);font-weight:bold">0.795</td></tr><tr><td class="strat">colbert|embedding-query+korean_bm25</td><td style="background:rgb(218,28,80)">0.743</td><td style="background:rgb(113,111,80)">0.867</td><td style="background:rgb(89,130,80)">0.895</td><td style="background:rgb(140,90,80)">0.835</td><td style="background:rgb(218,28,80);font-weight:bold">0.743</td><td style="background:rgb(113,111,80);font-weight:bold">0.867</td><td style="background:rgb(89,130,80);font-weight:bold">0.895</td><td style="background:rgb(140,90,80);font-weight:bold">0.835</td></tr><tr><td class="strat">colbert|embedding-query+splade</td><td style="background:rgb(225,23,80)">0.735</td><td style="background:rgb(116,108,80)">0.863</td><td style="background:rgb(80,136,80)">0.905</td><td style="background:rgb(157,76,80)">0.814</td><td style="background:rgb(225,23,80);font-weight:bold">0.735</td><td style="background:rgb(116,108,80);font-weight:bold">0.863</td><td style="background:rgb(80,136,80);font-weight:bold">0.905</td><td style="background:rgb(157,76,80);font-weight:bold">0.814</td></tr><tr><td class="strat">colbert|text-embedding-3-large+korean_bm25</td><td style="background:rgb(218,28,80)">0.743</td><td style="background:rgb(116,108,80)">0.863</td><td style="background:rgb(69,145,80)">0.918</td><td style="background:rgb(129,98,80)">0.847</td><td style="background:rgb(218,28,80);font-weight:bold">0.743</td><td style="background:rgb(116,108,80);font-weight:bold">0.863</td><td style="background:rgb(69,145,80);font-weight:bold">0.918</td><td style="background:rgb(129,98,80);font-weight:bold">0.847</td></tr><tr><td class="strat">colbert|text-embedding-3-large+splade</td><td style="background:rgb(196,45,80)">0.769</td><td style="background:rgb(119,106,80)">0.860</td><td style="background:rgb(79,137,80)">0.907</td><td style="background:rgb(164,70,80)">0.806</td><td style="background:rgb(196,45,80);font-weight:bold">0.769</td><td style="background:rgb(119,106,80);font-weight:bold">0.860</td><td style="background:rgb(79,137,80);font-weight:bold">0.907</td><td style="background:rgb(164,70,80);font-weight:bold">0.806</td></tr></tbody>
+</table>
+
+<h2>검색 레이턴시 (평균 ms)</h2>
+<div class="legend">
+  <div class="legend-item"><div class="legend-box" style="background:rgb(0,200,80)"></div> 빠름 (&lt;3s)</div>
+  <div class="legend-item"><div class="legend-box" style="background:rgb(200,0,80)"></div> 느림 (&gt;8s)</div>
+</div>
+<table class="heatmap"><thead><tr><th>전략</th><th>general</th><th>전체 평균</th></tr></thead><tbody></tbody></table>
+</body>
+</html>

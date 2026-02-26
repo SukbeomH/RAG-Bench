@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "kosimcse+korean_bm25+colbert+contextual",
+  "n_qa": 50,
+  "timestamp": "2026-02-26 03:09:11",
+  "ragas": [
+    {
+      "faithfulness": 0.7264,
+      "answer_relevancy": 0.8815,
+      "context_precision": 0.9233,
+      "context_recall": 0.8034,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+korean_bm25)))"
+    }
+  ]
+}

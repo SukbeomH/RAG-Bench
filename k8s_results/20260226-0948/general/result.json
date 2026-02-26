@@ -1,0 +1,79 @@
+{
+  "category": "general",
+  "n_qa": 50,
+  "n_combos_expected": 4,
+  "n_combos_succeeded": 10,
+  "timestamp": "2026-02-26 17:12:54",
+  "ragas": [
+    {
+      "faithfulness": 0.73,
+      "answer_relevancy": 0.8805,
+      "context_precision": 0.9133,
+      "context_recall": 0.7947,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(bge-m3+splade)))"
+    },
+    {
+      "faithfulness": 0.7264,
+      "answer_relevancy": 0.8815,
+      "context_precision": 0.9233,
+      "context_recall": 0.8034,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+korean_bm25)))"
+    },
+    {
+      "faithfulness": 0.7113,
+      "answer_relevancy": 0.8675,
+      "context_precision": 0.9083,
+      "context_recall": 0.8249,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(multilingual-e5-large+korean_bm25)))"
+    },
+    {
+      "faithfulness": 0.7983,
+      "answer_relevancy": 0.8596,
+      "context_precision": 0.9167,
+      "context_recall": 0.8126,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(multilingual-e5-large+splade)))"
+    },
+    {
+      "faithfulness": 0.7433,
+      "answer_relevancy": 0.8667,
+      "context_precision": 0.895,
+      "context_recall": 0.8351,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(embedding-query+korean_bm25)))"
+    },
+    {
+      "faithfulness": 0.7433,
+      "answer_relevancy": 0.8631,
+      "context_precision": 0.9183,
+      "context_recall": 0.8472,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(text-embedding-3-large+korean_bm25)))"
+    },
+    {
+      "faithfulness": 0.7687,
+      "answer_relevancy": 0.8598,
+      "context_precision": 0.9067,
+      "context_recall": 0.8061,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(text-embedding-3-large+splade)))"
+    },
+    {
+      "faithfulness": 0.7003,
+      "answer_relevancy": 0.8709,
+      "context_precision": 0.9183,
+      "context_recall": 0.7996,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    },
+    {
+      "faithfulness": 0.718,
+      "answer_relevancy": 0.8477,
+      "context_precision": 0.9117,
+      "context_recall": 0.8388,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(bge-m3+korean_bm25)))"
+    },
+    {
+      "faithfulness": 0.735,
+      "answer_relevancy": 0.8629,
+      "context_precision": 0.905,
+      "context_recall": 0.8142,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(embedding-query+splade)))"
+    }
+  ]
+}

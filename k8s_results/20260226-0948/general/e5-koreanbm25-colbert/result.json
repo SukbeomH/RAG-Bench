@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "e5+korean_bm25+colbert+contextual",
+  "n_qa": 50,
+  "timestamp": "2026-02-26 03:38:09",
+  "ragas": [
+    {
+      "faithfulness": 0.7113,
+      "answer_relevancy": 0.8675,
+      "context_precision": 0.9083,
+      "context_recall": 0.8249,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(multilingual-e5-large+korean_bm25)))"
+    }
+  ]
+}

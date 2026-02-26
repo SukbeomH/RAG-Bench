@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "e5+splade+colbert+contextual",
+  "n_qa": 50,
+  "timestamp": "2026-02-26 01:36:52",
+  "ragas": [
+    {
+      "faithfulness": 0.7983,
+      "answer_relevancy": 0.8596,
+      "context_precision": 0.9167,
+      "context_recall": 0.8126,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(multilingual-e5-large+splade)))"
+    }
+  ]
+}
