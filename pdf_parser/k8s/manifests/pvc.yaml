@@ -1,0 +1,15 @@
+# PDF 입출력 공유 PVC
+# 입력 PDF 업로드 + 출력 Markdown 저장
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pdf-storage
+  namespace: pdf-parser
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-zcp
+  resources:
+    requests:
+      storage: 20Gi

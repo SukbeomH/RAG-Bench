@@ -1,0 +1,10 @@
+# PDF Parser Worker Dependencies
+# Category 1: Simple PDFs (rule-based text extraction)
+pymupdf4llm
+
+# Category 2: Medium Complexity PDFs (OCR + table structure)
+docling
+
+# Category 3: Complex PDFs (Vision LLM)
+PyMuPDF
+google-genai
