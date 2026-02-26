@@ -219,11 +219,11 @@ docker push $IMAGE
 
 | 역할 | 인스턴스 | CPU/MEM | 대수 | Taint | 비고 |
 |------|---------|---------|------|-------|------|
-| management | m7i/m8i.2xlarge | 8C/32G | 2 | 없음 | **Job 실행 노드** |
-| ai-platform | r5a.xlarge | 4C/32G | 2 | `ai-platform: true` | 스케줄링 불가 |
-| edge/monitoring | m8i.2xlarge | 8C/32G | 1 | 없음 | 모니터링 워크로드 |
+| management/logging | m7i/m8i.2xlarge | 8C/32G | 3 | 없음 | **Job 실행 노드** |
+| ai-platform | r5a.xlarge (AMD EPYC) | 4C/32G | 2 | `ai-platform=true:NoSchedule` | toleration 추가로 활용 가능 |
+| edge/monitoring | m8i.2xlarge | 8C/32G | 1 | 없음 | 모니터링 워크로드 (여유 적음) |
 
-실제 Job이 스케줄링되는 노드는 **management 2대**(taint 없음). 기존 워크로드가 CPU 50~60% 점유 중이므로 리소스 request를 보수적으로 설정해야 한다.
+모든 Job template에 `ai-platform` toleration이 추가되어 있어 **5개 노드 모두** 스케줄링 가능. 기존 워크로드가 CPU 50~60% 점유 중이므로 리소스 request를 보수적으로 설정해야 한다. 총 가용 약 ~13 vCPU (CPU req 1 기준).
 
 ### 6.2 볼륨
 
@@ -240,15 +240,14 @@ Qdrant 인덱스는 emptyDir에 저장하여:
 
 ### 6.3 리소스 기본값
 
-management 2대의 가용 리소스를 고려한 권장값:
+5개 노드의 가용 리소스(~13 vCPU)를 고려한 기본값 (orchestrator.py에 반영 완료):
 
 | Phase | CPU req/limit | MEM req/limit | 비고 |
 |-------|---------------|---------------|------|
-| Prep  | 1/2 | 4Gi/8Gi | HF 다운로드 + Contextual enrichment |
-| Bench | 1/2 | 4Gi/8Gi | 임베딩 모델 로딩 + Qdrant 인덱싱 |
+| Prep  | 1/1 | 4Gi/8Gi | HF 다운로드 + Contextual enrichment |
+| Bench | 1/2 | 4Gi/8Gi | Dense 모델 + ColBERT/SPLADE + Qdrant 인덱싱 |
 
-> 기본값(2/4 CPU, 8Gi/16Gi)은 management 노드의 기존 워크로드와 경합하여 Pending이 발생한다.
-> `--prep-cpu-request 1 --bench-cpu-request 1` 등으로 축소 필요.
+CLI 인자 없이 기본값으로 실행 가능. `--bench-cpu-limit 2`는 ColBERT 모델 로딩(~168초) 성능을 위해 설정.
 
 ### 6.4 시간 예측 (service 프리셋 기준)
 
@@ -273,12 +272,13 @@ k8s/
 ├── worker_entrypoint.py                # 워커 (prep/bench 2-Phase)
 ├── orchestrator.py                     # Job 생성/모니터링/수집/병합
 ├── ARCHITECTURE.md                     # 이 문서
+├── DEPLOY_GUIDE.md                     # 배포 가이드
 └── manifests/
     ├── namespace.yaml                  # rag-bench-test 네임스페이스
     ├── results-pvc.yaml                # 결과 공유 PVC
     ├── model-cache-pvc.yaml            # 모델 캐시 공유 PVC
-    ├── prep-job-template.yaml          # Phase 1 Job 템플릿
-    └── bench-job-template.yaml         # Phase 2 Job 템플릿
+    ├── prep-job-template.yaml          # Phase 1 Job 템플릿 (ai-platform toleration 포함)
+    └── bench-job-template.yaml         # Phase 2 Job 템플릿 (ai-platform toleration 포함)
 ```
 
 ---
@@ -299,24 +299,20 @@ docker buildx build --builder k8s-amd64 --platform linux/amd64 --push \
     -t $IMAGE -f k8s/Dockerfile .
 docker buildx rm k8s-amd64  # 빌드 후 리소스 해제
 
-# 전체 실행 (4카테고리 × 6조합 = 28 Jobs, 리소스 축소)
-python k8s/orchestrator.py --image $IMAGE \
-    --prep-cpu-request 1 --prep-cpu-limit 2 \
-    --prep-memory-request 4Gi --prep-memory-limit 8Gi \
-    --bench-cpu-request 1 --bench-cpu-limit 2 \
-    --bench-memory-request 4Gi --bench-memory-limit 8Gi
+# 전체 실행 (4카테고리 × 6조합 = 28 Jobs, 기본값으로 실행)
+python3 k8s/orchestrator.py --image $IMAGE
 
 # dry-run (생성될 Job YAML 확인)
-python k8s/orchestrator.py --image $IMAGE --dry-run
+python3 k8s/orchestrator.py --image $IMAGE --dry-run
 
 # 특정 카테고리만
-python k8s/orchestrator.py --image $IMAGE --categories general,legal
+python3 k8s/orchestrator.py --image $IMAGE --categories general,legal
 
 # Phase 2만 재실행 (Phase 1 결과 재사용)
-python k8s/orchestrator.py --image $IMAGE --skip-prep --run-id <RUN_ID>
+python3 k8s/orchestrator.py --image $IMAGE --skip-prep --run-id <RUN_ID>
 
 # full 프리셋 (5 Dense × 2 Sparse × 2 Reranker = 20 조합 × 4 카테고리 = 80 Jobs)
-python k8s/orchestrator.py --image $IMAGE --preset full
+python3 k8s/orchestrator.py --image $IMAGE --preset full
 ```
 
 ### 클러스터 사전 요구사항

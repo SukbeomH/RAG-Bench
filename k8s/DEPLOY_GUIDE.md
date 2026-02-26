@@ -8,7 +8,7 @@
 | 네임스페이스 | `rag-bench-test` |
 | 레지스트리 | `$HARBOR_REGISTRY` 환경변수 (Harbor) |
 | PVC | EFS (`efs-zcp`, ReadWriteMany) |
-| 스케줄링 | taint 없는 management 노드 자동 배치 (2대, m7i/m8i.2xlarge 8C/32G) |
+| 스케줄링 | 5노드 활용 — management 3대(m7i/m8i.2xlarge) + ai-platform 2대(r5a.xlarge, toleration 적용) |
 | 시크릿 소스 | `.env` 파일 (OPENAI_API_KEY, HARBOR_REGISTRY, HARBOR_USER, HARBOR_CLI_SECRET) |
 
 ---
@@ -118,21 +118,19 @@ python k8s/orchestrator.py --image $IMAGE --dry-run --categories general
 source <(grep -E 'HARBOR_REGISTRY|OPENAI_API_KEY' .env)
 export IMAGE=$HARBOR_REGISTRY/rag-bench-test/worker:latest
 
-# 전체 실행 (4카테고리 × 6조합 = 28 Jobs, 리소스 축소)
-python k8s/orchestrator.py --image $IMAGE \
-    --prep-cpu-request 1 --prep-cpu-limit 2 \
-    --prep-memory-request 4Gi --prep-memory-limit 8Gi \
-    --bench-cpu-request 1 --bench-cpu-limit 2 \
-    --bench-memory-request 4Gi --bench-memory-limit 8Gi
+# 전체 실행 (4카테고리 × 6조합 = 28 Jobs)
+python k8s/orchestrator.py --image $IMAGE
 
-# 또는 특정 카테고리만
-python k8s/orchestrator.py --image $IMAGE --categories general,legal \
-    --prep-cpu-request 1 --prep-cpu-limit 2 \
-    --bench-cpu-request 1 --bench-cpu-limit 2
+# 특정 카테고리만
+python k8s/orchestrator.py --image $IMAGE --categories general,legal
+
+# 데이터 크기 제한 (테스트용)
+python k8s/orchestrator.py --image $IMAGE --categories general \
+    --max-corpus 1000 --max-queries 50
 ```
 
-> management 노드 2대(8C/32G)에 기존 워크로드가 50~60% CPU를 점유하므로
-> CPU request를 1로 설정해야 스케줄링 가능.
+> 기본 리소스: Prep CPU 1/1, Mem 4Gi/8Gi | Bench CPU 1/2, Mem 4Gi/8Gi.
+> ai-platform toleration 적용으로 5노드(~13 vCPU) 활용 가능.
 
 오케스트레이터가 자동으로:
 1. Phase 1 (prep) 4개 Job 생성 → 완료 대기
@@ -198,22 +196,17 @@ python k8s/orchestrator.py --image $IMAGE --skip-prep --run-id <이전_RUN_ID>
 
 ### 리소스 부족 (Pending Pods)
 
-management 노드 2대 (8C/32G)에 기존 워크로드가 CPU 50~60% 점유 중.
-동시 24개 Job은 Pending 발생 가능.
+5노드(~13 vCPU)에서 동시 24개 Bench Job은 Pending 발생 가능.
+오케스트레이터가 자동으로 대기/순차 실행함.
 
 ```bash
-# 방법 1: 리소스 축소 (권장)
-python k8s/orchestrator.py --image $IMAGE \
-    --prep-cpu-request 1 --prep-cpu-limit 2 \
-    --prep-memory-request 4Gi --prep-memory-limit 8Gi \
-    --bench-cpu-request 1 --bench-cpu-limit 2 \
-    --bench-memory-request 4Gi --bench-memory-limit 8Gi
+# 방법 1: 카테고리 나눠 실행
+python k8s/orchestrator.py --image $IMAGE --categories general,legal
+python k8s/orchestrator.py --image $IMAGE --categories business,medical
 
-# 방법 2: 카테고리 나눠 실행
-python k8s/orchestrator.py --image $IMAGE --categories general,legal \
-    --prep-cpu-request 1 --bench-cpu-request 1
-python k8s/orchestrator.py --image $IMAGE --categories business,medical \
-    --prep-cpu-request 1 --bench-cpu-request 1
+# 방법 2: 리소스 추가 축소
+python k8s/orchestrator.py --image $IMAGE \
+    --bench-cpu-limit 1  # ColBERT 로딩 느려짐 주의
 ```
 
 ### K8s 빌더 리소스 충돌
