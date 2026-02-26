@@ -25,7 +25,7 @@ spec:
         - name: harbor-cred
       initContainers:
         - name: model-warmup
-          image: python:3.12-slim
+          image: ${IMAGE_REGISTRY}/rag-bench-test/paddleocr-vl:latest  # libgl1 포함 이미지 사용
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -34,12 +34,7 @@ spec:
                 echo "[init] PaddleOCR 캐시 발견 — 다운로드 생략"
               else
                 echo "[init] PaddleOCR 모델 사전 다운로드 시작..."
-                pip install -q paddlepaddle==3.1.0 \
-                    -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
-                pip install -q "paddleocr[doc-parser]"
                 python -c "
-              import os
-              os.environ['HOME'] = '/models'
               from paddleocr import PPStructureV3
               print('[init] 파이프라인 초기화 (모델 다운로드 포함)...')
               p = PPStructureV3(device='cpu')
@@ -51,7 +46,7 @@ spec:
               value: /models
           resources:
             requests:
-              cpu: "2"
+              cpu: "1"
               memory: "5Gi"
             limits:
               cpu: "4"
