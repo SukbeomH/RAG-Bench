@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+# PDF Parser Benchmark Worker
+# PDF 백엔드 벤치마크를 K8s Job으로 실행하기 위한 워커 이미지.
+#
+# Build (프로젝트 루트에서):
+#   docker buildx build --platform linux/amd64 \
+#     -t $HARBOR_REGISTRY/rag-bench-test/pdf-parser:latest \
+#     -f k8s/Dockerfile.pdf-parser --load .
+
+# ── Stage 1: 빌드 ──
+FROM python:3.12-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        g++ git libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# PyTorch CPU-only (이미지 크기 절감)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# PDF 파서 의존성
+COPY k8s/requirements-pdf-parser.txt ./requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+
+# ── Stage 2: 런타임 ──
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# PDF 파서 코드 복사
+COPY pdf_parser/category1_simple.py    ./category1_simple.py
+COPY pdf_parser/category2_medium.py   ./category2_medium.py
+COPY pdf_parser/category3_complex.py  ./category3_complex.py
+COPY pdf_parser/category3_openai.py   ./category3_openai.py
+COPY pdf_parser/category3_upstage.py  ./category3_upstage.py
+COPY pdf_parser/benchmark/            ./benchmark/
+
+# 벤치마크 PDF + GT 복사
+COPY pdf_parser/benchmark_pdfs/       ./benchmark_pdfs/
+
+# 워커 엔트리포인트
+COPY k8s/pdf_parser_entrypoint.py     ./pdf_parser_entrypoint.py
+
+ENV RESULTS_DIR=/results
+ENV BENCHMARK_PDFS_DIR=/app/benchmark_pdfs
+
+RUN mkdir -p /results
+
+ENTRYPOINT ["python", "-u", "pdf_parser_entrypoint.py"]

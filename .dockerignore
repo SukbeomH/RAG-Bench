@@ -13,5 +13,13 @@ rag_bench/docs/
 node_modules/
 k8s_results/
 pdf_parser/
+# PDF parser 빌드에 필요한 파일 허용
+!pdf_parser/category1_simple.py
+!pdf_parser/category2_medium.py
+!pdf_parser/category3_complex.py
+!pdf_parser/category3_openai.py
+!pdf_parser/category3_upstage.py
+!pdf_parser/benchmark/
+!pdf_parser/benchmark_pdfs/
 *.ipynb
 SESSION_HANDOFF.md
