@@ -3,28 +3,33 @@
 # PDF Parser K8s 벤치마크 인프라 빌드 & 배포 헬퍼.
 #
 # 사용법:
-#   export HARBOR_REGISTRY=harbor.example.com   # 또는 .env에서 로드
 #   source .env && bash k8s/deploy-pdf-parser.sh [STEP]
 #
 # STEP (기본: all):
-#   images    — Docker 이미지 빌드 & 푸시 (pdf-parser, got-ocr2, paddleocr-vl)
+#   images    — K8s 빌더로 이미지 빌드 & 레지스트리 푸시
 #   services  — 오픈소스 VLM 서비스 배포 (Ollama, GOT-OCR2, PaddleOCR-VL)
 #   secrets   — API 키 Secret 생성/갱신
+#   verify    — 서비스 헬스체크
+#   bench [PRESET] — 벤치마크 실행 (기본: quick)
 #   all       — images → secrets → services 순서로 전체 실행
 #
 # 환경변수:
 #   HARBOR_REGISTRY   Harbor 레지스트리 주소 (필수)
+#   HARBOR_USER       Harbor 사용자명 (필수, docker login용)
+#   HARBOR_CLI_SECRET Harbor 패스워드/토큰 (필수, docker login용)
 #   OPENAI_API_KEY    OpenAI API 키 (선택, secrets 스텝)
 #   UPSTAGE_API_KEY   Upstage API 키 (선택, secrets 스텝)
 #   NAMESPACE         K8s 네임스페이스 (기본: rag-bench-test)
 #   TAG               이미지 태그 (기본: latest)
-#   PUSH              이미지 푸시 여부 (기본: true, false로 로컬 테스트)
+#   K8S_BUILDER       buildx 빌더 이름 (기본: k8s-amd64)
+#   NODE_SELECTOR     K8s 빌더 노드 셀렉터 (기본: management 노드)
 set -euo pipefail
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 NAMESPACE="${NAMESPACE:-rag-bench-test}"
 TAG="${TAG:-latest}"
-PUSH="${PUSH:-true}"
+K8S_BUILDER="${K8S_BUILDER:-k8s-amd64}"
+NODE_SELECTOR="${NODE_SELECTOR:-node-role.kubernetes.io/management=management}"
 STEP="${1:-all}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,12 +46,47 @@ require_env() {
     [[ -n "${!1:-}" ]] || fail "환경변수 $1 미설정. .env 로드 또는 export $1=... 필요"
 }
 
-# Harbor 레지스트리 필수 확인
+# 필수 환경변수 확인
 require_env HARBOR_REGISTRY
 
 IMAGE_PDF_PARSER="$HARBOR_REGISTRY/rag-bench-test/pdf-parser:$TAG"
 IMAGE_GOT_OCR2="$HARBOR_REGISTRY/rag-bench-test/got-ocr2:$TAG"
 IMAGE_PADDLEOCR_VL="$HARBOR_REGISTRY/rag-bench-test/paddleocr-vl:$TAG"
+
+# ── K8s 빌더 헬퍼 ────────────────────────────────────────────────────────────
+# K8s 원격 빌더 생성 (없으면 신규, 있으면 재사용)
+# - management 노드에서 네이티브 amd64 빌드 → 에뮬레이션 대비 3~5배 빠름
+# - 원격 빌더는 --push 필수 (--load 미지원)
+setup_builder() {
+    if docker buildx inspect "$K8S_BUILDER" &>/dev/null; then
+        info "빌더 '$K8S_BUILDER' 이미 존재 — 재사용"
+    else
+        info "K8s 빌더 생성: $K8S_BUILDER"
+        docker buildx create \
+            --name "$K8S_BUILDER" \
+            --driver kubernetes \
+            --driver-opt "namespace=$NAMESPACE,nodeselector=$NODE_SELECTOR" \
+            --platform linux/amd64
+        info "빌더 부트스트랩 중..."
+        docker buildx inspect "$K8S_BUILDER" --bootstrap
+        ok "빌더 준비 완료"
+    fi
+}
+
+teardown_builder() {
+    info "빌더 제거: $K8S_BUILDER (클러스터 리소스 해제)"
+    docker buildx rm "$K8S_BUILDER" || true
+}
+
+# Harbor 로그인 (K8s 빌더는 로컬 docker 인증 사용, harbor-cred Secret 아님)
+harbor_login() {
+    require_env HARBOR_USER
+    require_env HARBOR_CLI_SECRET
+    info "Harbor 로그인: $HARBOR_REGISTRY"
+    echo "${HARBOR_CLI_SECRET}" \
+        | docker login "$HARBOR_REGISTRY" -u "$HARBOR_USER" --password-stdin
+    ok "Harbor 로그인 완료"
+}
 
 # ── kubectl 헬퍼 ──────────────────────────────────────────────────────────────
 kube() { kubectl -n "$NAMESPACE" "$@"; }
@@ -60,41 +100,52 @@ apply_manifest() {
 
 # ── STEP: images ──────────────────────────────────────────────────────────────
 build_images() {
-    info "=== Docker 이미지 빌드 시작 ==="
+    info "=== Docker 이미지 빌드 시작 (K8s 빌더: $K8S_BUILDER) ==="
     cd "$REPO_ROOT"
 
-    local push_flag="--load"
-    [[ "$PUSH" == "true" ]] && push_flag="--push"
+    harbor_login
+    setup_builder
+
+    # K8s 원격 빌더는 --push 필수 (--load 미지원)
+    # 빌드 실패 시 teardown_builder가 호출되도록 trap 설정
+    trap 'teardown_builder' EXIT
 
     # pdf-parser 워커 이미지
     info "빌드: $IMAGE_PDF_PARSER"
     docker buildx build \
+        --builder "$K8S_BUILDER" \
         --platform linux/amd64 \
+        --push \
         -t "$IMAGE_PDF_PARSER" \
         -f k8s/Dockerfile.pdf-parser \
-        $push_flag \
         .
     ok "pdf-parser 이미지 완료"
 
     # GOT-OCR2 서버 이미지
     info "빌드: $IMAGE_GOT_OCR2"
     docker buildx build \
+        --builder "$K8S_BUILDER" \
         --platform linux/amd64 \
+        --push \
         -t "$IMAGE_GOT_OCR2" \
         -f k8s/Dockerfile.got-ocr2 \
-        $push_flag \
         .
     ok "got-ocr2 이미지 완료"
 
     # PaddleOCR-VL 서버 이미지
     info "빌드: $IMAGE_PADDLEOCR_VL"
     docker buildx build \
+        --builder "$K8S_BUILDER" \
         --platform linux/amd64 \
+        --push \
         -t "$IMAGE_PADDLEOCR_VL" \
         -f k8s/Dockerfile.paddleocr-vl \
-        $push_flag \
         .
     ok "paddleocr-vl 이미지 완료"
+
+    # 빌더 정리 (trap 해제 후 명시적 호출)
+    trap - EXIT
+    teardown_builder
 
     info "=== 이미지 빌드 완료 ==="
 }
@@ -229,26 +280,28 @@ case "$STEP" in
 사용법: bash k8s/deploy-pdf-parser.sh [STEP]
 
 STEP:
-  images    — Docker 이미지 빌드 & 푸시
-  secrets   — API 키 Secret 생성/갱신
-  services  — VLM 서비스 K8s 배포 (Ollama, GOT-OCR2, PaddleOCR-VL)
-  verify    — 서비스 헬스체크
+  images         — K8s 빌더로 이미지 빌드 & Harbor 푸시
+  secrets        — API 키 Secret 생성/갱신
+  services       — VLM 서비스 K8s 배포 (Ollama, GOT-OCR2, PaddleOCR-VL)
+  verify         — 서비스 헬스체크
   bench [PRESET] — 벤치마크 실행 (기본: quick)
-  all       — images → secrets → services 순서 전체 실행
+  all            — images → secrets → services 순서 전체 실행
 
-환경변수:
+환경변수 (source .env로 로드):
   HARBOR_REGISTRY=harbor.example.com  (필수)
+  HARBOR_USER=...                     (필수, docker login용)
+  HARBOR_CLI_SECRET=...               (필수, docker login용)
   OPENAI_API_KEY=...                  (선택)
   UPSTAGE_API_KEY=...                 (선택)
   NAMESPACE=rag-bench-test            (기본값)
   TAG=latest                          (기본값)
-  PUSH=true                           (false 시 로컬 --load)
+  K8S_BUILDER=k8s-amd64              (기본값)
 
 예시:
   source .env
   bash k8s/deploy-pdf-parser.sh all
-  bash k8s/deploy-pdf-parser.sh bench phase1
-  PUSH=false bash k8s/deploy-pdf-parser.sh images
+  bash k8s/deploy-pdf-parser.sh images        # 이미지만 빌드
+  bash k8s/deploy-pdf-parser.sh bench phase1  # phase1 벤치마크
 EOF
         exit 1
         ;;
