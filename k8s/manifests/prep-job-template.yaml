@@ -61,6 +61,12 @@ spec:
                 secretKeyRef:
                   name: bench-secrets
                   key: OPENAI_API_KEY
+            - name: UPSTAGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bench-secrets
+                  key: UPSTAGE_API_KEY
+                  optional: true
           resources:
             requests:
               cpu: "${CPU_REQUEST}"

@@ -6,7 +6,6 @@
 #   matplotlib              — 시각화/리포트
 #   langgraph               — graph 에이전트 모듈
 #   langchain-ollama        — K8s는 OpenAI만 사용
-#   langchain-upstage       — service 프리셋 미포함
 #   pymupdf4llm             — PDF 파싱 (indexing 모듈)
 #   python-docx             — DOCX 파싱 (indexing 모듈)
 #   beautifulsoup4, lxml    — HTML 파싱 (indexing 모듈)
@@ -18,6 +17,7 @@ langchain-community>=0.3
 langchain-core>=0.3
 langchain-huggingface>=0.1
 langchain-openai>=0.2
+langchain-upstage>=0.3
 langchain-qdrant>=0.2
 langchain-text-splitters>=0.3
 

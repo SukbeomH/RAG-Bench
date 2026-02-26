@@ -505,14 +505,34 @@ def setup_infrastructure() -> None:
             kubectl_apply(str(path))
             print(f"    적용: {f}")
 
-    # OPENAI_API_KEY Secret
+    # API Key Secret (OPENAI + UPSTAGE)
     openai_key = os.environ.get("OPENAI_API_KEY", "")
+    upstage_key = os.environ.get("UPSTAGE_API_KEY", "")
+
     try:
         kubectl("get", "secret", "bench-secrets", "-n", NAMESPACE)
+        # 기존 Secret 존재 → Upstage 키 추가 (있으면)
+        if upstage_key:
+            import base64
+
+            encoded = base64.b64encode(upstage_key.encode()).decode()
+            kubectl(
+                "patch",
+                "secret",
+                "bench-secrets",
+                "-n",
+                NAMESPACE,
+                "-p",
+                json.dumps({"data": {"UPSTAGE_API_KEY": encoded}}),
+            )
+            print("    패치: bench-secrets에 UPSTAGE_API_KEY 추가")
     except subprocess.CalledProcessError:
         if not openai_key:
             print("    ERROR: OPENAI_API_KEY 환경변수 필수")
             sys.exit(1)
+        literals = [f"--from-literal=OPENAI_API_KEY={openai_key}"]
+        if upstage_key:
+            literals.append(f"--from-literal=UPSTAGE_API_KEY={upstage_key}")
         kubectl(
             "create",
             "secret",
@@ -520,7 +540,7 @@ def setup_infrastructure() -> None:
             "bench-secrets",
             "-n",
             NAMESPACE,
-            f"--from-literal=OPENAI_API_KEY={openai_key}",
+            *literals,
         )
         print("    생성: bench-secrets Secret")
 
@@ -651,6 +671,16 @@ def parse_args() -> argparse.Namespace:
         choices=["service", "full"],
         help="전략 프리셋 (기본: service)",
     )
+    p.add_argument(
+        "--dense",
+        default=None,
+        help="Dense 모델 필터 (쉼표 구분, 예: openai-large,upstage)",
+    )
+    p.add_argument(
+        "--rerankers",
+        default=None,
+        help="리랭커 필터 (쉼표 구분, 예: colbert)",
+    )
     p.add_argument("--run-id", default=None, help="실행 ID (기본: 타임스탬프)")
     p.add_argument("--output", default=None, help="로컬 결과 경로")
     p.add_argument(
@@ -695,6 +725,15 @@ def main():
     run_id = args.run_id or time.strftime("%Y%m%d-%H%M")
     categories = [c.strip() for c in args.categories.split(",") if c.strip()]
     combos = PRESET_COMBOS[args.preset]
+    if args.dense:
+        dense_filter = [d.strip() for d in args.dense.split(",")]
+        combos = [c for c in combos if c["dense"] in dense_filter]
+    if args.rerankers:
+        reranker_filter = [r.strip() for r in args.rerankers.split(",")]
+        combos = [c for c in combos if c["reranker"] in reranker_filter]
+    if not combos:
+        print("  ERROR: 필터 조건에 매칭되는 조합 없음")
+        sys.exit(1)
     local_output = Path(args.output) if args.output else Path(f"./k8s_results/{run_id}")
     total_jobs = len(categories) * len(combos)
 
