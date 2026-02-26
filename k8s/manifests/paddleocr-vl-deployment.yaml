@@ -1,0 +1,70 @@
+# PaddleOCR-VL-1.5 FastAPI 서버 K8s Deployment
+# paddleocr PPStructureV3(device="cpu"), 0.9B (~3-4GB RAM)
+# OpenAI-compatible API: http://paddleocr-vl-server:8000/v1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paddleocr-vl-server
+  namespace: rag-bench-test
+  labels:
+    app: paddleocr-vl-server
+    component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paddleocr-vl-server
+  template:
+    metadata:
+      labels:
+        app: paddleocr-vl-server
+        component: inference
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      containers:
+        - name: paddleocr-vl
+          image: ${IMAGE_REGISTRY}/rag-bench-test/paddleocr-vl:latest
+          ports:
+            - containerPort: 8000
+              name: api
+          env:
+            - name: OMP_NUM_THREADS
+              value: "4"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "5Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 180  # 모델 최초 로드 (paddleocr 초기화)
+            periodSeconds: 10
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 240
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paddleocr-vl-server
+  namespace: rag-bench-test
+  labels:
+    app: paddleocr-vl-server
+spec:
+  selector:
+    app: paddleocr-vl-server
+  ports:
+    - name: api
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

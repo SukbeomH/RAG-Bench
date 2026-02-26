@@ -1,0 +1,116 @@
+# GOT-OCR2.0 FastAPI 서버 K8s Deployment
+# transformers 4.49+, CPU, 580M 파라미터 (~2.5GB RAM)
+# OpenAI-compatible API: http://got-ocr2-server:8000/v1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: got-ocr2-server
+  namespace: rag-bench-test
+  labels:
+    app: got-ocr2-server
+    component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: got-ocr2-server
+  template:
+    metadata:
+      labels:
+        app: got-ocr2-server
+        component: inference
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      # 모델 사전 다운로드 (PVC에 캐싱)
+      initContainers:
+        - name: model-download
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              MODEL_DIR=/models/models--stepfun-ai--GOT-OCR-2.0-hf
+              if [ -d "$MODEL_DIR" ]; then
+                echo "[init] 캐시 발견 — 다운로드 생략"
+              else
+                echo "[init] GOT-OCR-2.0-hf 다운로드 시작..."
+                pip install -q "huggingface_hub>=0.20"
+                python -c "
+              from huggingface_hub import snapshot_download
+              snapshot_download(
+                  'stepfun-ai/GOT-OCR-2.0-hf',
+                  cache_dir='/models',
+              )
+              print('다운로드 완료')
+              "
+              fi
+          env:
+            - name: HF_HOME
+              value: /models
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: got-ocr2
+          image: ${IMAGE_REGISTRY}/rag-bench-test/got-ocr2:latest
+          ports:
+            - containerPort: 8000
+              name: api
+          env:
+            - name: HF_HOME
+              value: /models
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"        # 다운로드 후 오프라인 모드
+            - name: OMP_NUM_THREADS
+              value: "4"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "6Gi"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120  # 모델 로드 대기 (FP32 CPU)
+            periodSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 180
+            periodSeconds: 30
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache   # 기존 50Gi PVC 공유
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: got-ocr2-server
+  namespace: rag-bench-test
+  labels:
+    app: got-ocr2-server
+spec:
+  selector:
+    app: got-ocr2-server
+  ports:
+    - name: api
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
