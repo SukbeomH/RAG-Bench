@@ -175,12 +175,22 @@ def print_summary(results: list[dict]) -> None:
 
 # ── 메인 루프 ─────────────────────────────────────────────────────────────────
 
+def wait_for_job(job_name: str) -> str:
+    """Job이 완료(succeeded/failed)될 때까지 블로킹. 최종 상태 반환."""
+    while True:
+        status = get_job_status(job_name)
+        if status in ("succeeded", "failed"):
+            return status
+        time.sleep(POLL_INTERVAL_S)
+
+
 def run_jobs(
     specs: list[BenchSpec],
     image: str,
     run_id: str,
     dry_run: bool = False,
     results_dir: Optional[Path] = None,
+    max_parallel: int = MAX_PARALLEL,
 ) -> None:
     total = len(specs)
     print(f"\n{'='*75}")
@@ -189,60 +199,94 @@ def run_jobs(
     print(f"  Run ID   : {run_id}")
     print(f"  네임스페이스: {NAMESPACE}")
     print(f"  이미지   : {image}")
+    print(f"  동시 실행 : {max_parallel}")
     if dry_run:
         print("  [DRY-RUN 모드]")
     print(f"{'='*75}\n")
 
     job_names: list[str] = []
+    succeeded, failed = [], []
 
-    # Job 일괄 생성
-    for idx, spec in enumerate(specs, 1):
-        yaml_text, job_name = render_job(spec, image, run_id)
+    if max_parallel == 1:
+        # 순차 실행: 하나 완료 후 다음 생성
+        for idx, spec in enumerate(specs, 1):
+            yaml_text, job_name = render_job(spec, image, run_id)
 
-        if job_exists(job_name):
-            print(f"[{idx:>3}/{total}] SKIP (이미 존재) — {job_name}")
-            job_names.append(job_name)
-            continue
+            if job_exists(job_name):
+                print(f"[{idx:>3}/{total}] SKIP (이미 존재) — {job_name}")
+                job_names.append(job_name)
+                # 이미 존재하는 Job은 완료 대기
+                if not dry_run:
+                    status = wait_for_job(job_name)
+                    (succeeded if status == "succeeded" else failed).append(job_name)
+                    print(f"  [{('OK' if status=='succeeded' else 'FAIL')}] {job_name}")
+                continue
 
-        print(f"[{idx:>3}/{total}] CREATE — {job_name}")
-        try:
-            apply_manifest(yaml_text, dry_run=dry_run)
-            job_names.append(job_name)
-        except subprocess.CalledProcessError as e:
-            print(f"  오류: {e.stderr[:200]}", file=sys.stderr)
+            print(f"[{idx:>3}/{total}] CREATE — {job_name}")
+            try:
+                apply_manifest(yaml_text, dry_run=dry_run)
+                job_names.append(job_name)
+            except subprocess.CalledProcessError as e:
+                print(f"  오류: {(e.stderr or e.stdout or '')[:200]}", file=sys.stderr)
+                continue
 
-        # 병렬 한도 조절
-        if idx % MAX_PARALLEL == 0 and not dry_run:
-            print(f"  ({idx}개 생성 완료, 잠시 대기...)")
-            time.sleep(2)
+            if not dry_run:
+                print(f"  대기 중... ({job_name})")
+                status = wait_for_job(job_name)
+                (succeeded if status == "succeeded" else failed).append(job_name)
+                print(f"  [{('OK' if status=='succeeded' else 'FAIL')}] {job_name}  "
+                      f"(성공 {len(succeeded)}, 실패 {len(failed)} / {idx})")
+    else:
+        # 병렬 실행: 전체 Job 일괄 생성 후 완료 대기
+        for idx, spec in enumerate(specs, 1):
+            yaml_text, job_name = render_job(spec, image, run_id)
+
+            if job_exists(job_name):
+                print(f"[{idx:>3}/{total}] SKIP (이미 존재) — {job_name}")
+                job_names.append(job_name)
+                continue
+
+            print(f"[{idx:>3}/{total}] CREATE — {job_name}")
+            try:
+                apply_manifest(yaml_text, dry_run=dry_run)
+                job_names.append(job_name)
+            except subprocess.CalledProcessError as e:
+                print(f"  오류: {e.stderr[:200]}", file=sys.stderr)
+
+            if idx % max_parallel == 0 and not dry_run:
+                print(f"  ({idx}개 생성 완료, 잠시 대기...)")
+                time.sleep(2)
+
+        if dry_run:
+            print(f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)")
+            return
+
+        # Job 완료 대기
+        print(f"\n총 {len(job_names)}개 Job 모니터링 중... (폴링 {POLL_INTERVAL_S}s)\n")
+        pending = set(job_names)
+
+        while pending:
+            still_running = set()
+            for job_name in pending:
+                status = get_job_status(job_name)
+                if status == "succeeded":
+                    succeeded.append(job_name)
+                    print(f"  [OK]    {job_name}")
+                elif status == "failed":
+                    failed.append(job_name)
+                    print(f"  [FAIL]  {job_name}")
+                else:
+                    still_running.add(job_name)
+
+            pending = still_running
+            if pending:
+                print(f"  대기 중 {len(pending)}개 / 완료 {len(succeeded)+len(failed)}개 "
+                      f"(성공 {len(succeeded)}, 실패 {len(failed)})")
+                time.sleep(POLL_INTERVAL_S)
 
     if dry_run:
         print(f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)")
         return
-
-    # Job 완료 대기
-    print(f"\n총 {len(job_names)}개 Job 모니터링 중... (폴링 {POLL_INTERVAL_S}s)\n")
-    pending = set(job_names)
-    succeeded, failed = [], []
-
-    while pending:
-        still_running = set()
-        for job_name in pending:
-            status = get_job_status(job_name)
-            if status == "succeeded":
-                succeeded.append(job_name)
-                print(f"  [OK]    {job_name}")
-            elif status == "failed":
-                failed.append(job_name)
-                print(f"  [FAIL]  {job_name}")
-            else:
-                still_running.add(job_name)
-
-        pending = still_running
-        if pending:
-            print(f"  대기 중 {len(pending)}개 / 완료 {len(succeeded)+len(failed)}개 "
-                  f"(성공 {len(succeeded)}, 실패 {len(failed)})")
-            time.sleep(POLL_INTERVAL_S)
 
     print(f"\n완료: 성공 {len(succeeded)} / 실패 {len(failed)} / 전체 {len(job_names)}")
 
@@ -286,6 +330,10 @@ def main() -> None:
                         help="실제 Job 생성 없이 매니페스트만 검증")
     parser.add_argument("--results-dir", default=None,
                         help="PVC 결과 디렉토리 로컬 경로 (결과 수집용)")
+    parser.add_argument("--max-parallel", type=int, default=MAX_PARALLEL,
+                        help=f"동시 실행 Job 최대 수 (기본: {MAX_PARALLEL}, 1=순차 실행)")
+    parser.add_argument("--backends", default=None,
+                        help="프리셋에서 실행할 백엔드 필터 (쉼표 구분, 예: granite-vision,got-ocr2)")
     args = parser.parse_args()
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M")
@@ -294,6 +342,11 @@ def main() -> None:
     # 스펙 결정
     if args.preset:
         specs = get_preset(args.preset)
+        if args.backends:
+            filter_set = set(b.strip() for b in args.backends.split(","))
+            specs = [s for s in specs if s.backend in filter_set]
+            if not specs:
+                parser.error(f"--backends 필터 결과 스펙 없음: {args.backends}")
     elif args.backend and args.pdf:
         specs = [BenchSpec(
             backend=args.backend,
@@ -306,7 +359,8 @@ def main() -> None:
 
     run_jobs(specs, args.image, run_id,
              dry_run=args.dry_run,
-             results_dir=results_dir)
+             results_dir=results_dir,
+             max_parallel=args.max_parallel)
 
 
 if __name__ == "__main__":

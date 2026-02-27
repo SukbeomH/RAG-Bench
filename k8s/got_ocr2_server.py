@@ -106,9 +106,12 @@ async def chat_completions(req: ChatRequest):
     if image is None:
         return JSONResponse(status_code=400, content={"error": "이미지가 messages에 없습니다."})
 
-    # GOT-OCR2 HF native API: 이미지 + 텍스트 프롬프트
+    # GOT-OCR2 HF native API: <image> placeholder를 텍스트에 직접 삽입
+    # apply_chat_template은 이 모델에서 미지원
+    # processor(text, images) 호출 시 <image> placeholder가 없으면
+    # "Image features and image tokens do not match, tokens: 0, features: 256" 에러 발생
     inputs = _processor(
-        text=prompt,
+        text="<image>\n" + prompt,
         images=image,
         return_tensors="pt",
     ).to(DEVICE)
