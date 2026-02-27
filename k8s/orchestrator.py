@@ -44,7 +44,7 @@ MANIFESTS_DIR = Path(__file__).parent / "manifests"
 PREP_TEMPLATE = MANIFESTS_DIR / "prep-job-template.yaml"
 BENCH_TEMPLATE = MANIFESTS_DIR / "bench-job-template.yaml"
 
-DEFAULT_CATEGORIES = ["general", "legal", "business", "medical"]
+DEFAULT_CATEGORIES = ["general", "legal", "business", "medical", "technical"]
 POLL_INTERVAL_S = 30
 
 # service 프리셋 기준 전략 조합
