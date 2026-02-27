@@ -29,9 +29,9 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              CACHE_DIR=/models/.paddleocr
+              CACHE_DIR=/models/.paddlex/official_models
               if [ -d "$CACHE_DIR" ] && [ "$(ls -A $CACHE_DIR 2>/dev/null)" ]; then
-                echo "[init] PaddleOCR 캐시 발견 — 다운로드 생략"
+                echo "[init] PaddleOCR 모델 캐시 발견 — 다운로드 생략"
               else
                 echo "[init] PaddleOCR 모델 사전 다운로드 시작..."
                 python -c "
