@@ -19,9 +19,9 @@ WORKDIR /build
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# PyTorch CPU-only (이미지 크기 절감)
+# PyTorch CPU-only (이미지 크기 절감, torchvision 포함 — docling 표 구조 모델 필요)
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install torch --index-url https://download.pytorch.org/whl/cpu
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 # PDF 파서 의존성
 COPY k8s/requirements-pdf-parser.txt ./requirements.txt
