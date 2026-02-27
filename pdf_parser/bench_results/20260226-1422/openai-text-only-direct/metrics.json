@@ -1,0 +1,26 @@
+{
+  "backend": "openai",
+  "pdf_name": "text_only.pdf",
+  "mode": "direct",
+  "error": null,
+  "pages": [
+    {
+      "page": 1,
+      "text_ned": 0.016,
+      "table_teds": 0.0,
+      "speed_s": 8.812,
+      "word_count": 54,
+      "has_headers": true,
+      "has_tables": false,
+      "has_formulas": false
+    }
+  ],
+  "summary": {
+    "avg_text_ned": 0.016,
+    "avg_table_teds": 0.0,
+    "avg_speed_s": 8.812,
+    "total_time_s": 8.812,
+    "total_words": 54
+  },
+  "timestamp": "2026-02-26 14:22:54"
+}

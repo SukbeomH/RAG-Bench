@@ -1,0 +1,15 @@
+{
+  "backend": "upstage",
+  "pdf_name": "text_only.pdf",
+  "mode": "direct",
+  "error": "400 Client Error: Bad Request for url: https://api.upstage.ai/v1/document-digitization",
+  "pages": [],
+  "summary": {
+    "avg_text_ned": null,
+    "avg_table_teds": null,
+    "avg_speed_s": null,
+    "total_time_s": null,
+    "total_words": 0
+  },
+  "timestamp": "2026-02-26 14:22:58"
+}

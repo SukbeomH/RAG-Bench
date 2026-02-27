@@ -1,0 +1,26 @@
+{
+  "backend": "upstage",
+  "pdf_name": "text_only.pdf",
+  "mode": "direct",
+  "error": null,
+  "pages": [
+    {
+      "page": 1,
+      "text_ned": 0.8492,
+      "table_teds": 0.553,
+      "speed_s": 5.044,
+      "word_count": 3053,
+      "has_headers": true,
+      "has_tables": true,
+      "has_formulas": false
+    }
+  ],
+  "summary": {
+    "avg_text_ned": 0.8492,
+    "avg_table_teds": 0.553,
+    "avg_speed_s": 5.044,
+    "total_time_s": 5.044,
+    "total_words": 3053
+  },
+  "timestamp": "2026-02-26 14:24:22"
+}

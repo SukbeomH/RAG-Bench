@@ -54,3 +54,6 @@ markdown/
 .sessions/
 .gsd/
 
+
+# PDF 벤치마크 대용량 파일 (GitHub 100MB 한도 초과)
+pdf_parser/benchmark_pdfs/*.pdf
