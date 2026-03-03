@@ -45,6 +45,11 @@ SPARSE_DISPLAY = {
     "splade":      "SPLADE",
 }
 
+RERANKER_DISPLAY = {
+    "colbert": "ColBERT",
+    "flashrank": "FlashRank",
+}
+
 
 def _short_name(strategy: str) -> str:
     """기술적 strategy → 사람 친화 표시명."""
@@ -60,10 +65,23 @@ def _short_name(strategy: str) -> str:
             sparse = label
             break
 
-    if dense and sparse:
-        return f"{dense} + {sparse}"
+    reranker = None
+    strategy_lower = strategy.lower()
+    for key, label in RERANKER_DISPLAY.items():
+        if key in strategy_lower:
+            reranker = label
+            break
+
+    parts = []
     if dense:
-        return dense
+        parts.append(dense)
+    if sparse:
+        parts.append(sparse)
+    if reranker:
+        parts.append(reranker)
+
+    if parts:
+        return " + ".join(parts)
     return strategy
 
 
@@ -260,7 +278,7 @@ def _render_markdown(
     lines += _cover(generated_at, raw_results, ranked)
     lines += _exec_summary(ranked)
     lines += _section1_background(ranked)
-    lines += _section2_measurement()
+    lines += _section2_measurement(raw_results)
     lines += _section3_ranking(ranked)
     lines += _section4_metric_detail(ranked)
     lines += _section5_latency(ranked)
@@ -284,13 +302,36 @@ def _cover(
     total_qa = sum(raw_results[c].get("n_qa", 0) for c in categories)
     n_combos = max(len(df) for df in ranked.values()) if ranked else 0
 
+    # 사용된 리랭커 감지
+    used_rerankers = set()
+    for df in ranked.values():
+        for strategy in df["strategy"]:
+            for key, label in RERANKER_DISPLAY.items():
+                if key in strategy.lower():
+                    used_rerankers.add(label)
+
+    if len(used_rerankers) == 1:
+        reranker_label = next(iter(used_rerankers))
+        title = f"# RAG {reranker_label} Rerank 벤치마크 결과 보고서"
+        subtitle = f"### Dense × Sparse 조합별 성능 비교 — {reranker_label} Rerank + Contextual Retrieval 고정"
+        pipeline = f"> **파이프라인**: Dense 검색 + Sparse 검색 + {reranker_label} 리랭커 + Contextual 문맥 강화  "
+    elif len(used_rerankers) >= 2:
+        reranker_list = " + ".join(sorted(used_rerankers))
+        title = "# RAG 리랭커 비교 벤치마크 결과 보고서"
+        subtitle = f"### Dense × Sparse × Reranker 조합별 성능 비교 — {reranker_list} 리랭커 비교"
+        pipeline = f"> **파이프라인**: Dense 검색 + Sparse 검색 + 리랭커({reranker_list}) + Contextual 문맥 강화  "
+    else:
+        title = "# RAG 벤치마크 결과 보고서"
+        subtitle = "### Dense × Sparse 조합별 성능 비교"
+        pipeline = "> **파이프라인**: Dense 검색 + Sparse 검색 + Contextual 문맥 강화  "
+
     return [
-        "# RAG ColBERT Rerank 벤치마크 결과 보고서",
-        "### Dense × Sparse 조합별 성능 비교 — ColBERT Rerank + Contextual Retrieval 고정",
+        title,
+        subtitle,
         "",
         f"> **작성일**: {generated_at}  ",
         f"> **평가 범위**: {len(categories)}개 카테고리 / {n_combos}개 AI 조합 / 총 {total_qa * n_combos:,}개 질의응답 테스트  ",
-        "> **파이프라인**: Dense 검색 + Sparse 검색 + ColBERT 리랭커 + Contextual 문맥 강화  ",
+        pipeline,
         "> **실행 환경**: EKS K8s 클러스터 (management 노드, CPU-only)  ",
         "",
         "---",
@@ -303,11 +344,36 @@ def _cover(
 # ---------------------------------------------------------------------------
 
 def _exec_summary(ranked: Dict[str, pd.DataFrame]) -> List[str]:
+    # 사용된 리랭커 감지
+    used_rerankers = set()
+    for df in ranked.values():
+        for strategy in df["strategy"]:
+            for key, label in RERANKER_DISPLAY.items():
+                if key in strategy.lower():
+                    used_rerankers.add(label)
+
+    if len(used_rerankers) == 1:
+        reranker_name = next(iter(used_rerankers))
+        summary_desc = (
+            f"> 이 보고서는 RAG 검색 파이프라인에서 {reranker_name} Rerank를 적용한 상태에서\n"
+            "> **어떤 Dense + Sparse 조합이 최적인지**를 K8s 클러스터 실험으로 확인한 결과입니다."
+        )
+    elif len(used_rerankers) >= 2:
+        reranker_list = " / ".join(sorted(used_rerankers))
+        summary_desc = (
+            f"> 이 보고서는 RAG 검색 파이프라인에서 {reranker_list} 리랭커를 비교하여\n"
+            "> **어떤 Dense + Sparse + Reranker 조합이 최적인지**를 K8s 클러스터 실험으로 확인한 결과입니다."
+        )
+    else:
+        summary_desc = (
+            "> 이 보고서는 RAG 검색 파이프라인에서\n"
+            "> **어떤 Dense + Sparse 조합이 최적인지**를 K8s 클러스터 실험으로 확인한 결과입니다."
+        )
+
     lines = [
         "## Executive Summary",
         "",
-        "> 이 보고서는 RAG 검색 파이프라인에서 ColBERT Rerank를 적용한 상태에서",
-        "> **어떤 Dense + Sparse 조합이 최적인지**를 K8s 클러스터 실험으로 확인한 결과입니다.",
+        summary_desc,
         "",
         "### 핵심 결론",
         "",
@@ -317,8 +383,15 @@ def _exec_summary(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         if df.empty:
             continue
 
+        label = category.upper()
         top = df.iloc[0]
         top_name = _short_name(top["strategy"])
+
+        # 카테고리 헤더
+        lines += [
+            f"#### {label} 카테고리",
+            "",
+        ]
 
         # 종합 1위 박스
         lines += [
@@ -351,20 +424,36 @@ def _exec_summary(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 
         lines += [""]
 
+    # 즉시 실행 항목
     lines += [
         "### 즉시 실행 항목",
         "",
     ]
 
+    # 카테고리별 1위 요약
     for category, df in ranked.items():
         top = df.iloc[0]
         top_name = _short_name(top["strategy"])
-        lines += [
-            f"- [ ] 서비스 파이프라인에 **{top_name}** + ColBERT Rerank 조합 통합",
-            "- [ ] 추가 카테고리(Legal, Business, Medical) 벤치마크 실행으로 도메인별 검증",
-            "- [ ] API 모델 사용 시 보안(데이터 외부 전송) 및 비용(건당 과금) 검토",
-            "",
-        ]
+        lines.append(
+            f"- [ ] **{category.upper()}**: 서비스 파이프라인에 **{top_name}** 조합 통합"
+        )
+
+    # 공통 권고사항 1회만 출력
+    has_api = any(
+        any(
+            k.lower() in row["strategy"].lower()
+            for k, m in DENSE_DISPLAY.items()
+            if m.get("type") == "api"
+        )
+        for df in ranked.values()
+        for _, row in df.iterrows()
+    )
+    if has_api:
+        lines.append(
+            "- [ ] API 모델 사용 시 보안(데이터 외부 전송) 및 비용(건당 과금) 검토"
+        )
+
+    lines += [""]
 
     lines += ["---", ""]
     return lines
@@ -413,21 +502,58 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     api_models = [k for k in used_dense if DENSE_DISPLAY[k]["type"] == "api"]
     n_dense = len(used_dense)
 
+    # 사용된 리랭커 감지
+    used_rerankers = set()
+    for df in ranked.values():
+        for strategy in df["strategy"]:
+            for key, label in RERANKER_DISPLAY.items():
+                if key in strategy.lower():
+                    used_rerankers.add(label)
+
+    if len(used_rerankers) == 1:
+        reranker_name = next(iter(used_rerankers))
+        biz_question = (
+            f"> **\"{reranker_name} Rerank를 적용한 상태에서, 어떤 Dense + Sparse 조합이**  \n"
+            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+        )
+        pipeline_diagram = (
+            f"질문 → [Dense 검색] + [Sparse 검색] → [{reranker_name} 리랭킹] → [LLM 답변 생성]\n"
+            "         ↑ 변수         ↑ 변수           ↑ 고정              ↑ 고정"
+        )
+        reranker_var_label = "↑ 고정"
+    elif len(used_rerankers) >= 2:
+        reranker_list = " / ".join(sorted(used_rerankers))
+        biz_question = (
+            "> **\"어떤 Dense + Sparse + Reranker 조합이**  \n"
+            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+        )
+        pipeline_diagram = (
+            f"질문 → [Dense 검색] + [Sparse 검색] → [리랭킹({reranker_list})] → [LLM 답변 생성]\n"
+            "         ↑ 변수         ↑ 변수           ↑ 변수                  ↑ 고정"
+        )
+    else:
+        biz_question = (
+            "> **\"어떤 Dense + Sparse 조합이**  \n"
+            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+        )
+        pipeline_diagram = (
+            "질문 → [Dense 검색] + [Sparse 검색] → [리랭킹] → [LLM 답변 생성]\n"
+            "         ↑ 변수         ↑ 변수         ↑ 고정       ↑ 고정"
+        )
+
     lines = [
         "## 1. 무엇을, 왜 테스트했는가",
         "",
         "### 1-1. 비즈니스 질문",
         "",
-        "> **\"ColBERT Rerank를 적용한 상태에서, 어떤 Dense + Sparse 조합이**  ",
-        "> **가장 정확한 검색 결과를 제공하는가?\"**",
+        biz_question,
         "",
         "### 1-2. 테스트 설계",
         "",
         "고객이 질문하면 RAG 시스템은 다음 4단계를 거칩니다:",
         "",
         "```",
-        "질문 → [Dense 검색] + [Sparse 검색] → [ColBERT 리랭킹] → [LLM 답변 생성]",
-        "         ↑ 변수         ↑ 변수           ↑ 고정              ↑ 고정",
+        pipeline_diagram,
         "```",
         "",
         "| 방식 | 작동 원리 | 비유 | 강점 |",
@@ -441,7 +567,17 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         "",
         "| 고정 요소 | 적용 이유 |",
         "|----------|---------|",
-        "| **ColBERT 리랭커** (jina-colbert-v2) | 최종 답변 후보를 토큰 수준으로 재정렬. 오답률 25% 감소 확인 (IBM). |",
+    ]
+
+    # 리랭커가 1종이면 고정 요소로, 2종이면 생략 (변수)
+    if len(used_rerankers) == 1:
+        reranker_name = next(iter(used_rerankers))
+        if reranker_name == "ColBERT":
+            lines.append("| **ColBERT 리랭커** (jina-colbert-v2) | 최종 답변 후보를 토큰 수준으로 재정렬. 오답률 25% 감소 확인 (IBM). |")
+        elif reranker_name == "FlashRank":
+            lines.append("| **FlashRank 리랭커** | 경량 교차 인코더 기반 리랭킹. 속도 대비 품질 균형. |")
+
+    lines += [
         "| **Contextual 문맥 강화** | 검색 전 청크에 문맥을 AI로 추가. 검색 실패율 67% 감소 (Anthropic). |",
         "",
         "### 1-4. 비교 대상 모델",
@@ -476,16 +612,33 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # Section 2: 측정 방법
 # ---------------------------------------------------------------------------
 
-def _section2_measurement() -> List[str]:
-    return [
+DATASET_INFO = {
+    "general":  {"source": "MIRACL(ko) + Ko-StrategyQA + Belebele + MrTiDy", "note": "위키피디아 기반 범용 질의응답"},
+    "legal":    {"source": "법률 QA 데이터셋", "note": "법률 문서 질의응답"},
+    "business": {"source": "비즈니스 QA 데이터셋", "note": "비즈니스 문서 질의응답"},
+    "medical":  {"source": "의료 QA 데이터셋", "note": "의료 문서 질의응답"},
+    "technical": {"source": "기술 QA 데이터셋", "note": "기술 문서 질의응답"},
+}
+
+
+def _section2_measurement(raw_results: Dict[str, dict]) -> List[str]:
+    lines = [
         "## 2. 어떻게 측정했는가",
         "",
         "### 2-1. 테스트 데이터셋",
         "",
         "| 카테고리 | 데이터 출처 | 쿼리 수 | 특성 |",
         "|---------|-----------|:------:|------|",
-        "| GENERAL | MIRACL(ko) + Ko-StrategyQA + Belebele + MrTiDy | 50 | 위키피디아 기반 범용 질의응답 |",
-        "",
+    ]
+
+    for category, data in raw_results.items():
+        cat_key = category.lower()
+        info = DATASET_INFO.get(cat_key, {"source": "—", "note": "—"})
+        n_qa = data.get("n_qa", "?")
+        lines.append(f"| {category.upper()} | {info['source']} | {n_qa} | {info['note']} |")
+
+    lines += [""]
+    lines += [
         "### 2-2. 평가 지표 — 4가지",
         "",
         "AI 답변 품질을 측정하는 4가지 관점을 가중 평균하여 **종합 점수**를 계산합니다:",
@@ -504,6 +657,8 @@ def _section2_measurement() -> List[str]:
         "",
     ]
 
+    return lines
+
 
 # ---------------------------------------------------------------------------
 # Section 3: 종합 순위
@@ -515,11 +670,13 @@ def _section3_ranking(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         "",
     ]
 
-    for category, df in ranked.items():
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
         label = category.upper()
 
         lines += [
-            f"### 3-1. 종합 순위표 ({label})",
+            f"### 3-{cat_idx}. {label} 카테고리",
+            "",
+            f"#### 종합 순위표",
             "",
             "> 점수는 0~1 범위 (높을수록 우수). 1위 대비 차이(%p)를 병기합니다.",
             "",
@@ -575,7 +732,7 @@ def _section3_ranking(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 def _derive_ranking_insights(df: pd.DataFrame) -> List[str]:
     """순위 데이터에서 핵심 인사이트 3가지를 도출."""
     lines = [
-        "### 3-2. 핵심 인사이트",
+        "#### 핵심 인사이트",
         "",
     ]
 
@@ -699,14 +856,20 @@ def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
          "생성된 답변이 질문에 직접적으로 대응하는지 측정합니다."),
     ]
 
-    for category, df in ranked.items():
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
+        label = category.upper()
+        lines += [
+            f"### 4-{cat_idx}. {label} 카테고리",
+            "",
+        ]
+
         for metric, title, desc in metric_info:
             sorted_df = df.sort_values(metric, ascending=False).reset_index(drop=True)
             best = sorted_df.iloc[0]
             worst = sorted_df.iloc[-1]
 
             lines += [
-                f"### 4-{metric_info.index((metric, title, desc)) + 1}. {title}",
+                f"#### {title}",
                 "",
                 f"> {desc}",
                 "",
@@ -763,14 +926,17 @@ def _section5_latency(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         "",
     ]
 
-    for category, df in ranked.items():
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
         valid = df[pd.notna(df["avg_latency_ms"])]
         if valid.empty:
             continue
 
+        label = category.upper()
         sorted_df = valid.sort_values("avg_latency_ms").reset_index(drop=True)
 
         lines += [
+            f"### {label}",
+            "",
             "| 조합 | 평균 (s/query) | 중앙값 (s/query) |",
             "|:-----|:--------------:|:---------------:|",
         ]
@@ -797,20 +963,26 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         "",
     ]
 
-    for category, df in ranked.items():
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
+        label = category.upper()
+        lines += [
+            f"### 6-{cat_idx}. {label} 카테고리",
+            "",
+        ]
+
         # Dense 모델 비교
         dense_groups: Dict[str, List[pd.Series]] = {}
         for _, row in df.iterrows():
             s = row["strategy"]
             for key, meta in DENSE_DISPLAY.items():
                 if key.lower() in s.lower():
-                    label = meta["short"]
-                    dense_groups.setdefault(label, []).append(row)
+                    dlabel = meta["short"]
+                    dense_groups.setdefault(dlabel, []).append(row)
                     break
 
         if len(dense_groups) > 1:
             lines += [
-                "### 6-1. Dense 모델 비교 (Sparse 평균)",
+                "#### Dense 모델 비교 (Sparse 평균)",
                 "",
                 "> 각 Dense 모델의 BM25/SPLADE 결과를 평균하여 순수 Dense 모델 성능을 비교합니다.",
                 "",
@@ -865,7 +1037,7 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         if len(sparse_groups) > 1:
             n_dense = len(dense_groups) if dense_groups else 0
             lines += [
-                "### 6-2. Sparse 모델 비교 (Dense 평균)",
+                "#### Sparse 모델 비교 (Dense 평균)",
                 "",
                 f"> 각 Sparse 모델의 Dense {n_dense}종 결과를 평균하여 순수 Sparse 모델 효과를 비교합니다.",
                 "",
@@ -940,7 +1112,11 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         "",
     ]
 
-    for category, df in ranked.items():
+    all_categories = {"general", "legal", "business", "medical", "technical"}
+    tested_categories = {c.lower() for c in ranked.keys()}
+
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
+        label = category.upper()
         top = df.iloc[0]
         second = df.iloc[1] if len(df) > 1 else None
 
@@ -948,7 +1124,9 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         second_name = _short_name(second["strategy"]) if second is not None else "—"
 
         lines += [
-            "### 7-1. 용도별 추천",
+            f"### 7-{cat_idx}. {label} 카테고리",
+            "",
+            "#### 용도별 추천",
             "",
             "| 사용 상황 | 추천 조합 | 이유 |",
             "|----------|---------|------|",
@@ -996,7 +1174,7 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 
         # 단일 추천
         lines += [
-            "### 7-2. 한 가지만 선택해야 한다면",
+            "#### 한 가지만 선택해야 한다면",
             "",
         ]
 
@@ -1042,15 +1220,36 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
                 f"> 종합 점수 {top['composite']:.4f}로 1위입니다.",
             ]
 
-        lines += [
-            "",
-            "### 7-3. 향후 과제",
-            "",
-            "- [ ] **추가 카테고리 벤치마크**: Legal, Business, Medical 카테고리에서 동일 조합 검증",
-            "- [ ] **FlashRank 리랭커 비교**: ColBERT 대비 경량 리랭커의 품질-속도 트레이드오프 확인",
-            "- [ ] **분기별 재평가**: Dense 모델 신규 릴리스에 맞춘 정기 벤치마크 실행",
-            "",
-        ]
+        lines += [""]
+
+    # 향후 과제 (루프 밖, 1회만 출력)
+    lines += [
+        f"### 7-{len(ranked) + 1}. 향후 과제",
+        "",
+    ]
+
+    untested = all_categories - tested_categories
+    if untested:
+        untested_list = ", ".join(c.upper() for c in sorted(untested))
+        lines.append(f"- [ ] **추가 카테고리 벤치마크**: {untested_list} 카테고리에서 동일 조합 검증")
+
+    # 사용된 리랭커 확인
+    used_rerankers = set()
+    for df in ranked.values():
+        for strategy in df["strategy"]:
+            for key, rlabel in RERANKER_DISPLAY.items():
+                if key in strategy.lower():
+                    used_rerankers.add(rlabel)
+
+    if "FlashRank" not in used_rerankers:
+        lines.append("- [ ] **FlashRank 리랭커 비교**: ColBERT 대비 경량 리랭커의 품질-속도 트레이드오프 확인")
+    if "ColBERT" not in used_rerankers:
+        lines.append("- [ ] **ColBERT 리랭커 비교**: FlashRank 대비 토큰 수준 리랭커의 품질 확인")
+
+    lines += [
+        "- [ ] **분기별 재평가**: Dense 모델 신규 릴리스에 맞춘 정기 벤치마크 실행",
+        "",
+    ]
 
     lines += ["---", ""]
     return lines
@@ -1082,11 +1281,12 @@ def _appendix(
         "",
         "> **복합 점수** = Recall×0.35 + Precision×0.30 + Faithfulness×0.20 + Relevancy×0.15",
         "",
-        "### B. 파이프라인 고정 요소",
+        "### B. 파이프라인 구성 요소",
         "",
         "| 요소 | 설정 | 적용 근거 |",
         "|------|------|---------|",
         "| ColBERT Rerank | jina-colbert-v2 | 토큰 수준 재정렬, 오답률 25% 감소 (IBM 연구) |",
+        "| FlashRank Rerank | FlashRank v2 | 경량 교차 인코더 리랭킹, 속도 대비 품질 균형 |",
         "| Contextual Retrieval | LLM 문맥 강화 | 검색 실패율 67% 감소 (Anthropic 보고) |",
         "| Chunking | Parent-Child (512/128 tokens) | 문맥 보존 + 세밀 검색 동시 확보 |",
         "",
