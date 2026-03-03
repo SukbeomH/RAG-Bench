@@ -176,11 +176,22 @@ def print_summary(results: list[dict]) -> None:
 # ── 메인 루프 ─────────────────────────────────────────────────────────────────
 
 def wait_for_job(job_name: str) -> str:
-    """Job이 완료(succeeded/failed)될 때까지 블로킹. 최종 상태 반환."""
+    """Job이 완료(succeeded/failed)될 때까지 블로킹. 최종 상태 반환.
+
+    Job이 TTL로 삭제된 경우(unknown 3회 연속) succeeded로 간주.
+    """
+    unknown_streak = 0
     while True:
         status = get_job_status(job_name)
         if status in ("succeeded", "failed"):
             return status
+        if status == "unknown":
+            unknown_streak += 1
+            if unknown_streak >= 3:
+                print(f"  [WARN] {job_name} 미존재 (TTL 삭제 추정) → succeeded 처리")
+                return "succeeded"
+        else:
+            unknown_streak = 0
         time.sleep(POLL_INTERVAL_S)
 
 

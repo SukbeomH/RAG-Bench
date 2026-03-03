@@ -82,18 +82,24 @@ spec:
             - name: model-cache
               mountPath: /models
           readinessProbe:
+            # 백그라운드 로딩 완료 시 /health → 200 OK → Pod을 Service에 편입
+            # 로딩 중: 503 → Service에서 제외 (클라이언트는 연결 가능하나 트래픽 미유입)
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 120  # 모델 로드 대기 (FP32 CPU)
-            periodSeconds: 10
-            failureThreshold: 18
+            initialDelaySeconds: 5    # 서버 시작 즉시 HTTP 응답 가능 (background 로딩)
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 60      # 최대 15분 대기 (5 + 60×15s = 905s)
+            successThreshold: 1
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 180
-            periodSeconds: 30
+            initialDelaySeconds: 1200 # 20분 후 시작 (로딩 완료 후 충분한 여유)
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
       volumes:
         - name: model-cache
           persistentVolumeClaim:
