@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "bge-m3+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 18:33:48",
+  "ragas": [
+    {
+      "faithfulness": 0.3239,
+      "answer_relevancy": 0.8765,
+      "context_precision": 0.5703,
+      "context_recall": 0.4237,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(bge-m3+splade)))"
+    }
+  ]
+}

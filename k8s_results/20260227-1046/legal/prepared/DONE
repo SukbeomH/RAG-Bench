@@ -1,0 +1,10 @@
+{
+  "category": "legal",
+  "n_children": 695,
+  "n_parents": 282,
+  "n_qa": 37,
+  "n_enriched": 695,
+  "data_time_s": 8.2,
+  "enrich_time_s": 1649.4,
+  "timestamp": "2026-02-27 02:15:09"
+}

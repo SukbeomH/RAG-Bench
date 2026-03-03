@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.2615,0.6615,0.8,0.5897,FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))

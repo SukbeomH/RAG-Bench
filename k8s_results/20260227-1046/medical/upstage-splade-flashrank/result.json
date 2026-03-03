@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "upstage+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 12:48:10",
+  "ragas": [
+    {
+      "faithfulness": 0.3633,
+      "answer_relevancy": 0.8875,
+      "context_precision": 0.5108,
+      "context_recall": 0.4494,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(embedding-query+splade)))"
+    }
+  ]
+}

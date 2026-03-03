@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "upstage+korean_bm25+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 21:54:04",
+  "ragas": [
+    {
+      "faithfulness": 0.3779,
+      "answer_relevancy": 0.8775,
+      "context_precision": 0.9762,
+      "context_recall": 0.6977,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(embedding-query+korean_bm25)))"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "e5+splade+flashrank+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 05:32:58",
+  "ragas": [
+    {
+      "faithfulness": 0.236,
+      "answer_relevancy": 0.7074,
+      "context_precision": 0.785,
+      "context_recall": 0.5772,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(multilingual-e5-large+splade)))"
+    }
+  ]
+}

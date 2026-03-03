@@ -1,0 +1,10 @@
+{
+  "category": "medical",
+  "n_children": 101,
+  "n_parents": 77,
+  "n_qa": 77,
+  "n_enriched": 101,
+  "data_time_s": 4.3,
+  "enrich_time_s": 149.4,
+  "timestamp": "2026-02-27 01:50:05"
+}

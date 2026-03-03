@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "upstage+korean_bm25+colbert+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 09:01:15",
+  "ragas": [
+    {
+      "faithfulness": 0.7578,
+      "answer_relevancy": 0.8652,
+      "context_precision": 0.9258,
+      "context_recall": 0.8251,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(embedding-query+korean_bm25)))"
+    }
+  ]
+}

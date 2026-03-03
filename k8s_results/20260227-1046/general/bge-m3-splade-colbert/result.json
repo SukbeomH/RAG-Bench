@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "bge-m3+splade+colbert+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 08:44:54",
+  "ragas": [
+    {
+      "faithfulness": 0.7922,
+      "answer_relevancy": 0.8846,
+      "context_precision": 0.9067,
+      "context_recall": 0.8299,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(bge-m3+splade)))"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "category": "legal",
+  "combo": "e5+korean_bm25+colbert+contextual",
+  "n_qa": 37,
+  "timestamp": "2026-02-27 10:35:34",
+  "ragas": [
+    {
+      "faithfulness": 0.8462,
+      "answer_relevancy": 0.8486,
+      "context_precision": 0.9842,
+      "context_recall": 0.7032,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(multilingual-e5-large+korean_bm25)))"
+    }
+  ]
+}

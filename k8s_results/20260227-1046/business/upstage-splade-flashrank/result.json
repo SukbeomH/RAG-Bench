@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "upstage+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-28 02:56:20",
+  "ragas": [
+    {
+      "faithfulness": 0.3497,
+      "answer_relevancy": 0.8574,
+      "context_precision": 0.9665,
+      "context_recall": 0.6103,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(embedding-query+splade)))"
+    }
+  ]
+}

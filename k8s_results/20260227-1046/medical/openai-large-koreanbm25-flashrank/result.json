@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "openai-large+korean_bm25+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 12:24:50",
+  "ragas": [
+    {
+      "faithfulness": 0.4961,
+      "answer_relevancy": 0.8757,
+      "context_precision": 0.6721,
+      "context_recall": 0.5849,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(text-embedding-3-large+korean_bm25)))"
+    }
+  ]
+}

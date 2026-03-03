@@ -1,0 +1,15 @@
+{
+  "category": "technical",
+  "combo": "openai-large+splade+colbert+contextual",
+  "n_qa": 50,
+  "timestamp": "2026-02-28 04:30:43",
+  "ragas": [
+    {
+      "faithfulness": 0.622,
+      "answer_relevancy": 0.8505,
+      "context_precision": 0.485,
+      "context_recall": 0.3468,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(text-embedding-3-large+splade)))"
+    }
+  ]
+}

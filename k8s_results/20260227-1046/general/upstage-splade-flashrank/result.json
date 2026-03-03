@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "upstage+splade+flashrank+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 08:51:14",
+  "ragas": [
+    {
+      "faithfulness": 0.2628,
+      "answer_relevancy": 0.6685,
+      "context_precision": 0.8333,
+      "context_recall": 0.5662,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(embedding-query+splade)))"
+    }
+  ]
+}

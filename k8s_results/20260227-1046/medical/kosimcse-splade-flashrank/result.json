@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "kosimcse+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 23:26:48",
+  "ragas": [
+    {
+      "faithfulness": 0.3219,
+      "answer_relevancy": 0.884,
+      "context_precision": 0.5292,
+      "context_recall": 0.4685,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    }
+  ]
+}

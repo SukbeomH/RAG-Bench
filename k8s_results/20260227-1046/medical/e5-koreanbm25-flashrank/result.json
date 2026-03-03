@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "e5+korean_bm25+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 18:08:37",
+  "ragas": [
+    {
+      "faithfulness": 0.4905,
+      "answer_relevancy": 0.8747,
+      "context_precision": 0.6613,
+      "context_recall": 0.5087,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(multilingual-e5-large+korean_bm25)))"
+    }
+  ]
+}

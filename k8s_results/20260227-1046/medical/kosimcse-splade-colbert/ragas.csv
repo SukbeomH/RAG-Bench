@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.8414,0.8609,0.9372,0.8661,ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))

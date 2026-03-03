@@ -1,0 +1,15 @@
+{
+  "category": "legal",
+  "combo": "upstage+splade+flashrank+contextual",
+  "n_qa": 37,
+  "timestamp": "2026-02-28 01:15:33",
+  "ragas": [
+    {
+      "faithfulness": 0.2895,
+      "answer_relevancy": 0.8438,
+      "context_precision": 0.964,
+      "context_recall": 0.6134,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(embedding-query+splade)))"
+    }
+  ]
+}

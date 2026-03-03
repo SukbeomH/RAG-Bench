@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "openai-large+korean_bm25+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 20:23:34",
+  "ragas": [
+    {
+      "faithfulness": 0.4943,
+      "answer_relevancy": 0.8766,
+      "context_precision": 0.974,
+      "context_recall": 0.6364,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(text-embedding-3-large+korean_bm25)))"
+    }
+  ]
+}

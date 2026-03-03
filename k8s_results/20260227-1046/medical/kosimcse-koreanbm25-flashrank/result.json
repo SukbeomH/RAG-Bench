@@ -1,0 +1,15 @@
+{
+  "category": "medical",
+  "combo": "kosimcse+korean_bm25+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 11:43:01",
+  "ragas": [
+    {
+      "faithfulness": 0.4106,
+      "answer_relevancy": 0.8748,
+      "context_precision": 0.6061,
+      "context_recall": 0.5375,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+korean_bm25)))"
+    }
+  ]
+}

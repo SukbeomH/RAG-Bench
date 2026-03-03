@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "bge-m3+korean_bm25+flashrank+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 07:08:05",
+  "ragas": [
+    {
+      "faithfulness": 0.3115,
+      "answer_relevancy": 0.6679,
+      "context_precision": 0.8242,
+      "context_recall": 0.4622,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(bge-m3+korean_bm25)))"
+    }
+  ]
+}

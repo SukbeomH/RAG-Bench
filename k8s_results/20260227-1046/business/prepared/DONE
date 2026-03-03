@@ -1,0 +1,10 @@
+{
+  "category": "business",
+  "n_children": 1010,
+  "n_parents": 438,
+  "n_qa": 77,
+  "n_enriched": 1010,
+  "data_time_s": 8.2,
+  "enrich_time_s": 2229.4,
+  "timestamp": "2026-02-27 02:24:45"
+}

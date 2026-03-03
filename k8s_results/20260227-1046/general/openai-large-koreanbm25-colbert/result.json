@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "openai-large+korean_bm25+colbert+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 08:02:01",
+  "ragas": [
+    {
+      "faithfulness": 0.7067,
+      "answer_relevancy": 0.8774,
+      "context_precision": 0.9233,
+      "context_recall": 0.8572,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(text-embedding-3-large+korean_bm25)))"
+    }
+  ]
+}

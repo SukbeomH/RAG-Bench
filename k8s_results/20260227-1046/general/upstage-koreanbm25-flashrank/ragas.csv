@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.2843,0.7152,0.8333,0.467,FlashRank Rerank (Contextual Retrieval (DS(embedding-query+korean_bm25)))

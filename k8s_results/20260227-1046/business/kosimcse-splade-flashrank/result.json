@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "kosimcse+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 11:58:28",
+  "ragas": [
+    {
+      "faithfulness": 0.3245,
+      "answer_relevancy": 0.8272,
+      "context_precision": 0.9426,
+      "context_recall": 0.5707,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    }
+  ]
+}

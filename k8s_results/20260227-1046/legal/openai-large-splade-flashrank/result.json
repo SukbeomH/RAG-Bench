@@ -1,0 +1,15 @@
+{
+  "category": "legal",
+  "combo": "openai-large+splade+flashrank+contextual",
+  "n_qa": 37,
+  "timestamp": "2026-02-28 00:19:03",
+  "ragas": [
+    {
+      "faithfulness": 0.3076,
+      "answer_relevancy": 0.8477,
+      "context_precision": 0.9797,
+      "context_recall": 0.6694,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(text-embedding-3-large+splade)))"
+    }
+  ]
+}

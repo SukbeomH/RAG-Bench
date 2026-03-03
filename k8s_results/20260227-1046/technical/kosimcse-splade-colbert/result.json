@@ -1,0 +1,15 @@
+{
+  "category": "technical",
+  "combo": "kosimcse+splade+colbert+contextual",
+  "n_qa": 50,
+  "timestamp": "2026-02-28 02:04:43",
+  "ragas": [
+    {
+      "faithfulness": 0.4893,
+      "answer_relevancy": 0.8652,
+      "context_precision": 0.48,
+      "context_recall": 0.2724,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    }
+  ]
+}

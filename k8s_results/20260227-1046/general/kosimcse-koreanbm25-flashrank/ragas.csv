@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.2646,0.7089,0.8292,0.4969,FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+korean_bm25)))

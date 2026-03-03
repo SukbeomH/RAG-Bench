@@ -1,0 +1,15 @@
+{
+  "category": "legal",
+  "combo": "kosimcse+splade+flashrank+contextual",
+  "n_qa": 37,
+  "timestamp": "2026-02-27 09:15:06",
+  "ragas": [
+    {
+      "faithfulness": 0.3769,
+      "answer_relevancy": 0.7852,
+      "context_precision": 0.9707,
+      "context_recall": 0.6443,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    }
+  ]
+}

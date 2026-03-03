@@ -1,0 +1,10 @@
+{
+  "category": "general",
+  "n_children": 271,
+  "n_parents": 77,
+  "n_qa": 100,
+  "n_enriched": 271,
+  "data_time_s": 5.3,
+  "enrich_time_s": 248.0,
+  "timestamp": "2026-02-27 01:51:41"
+}

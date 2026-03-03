@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "openai-large+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 22:01:42",
+  "ragas": [
+    {
+      "faithfulness": 0.3295,
+      "answer_relevancy": 0.8538,
+      "context_precision": 0.9405,
+      "context_recall": 0.5789,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(text-embedding-3-large+splade)))"
+    }
+  ]
+}

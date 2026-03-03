@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.7725,0.8666,0.915,0.8246,ColBERT Rerank (Contextual Retrieval (DS(embedding-query+splade)))

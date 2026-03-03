@@ -1,0 +1,15 @@
+{
+  "category": "general",
+  "combo": "kosimcse+splade+colbert+contextual",
+  "n_qa": 100,
+  "timestamp": "2026-02-27 06:18:15",
+  "ragas": [
+    {
+      "faithfulness": 0.7685,
+      "answer_relevancy": 0.869,
+      "context_precision": 0.9142,
+      "context_recall": 0.8144,
+      "strategy": "ColBERT Rerank (Contextual Retrieval (DS(KoSimCSE-roberta-multitask+splade)))"
+    }
+  ]
+}

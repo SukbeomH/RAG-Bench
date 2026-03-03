@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.8308,0.8784,0.9848,0.7571,ColBERT Rerank (Contextual Retrieval (DS(bge-m3+korean_bm25)))

@@ -1,0 +1,15 @@
+{
+  "category": "business",
+  "combo": "bge-m3+splade+flashrank+contextual",
+  "n_qa": 77,
+  "timestamp": "2026-02-27 22:43:06",
+  "ragas": [
+    {
+      "faithfulness": 0.3312,
+      "answer_relevancy": 0.8336,
+      "context_precision": 0.9361,
+      "context_recall": 0.6407,
+      "strategy": "FlashRank Rerank (Contextual Retrieval (DS(bge-m3+splade)))"
+    }
+  ]
+}

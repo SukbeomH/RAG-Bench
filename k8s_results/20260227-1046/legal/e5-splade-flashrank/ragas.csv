@@ -1,0 +1,2 @@
+﻿faithfulness,answer_relevancy,context_precision,context_recall,strategy
+0.3426,0.8292,0.9572,0.6525,FlashRank Rerank (Contextual Retrieval (DS(multilingual-e5-large+splade)))
