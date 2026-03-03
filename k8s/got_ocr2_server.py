@@ -130,27 +130,35 @@ async def chat_completions(req: ChatRequest):
     if image is None:
         return JSONResponse(status_code=400, content={"error": "이미지가 messages에 없습니다."})
 
-    # GOT-OCR2 이미지 토큰 구조:
-    #   <img>(ID:151857) + 256×<imgpad>(ID:151859) + </img>(ID:151858)
-    # apply_chat_template 미지원, <image> 토큰도 미존재
-    # 256개는 ViT 인코더 고정 출력 크기 (이미지 크기 무관)
-    IMG_PLACEHOLDER = "<img>" + "<imgpad>" * 256 + "</img>"
-    inputs = _processor(
-        text=IMG_PLACEHOLDER + "\n" + prompt,
-        images=image,
-        return_tensors="pt",
-    ).to(DEVICE)
+    # 추론은 CPU-집약 동기 작업 → 스레드 풀에서 실행하여 이벤트 루프 해방
+    # (블로킹 시 liveness probe HTTP 요청에 응답 불가 → 재시작 루프)
+    max_tokens = req.max_tokens
 
-    with torch.no_grad():
-        output_ids = _model.generate(
-            **inputs,
-            max_new_tokens=req.max_tokens,
-            do_sample=False,
-        )
+    def _do_inference() -> str:
+        # GOT-OCR2 이미지 토큰 구조:
+        #   <img>(ID:151857) + 256×<imgpad>(ID:151859) + </img>(ID:151858)
+        # apply_chat_template 미지원, <image> 토큰도 미존재
+        # 256개는 ViT 인코더 고정 출력 크기 (이미지 크기 무관)
+        IMG_PLACEHOLDER = "<img>" + "<imgpad>" * 256 + "</img>"
+        inputs = _processor(
+            text=IMG_PLACEHOLDER + "\n" + prompt,
+            images=image,
+            return_tensors="pt",
+        ).to(DEVICE)
 
-    # input 토큰 제거 후 생성 텍스트만 디코드
-    gen_ids = output_ids[:, inputs["input_ids"].shape[-1]:]
-    result = _processor.batch_decode(gen_ids, skip_special_tokens=True)[0].strip()
+        with torch.no_grad():
+            output_ids = _model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                do_sample=False,
+            )
+
+        # input 토큰 제거 후 생성 텍스트만 디코드
+        gen_ids = output_ids[:, inputs["input_ids"].shape[-1]:]
+        return _processor.batch_decode(gen_ids, skip_special_tokens=True)[0].strip()
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _do_inference)
 
     return {
         "id": f"chatcmpl-got-{int(time.time())}",

@@ -79,15 +79,18 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 60   # initContainer에서 모델 다운로드 완료됨
-            periodSeconds: 10
-            failureThreshold: 18
+            initialDelaySeconds: 5    # 서버 즉시 HTTP 응답 가능 (background 로딩)
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 60      # 최대 15분 대기 (PPStructureV3 초기화 포함)
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 120
-            periodSeconds: 30
+            initialDelaySeconds: 1200 # 20분 후 시작 (추론 중 probe 실패 방지)
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
       volumes:
         - name: model-cache
           persistentVolumeClaim:
