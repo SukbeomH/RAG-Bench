@@ -37,6 +37,11 @@ if _env_path.exists():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip())
 
+cert_path = "/Users/sukbeom/Documents/cert/combined-ca-bundle.pem"
+if os.path.exists(cert_path):
+    os.environ["SSL_CERT_FILE"] = cert_path
+    os.environ["REQUESTS_CA_BUNDLE"] = cert_path
+
 from benchmark.evaluator import BenchResult, evaluate_document
 from benchmark.spec import Backend, BenchSpec, GT_MAP, get_preset
 
@@ -44,12 +49,15 @@ from benchmark.spec import Backend, BenchSpec, GT_MAP, get_preset
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
 
 BENCH_DIR = Path(__file__).parent.parent / "benchmark_pdfs"
-GT_DIR    = BENCH_DIR / "gt"
+GT_DIR = BENCH_DIR / "gt"
 
 
 # ── 백엔드 디스패처 ───────────────────────────────────────────────────────────
 
-def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: str | None) -> str:
+
+def run_backend(
+    backend: Backend, pdf_path: Path, output_path: Path, api_key: str | None
+) -> str:
     """
     지정 백엔드로 PDF → Markdown 변환.
 
@@ -59,10 +67,12 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
 
     if backend == "pymupdf":
         import category1_simple as cat
+
         return cat.convert_pdf(str(pdf_path), str(output_path))
 
     elif backend == "docling":
         import category2_medium as cat
+
         converter = cat.build_converter()
         return cat.convert_pdf(str(pdf_path), str(output_path), converter=converter)
 
@@ -71,6 +81,7 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
         if not key:
             raise ValueError("OpenAI 백엔드는 OPENAI_API_KEY 필요 (.env 또는 환경변수)")
         import category3_openai as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4o")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -80,6 +91,7 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
         if not key:
             raise ValueError("OpenAI 백엔드는 OPENAI_API_KEY 필요 (.env 또는 환경변수)")
         import category3_openai as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4.1")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -87,8 +99,11 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
     elif backend == "upstage":
         key = os.environ.get("UPSTAGE_API_KEY")
         if not key:
-            raise ValueError("Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)")
+            raise ValueError(
+                "Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)"
+            )
         import category3_upstage as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, mode="auto")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -96,23 +111,40 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
     elif backend == "upstage-enhanced":
         key = os.environ.get("UPSTAGE_API_KEY")
         if not key:
-            raise ValueError("Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)")
+            raise ValueError(
+                "Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)"
+            )
         import category3_upstage as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, mode="enhanced")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
 
-    elif backend in ("granite-vision", "got-ocr2", "paddleocr-vl"):
+    elif backend in ("granite-vision", "got-ocr2"):
         # K8s 내부 서비스 엔드포인트 (로컬 테스트 시 포트 포워딩 필요)
         import category3_opensource as cat
+
         pages = cat.convert_pdf(str(pdf_path), api_key="ollama", backend_key=backend)
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
+
+    elif backend in ("paddleocr", "paddleocr-vl"):
+        # 로컬 패들 파이프라인 호출 (subprocess Worker 이용)
+        try:
+            import importlib
+
+            mod = importlib.import_module("backends.paddle_backend")
+            return mod.convert_pdf(str(pdf_path), str(output_path))
+        except ModuleNotFoundError:
+            raise NotImplementedError(
+                "backends.paddle_backend 패키지를 찾을 수 없습니다."
+            )
 
     elif backend == "mineru":
         # Phase 2에서 backends/ 패키지 구현 예정
         try:
             import importlib
+
             mod = importlib.import_module("backends.mineru")
             return mod.convert_pdf(str(pdf_path), str(output_path))
         except ModuleNotFoundError:
@@ -125,6 +157,7 @@ def run_backend(backend: Backend, pdf_path: Path, output_path: Path, api_key: st
 
 
 # ── 단일 스펙 실행 ────────────────────────────────────────────────────────────
+
 
 def run_spec(
     spec: BenchSpec,
@@ -143,7 +176,7 @@ def run_spec(
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF 없음: {pdf_path}")
 
-    result_dir  = output_dir / spec.label
+    result_dir = output_dir / spec.label
     result_dir.mkdir(parents=True, exist_ok=True)
     output_path = result_dir / "output.md"
 
@@ -162,12 +195,16 @@ def run_spec(
         pred_text = run_backend(spec.backend, pdf_path, output_path, api_key)
     except NotImplementedError as e:
         print(f"SKIP — {e}")
-        result = BenchResult(backend=spec.backend, pdf_name=spec.pdf_name, mode=spec.mode)
+        result = BenchResult(
+            backend=spec.backend, pdf_name=spec.pdf_name, mode=spec.mode
+        )
         _save_metrics(result, result_dir)
         return result
     except Exception as e:
         print(f"ERROR — {e}")
-        result = BenchResult(backend=spec.backend, pdf_name=spec.pdf_name, mode=spec.mode)
+        result = BenchResult(
+            backend=spec.backend, pdf_name=spec.pdf_name, mode=spec.mode
+        )
         _save_metrics(result, result_dir, error=str(e))
         return result
 
@@ -186,39 +223,51 @@ def run_spec(
     _save_metrics(result, result_dir)
 
     if verbose:
-        ned_str  = f"NED={result.avg_text_ned:.3f}" if result.pages[0].text_ned >= 0 else "NED=  N/A"
-        teds_str = (f"TEDS={result.avg_table_teds:.3f}" if result.avg_table_teds >= 0 else "TEDS=  N/A")
+        ned_str = (
+            f"NED={result.avg_text_ned:.3f}"
+            if result.pages[0].text_ned >= 0
+            else "NED=  N/A"
+        )
+        teds_str = (
+            f"TEDS={result.avg_table_teds:.3f}"
+            if result.avg_table_teds >= 0
+            else "TEDS=  N/A"
+        )
         print(f"{ned_str}  {teds_str}  {speed_s:.1f}s  {result.total_words}w")
 
     return result
 
 
-def _save_metrics(result: BenchResult, result_dir: Path, error: str | None = None) -> None:
+def _save_metrics(
+    result: BenchResult, result_dir: Path, error: str | None = None
+) -> None:
     """metrics.json 원자적 기록."""
     data = {
-        "backend":  result.backend,
+        "backend": result.backend,
         "pdf_name": result.pdf_name,
-        "mode":     result.mode,
-        "error":    error,
+        "mode": result.mode,
+        "error": error,
         "pages": [
             {
-                "page":        p.page,
-                "text_ned":    round(p.text_ned, 4) if p.text_ned >= 0 else None,
-                "table_teds":  round(p.table_teds, 4) if p.table_teds >= 0 else None,
-                "speed_s":     round(p.speed_s, 3),
-                "word_count":  p.word_count,
+                "page": p.page,
+                "text_ned": round(p.text_ned, 4) if p.text_ned >= 0 else None,
+                "table_teds": round(p.table_teds, 4) if p.table_teds >= 0 else None,
+                "speed_s": round(p.speed_s, 3),
+                "word_count": p.word_count,
                 "has_headers": p.has_headers,
-                "has_tables":  p.has_tables,
-                "has_formulas":p.has_formulas,
+                "has_tables": p.has_tables,
+                "has_formulas": p.has_formulas,
             }
             for p in result.pages
         ],
         "summary": {
-            "avg_text_ned":   round(result.avg_text_ned, 4)  if result.pages else None,
-            "avg_table_teds": round(result.avg_table_teds, 4) if result.avg_table_teds >= 0 else None,
-            "avg_speed_s":    round(result.avg_speed, 3)      if result.pages else None,
-            "total_time_s":   round(result.total_time_s, 3)   if result.pages else None,
-            "total_words":    result.total_words,
+            "avg_text_ned": round(result.avg_text_ned, 4) if result.pages else None,
+            "avg_table_teds": round(result.avg_table_teds, 4)
+            if result.avg_table_teds >= 0
+            else None,
+            "avg_speed_s": round(result.avg_speed, 3) if result.pages else None,
+            "total_time_s": round(result.total_time_s, 3) if result.pages else None,
+            "total_words": result.total_words,
         },
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -230,6 +279,7 @@ def _save_metrics(result: BenchResult, result_dir: Path, error: str | None = Non
 
 # ── 전체 실행 루프 ────────────────────────────────────────────────────────────
 
+
 def run_all(
     specs: list[BenchSpec],
     output_dir: Path,
@@ -240,9 +290,9 @@ def run_all(
     results: list[BenchResult] = []
     total = len(specs)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"벤치마크 시작 — {total}개 조합 | 출력: {output_dir}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     for idx, spec in enumerate(specs, 1):
         if verbose:
@@ -255,21 +305,24 @@ def run_all(
 
 def _print_summary(results: list[BenchResult]) -> None:
     """백엔드×문서유형 요약 테이블 출력."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("결과 요약")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"{'백엔드':<12} {'PDF':<35} {'NED':>6} {'TEDS':>6} {'속도':>7} {'단어':>6}")
     print("-" * 70)
     for r in results:
-        ned  = f"{r.avg_text_ned:.3f}"  if r.pages and r.pages[0].text_ned  >= 0 else "  N/A"
+        ned = (
+            f"{r.avg_text_ned:.3f}" if r.pages and r.pages[0].text_ned >= 0 else "  N/A"
+        )
         teds = f"{r.avg_table_teds:.3f}" if r.avg_table_teds >= 0 else "  N/A"
-        spd  = f"{r.avg_speed:.2f}s"
-        w    = str(r.total_words)
+        spd = f"{r.avg_speed:.2f}s"
+        w = str(r.total_words)
         print(f"{r.backend:<12} {r.pdf_name:<35} {ned:>6} {teds:>6} {spd:>7} {w:>6}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -282,26 +335,49 @@ def main() -> None:
   python -m benchmark.runner --backend docling --pdf table_native.pdf
         """,
     )
-    parser.add_argument("--preset",  default=None,
-                        choices=["quick", "phase1", "phase2",
-                                 "vlm", "ocr", "vlm-all",
-                                 "tables", "graphs"],
-                        help="사전 정의된 조합 집합")
-    parser.add_argument("--backend", default=None,
-                        choices=["pymupdf", "docling",
-                                 "openai", "openai-4.1",
-                                 "upstage", "upstage-enhanced",
-                                 "granite-vision", "got-ocr2", "paddleocr-vl",
-                                 "mineru"],
-                        help="단일 백엔드 지정 (--pdf와 함께 사용)")
-    parser.add_argument("--pdf",     default=None,
-                        help="단일 PDF 파일명 (--backend와 함께 사용)")
-    parser.add_argument("--mode",    default="direct",
-                        choices=["direct", "document", "hybrid"])
-    parser.add_argument("--output",  default="./bench_results",
-                        help="결과 저장 디렉토리")
-    parser.add_argument("--quiet",   action="store_true",
-                        help="진행 출력 억제")
+    parser.add_argument(
+        "--preset",
+        default=None,
+        choices=[
+            "quick",
+            "phase1",
+            "phase2",
+            "vlm",
+            "upstage-only",
+            "ocr",
+            "vlm-all",
+            "tables",
+            "graphs",
+        ],
+        help="사전 정의된 조합 집합",
+    )
+    parser.add_argument(
+        "--backend",
+        default=None,
+        choices=[
+            "pymupdf",
+            "docling",
+            "openai",
+            "openai-4.1",
+            "upstage",
+            "upstage-enhanced",
+            "granite-vision",
+            "got-ocr2",
+            "paddleocr-vl",
+            "mineru",
+        ],
+        help="단일 백엔드 지정 (--pdf와 함께 사용)",
+    )
+    parser.add_argument(
+        "--pdf", default=None, help="단일 PDF 파일명 (--backend와 함께 사용)"
+    )
+    parser.add_argument(
+        "--mode", default="direct", choices=["direct", "document", "hybrid"]
+    )
+    parser.add_argument(
+        "--output", default="./bench_results", help="결과 저장 디렉토리"
+    )
+    parser.add_argument("--quiet", action="store_true", help="진행 출력 억제")
     args = parser.parse_args()
 
     api_key = None  # 오픈소스 백엔드는 API 키 불필요 (K8s 로컬 서비스)
@@ -312,12 +388,14 @@ def main() -> None:
     if args.preset:
         specs = get_preset(args.preset)
     elif args.backend and args.pdf:
-        specs = [BenchSpec(
-            backend=args.backend,
-            pdf_name=args.pdf,
-            mode=args.mode,
-            gt_name=GT_MAP.get(args.pdf),
-        )]
+        specs = [
+            BenchSpec(
+                backend=args.backend,
+                pdf_name=args.pdf,
+                mode=args.mode,
+                gt_name=GT_MAP.get(args.pdf),
+            )
+        ]
     else:
         parser.error("--preset 또는 --backend + --pdf 를 지정하세요.")
 

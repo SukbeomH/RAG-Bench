@@ -3,6 +3,7 @@ pymupdf4llm
 
 # Category 2: Medium Complexity PDFs
 docling
+transformers>=4.49.0
 
 # Category 3: Complex PDFs (VLM)
 PyMuPDF

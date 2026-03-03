@@ -115,6 +115,9 @@ PRESETS: dict[str, list[BenchSpec]] = {
     # VLM 비교: openai / upstage × 11 PDF
     "vlm": _make_specs(VLM_BACKENDS, ALL_PDFS),
 
+    # Upstage 전용: upstage / upstage-enhanced × 11 PDF
+    "upstage-only": _make_specs(["upstage", "upstage-enhanced"], ALL_PDFS),
+
     # OCR 특화 오픈소스 모델: granite-vision / got-ocr2 / paddleocr-vl × 11 PDF
     "ocr": _make_specs(OPENSOURCE_BACKENDS, ALL_PDFS),
 
