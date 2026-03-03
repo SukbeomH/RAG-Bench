@@ -13,6 +13,7 @@ Upstage Document Parse는 이미지 기반 VLM이 아닌 전용 문서 파싱 AP
 """
 
 import os
+import time
 from pathlib import Path
 
 import fitz  # PyMuPDF (페이지 분할용)
@@ -23,6 +24,9 @@ UPSTAGE_API_URL = "https://api.upstage.ai/v1/document-digitization"
 
 # 파일 크기 임계값: 이 이상이면 페이지 단위 분할 처리
 MAX_FILE_SIZE_MB = 30
+
+# 분할 처리 시 페이지 간 딜레이 (rate limit 회피)
+PAGE_DELAY_S = 5.0
 
 
 def _call_api(
@@ -140,6 +144,9 @@ def _convert_pdf_by_pages(
     errors: list[str] = []
 
     for page_num in range(doc.page_count):
+        if page_num > 0 and PAGE_DELAY_S > 0:
+            time.sleep(PAGE_DELAY_S)
+
         # 단일 페이지 PDF 생성 (메모리 버퍼)
         tmp_doc = fitz.open()
         tmp_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)

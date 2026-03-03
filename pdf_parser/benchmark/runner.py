@@ -285,6 +285,7 @@ def run_all(
     output_dir: Path,
     api_key: str | None = None,
     verbose: bool = True,
+    delay_s: float = 0.0,
 ) -> list[BenchResult]:
     """스펙 목록을 순서대로 실행 후 결과 목록 반환."""
     results: list[BenchResult] = []
@@ -292,12 +293,16 @@ def run_all(
 
     print(f"\n{'=' * 70}")
     print(f"벤치마크 시작 — {total}개 조합 | 출력: {output_dir}")
+    if delay_s > 0:
+        print(f"스펙 간 딜레이: {delay_s}s")
     print(f"{'=' * 70}\n")
 
     for idx, spec in enumerate(specs, 1):
         if verbose:
             print(f"[{idx:>3}/{total}] ", end="")
         results.append(run_spec(spec, output_dir, api_key=api_key, verbose=verbose))
+        if delay_s > 0 and idx < total:
+            time.sleep(delay_s)
 
     _print_summary(results)
     return results
@@ -378,6 +383,12 @@ def main() -> None:
         "--output", default="./bench_results", help="결과 저장 디렉토리"
     )
     parser.add_argument("--quiet", action="store_true", help="진행 출력 억제")
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="스펙 간 대기 시간(초) — API rate limit 회피용 (예: --delay 5)",
+    )
     args = parser.parse_args()
 
     api_key = None  # 오픈소스 백엔드는 API 키 불필요 (K8s 로컬 서비스)
@@ -399,7 +410,7 @@ def main() -> None:
     else:
         parser.error("--preset 또는 --backend + --pdf 를 지정하세요.")
 
-    run_all(specs, output_dir, api_key=api_key, verbose=not args.quiet)
+    run_all(specs, output_dir, api_key=api_key, verbose=not args.quiet, delay_s=args.delay)
 
 
 if __name__ == "__main__":
