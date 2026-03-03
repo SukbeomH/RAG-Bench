@@ -120,14 +120,6 @@ def run_backend(
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
 
-    elif backend in ("granite-vision", "got-ocr2"):
-        # K8s 내부 서비스 엔드포인트 (로컬 테스트 시 포트 포워딩 필요)
-        import category3_opensource as cat
-
-        pages = cat.convert_pdf(str(pdf_path), api_key="ollama", backend_key=backend)
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
     elif backend in ("paddleocr", "paddleocr-vl"):
         # 로컬 패들 파이프라인 호출 (subprocess Worker 이용)
         try:
@@ -366,8 +358,6 @@ def main() -> None:
             "openai-4.1",
             "upstage",
             "upstage-enhanced",
-            "granite-vision",
-            "got-ocr2",
             "paddleocr-vl",
             "mineru",
         ],
