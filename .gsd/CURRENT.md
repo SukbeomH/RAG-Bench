@@ -1,28 +1,28 @@
 # Current Session Context
 
 ## Session Narrative
-> On 2026-03-04 14:02:50, the developer was working on the **master** branch, modifying 1 files across `.gsd`. The recent work involved: refactor: 레거시 코드를 uv workspace 패키지로 이전.
+> On 2026-03-04, the developer completed E2E test suite for all 5 Python packages in the uv workspace. 48 tests passing, zero external dependencies.
 
 ## Context Snapshot
-- **Active Task**: refactor: 레거시 코드를 uv workspace 패키지로 이전
+- **Active Task**: E2E 테스트 스위트 작성 완료
 - **Branch**: master
-- **Files Changed**: 1
-- **Last Updated**: 2026-03-04 14:02:50
+- **Last Updated**: 2026-03-04
 
-## Working Files
-```
- D .gsd/.modified-this-session
-```
+## Completed This Session
+1. **conftest.py** (root): 공통 fixture (benchmark_pdf_dir, gt_dir, sample_pdf, table_pdf)
+2. **autorag_parsers** (7 tests): pymupdf 파싱, 청킹, ChunkProvenance, registry
+3. **autorag_pdf_eval** (11 tests): NED/TEDS 메트릭, evaluate_document, presets, GT_MAP 파일 존재
+4. **autorag_retrieval** (15 tests): ComboSpec, generate_combinations, DocType, model registry
+5. **autorag_rag_eval** (9 tests): RAGAS_WEIGHTS, MetricPreset, METRIC_REGISTRY
+6. **autorag_api** (6 tests): /health, /api/parse (pymupdf + invalid backend), schema validation
+7. **pyproject.toml**: pytest importmode=importlib 추가 (패키지별 tests/ 이름 충돌 해결)
+
+## Key Findings
+- API `/api/parse` 에러 핸들링 미비: 잘못된 backend → unhandled KeyError (향후 HTTPException으로 래핑 필요)
+- docling.py 수정: per-page 출력 + 의존성 충돌 해소 (이전 세션에서 수행)
 
 ## Recent Commits
 ```
-3bf679f refactor: 레거시 코드를 uv workspace 패키지로 이전
-de7539d docs: 솔루션 비교 보고서 작성 가이드 + PDF 파서 보고서 v2
-666fca3 chore: 레거시 rag_bench/uv.lock 삭제 + GSD 세션 메모리 추가
-```
-
-## Diff Stats
-```
- .gsd/.modified-this-session | 0
- 1 file changed, 0 insertions(+), 0 deletions(-)
+9a45327 fix: docling per-page 출력 + 의존성 충돌 해소
+816c956 refactor: pdf_parser 레거시 삭제 + autorag_parsers 통합
 ```
