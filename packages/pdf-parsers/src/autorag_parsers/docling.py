@@ -46,12 +46,18 @@ class DoclingParser:
         return self._converter
 
     def convert(self, pdf_path: str, **kwargs: object) -> ConversionResult:
+        try:
+            return self._convert_direct(pdf_path)
+        except ImportError:
+            return self._convert_subprocess(pdf_path)
+
+    def _convert_direct(self, pdf_path: str) -> ConversionResult:
+        """docling 직접 import (K8s Docker 등 의존성 충돌 없는 환경)."""
         t0 = time.perf_counter()
         converter = self._get_converter()
         result = converter.convert(pdf_path)
         doc = result.document
 
-        # Per-page markdown export via docling-core API
         page_numbers = sorted(doc.pages.keys()) if doc.pages else []
 
         pages: list[PageResult] = []
@@ -67,7 +73,6 @@ class DoclingParser:
                     )
                 )
         else:
-            # Fallback: single-page output if page info unavailable
             md = doc.export_to_markdown()
             pages.append(
                 PageResult(
@@ -77,6 +82,29 @@ class DoclingParser:
                     metadata={"source": "docling"},
                 )
             )
+
+        return ConversionResult(
+            pdf_path=pdf_path,
+            pages=pages,
+            total_time_s=time.perf_counter() - t0,
+        )
+
+    def _convert_subprocess(self, pdf_path: str) -> ConversionResult:
+        """격리 venv subprocess fallback (의존성 충돌 환경)."""
+        from isolated_backends.docling.bridge import convert_pdf
+
+        t0 = time.perf_counter()
+        page_dict = convert_pdf(pdf_path)
+
+        pages: list[PageResult] = [
+            PageResult(
+                page_num=num,
+                markdown=md,
+                backend="docling",
+                metadata={"source": "docling-subprocess"},
+            )
+            for num, md in sorted(page_dict.items())
+        ]
 
         return ConversionResult(
             pdf_path=pdf_path,
