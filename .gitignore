@@ -52,7 +52,9 @@ markdown/
 .mypy_cache/
 .ruff_cache/
 .sessions/
-.gsd/
+# .gsd/ 는 GSD 메모리/플랜 — 버전 관리 포함
+.gsd/*.bak
+.gsd/.context-save.log
 
 
 # PDF 벤치마크 대용량 파일 (GitHub 100MB 한도 초과)
