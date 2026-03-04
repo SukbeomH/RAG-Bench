@@ -1,0 +1,103 @@
+# Phase 2: 단일 (카테고리 × 전략 조합) 벤치마크 Job.
+# Phase 1에서 준비된 데이터를 읽어 인덱싱 + Pass1(레이턴시) + Pass2(RAGAS) 실행.
+#
+# 플레이스홀더:
+#   ${CATEGORY}, ${RUN_ID}, ${IMAGE}
+#   ${COMBO_DENSE}, ${COMBO_SPARSE}, ${COMBO_RERANKER}, ${COMBO_LLM_SUPPORT}
+#   ${COMBO_LABEL}  - K8s-safe 조합명 (bench-<category>-<label>-<run_id>)
+#   ${CPU_REQUEST}, ${CPU_LIMIT}, ${MEMORY_REQUEST}, ${MEMORY_LIMIT}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench-${CATEGORY}-${COMBO_LABEL}-${RUN_ID}
+  namespace: rag-bench-test
+  labels:
+    app: rag-bench-test
+    component: bench
+    category: ${CATEGORY}
+    combo: ${COMBO_LABEL}
+    run-id: ${RUN_ID}
+    phase: bench
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: rag-bench-test
+        component: bench
+        category: ${CATEGORY}
+        combo: ${COMBO_LABEL}
+        phase: bench
+    spec:
+      restartPolicy: OnFailure
+      tolerations:
+        - key: ai-platform
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      imagePullSecrets:
+        - name: harbor-cred
+      containers:
+        - name: worker
+          image: ${IMAGE}
+          env:
+            - name: WORKER_PHASE
+              value: "bench"
+            - name: BENCH_CATEGORY
+              value: "${CATEGORY}"
+            - name: COMBO_DENSE
+              value: "${COMBO_DENSE}"
+            - name: COMBO_SPARSE
+              value: "${COMBO_SPARSE}"
+            - name: COMBO_RERANKER
+              value: "${COMBO_RERANKER}"
+            - name: COMBO_LLM_SUPPORT
+              value: "${COMBO_LLM_SUPPORT}"
+            - name: COMBO_LABEL
+              value: "${COMBO_LABEL}"
+            - name: BENCH_K
+              value: "3"
+            - name: RESULTS_DIR
+              value: "/results"
+            - name: WORKSPACE_DIR
+              value: "/workspace"
+            - name: HF_HOME
+              value: "/models"
+            - name: LLM_PROVIDER
+              value: "openai"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bench-secrets
+                  key: OPENAI_API_KEY
+            - name: UPSTAGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bench-secrets
+                  key: UPSTAGE_API_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: "${CPU_REQUEST}"
+              memory: "${MEMORY_REQUEST}"
+            limits:
+              cpu: "${CPU_LIMIT}"
+              memory: "${MEMORY_LIMIT}"
+          volumeMounts:
+            - name: results
+              mountPath: /results
+            - name: model-cache
+              mountPath: /models
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: bench-results
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache
+        - name: workspace
+          emptyDir:
+            sizeLimit: 20Gi

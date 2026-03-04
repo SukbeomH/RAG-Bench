@@ -1,0 +1,132 @@
+# DeepSeek-OCR-2 FastAPI 서버 K8s Deployment
+# GPU 필수: nvidia.com/gpu: "1" (CUDA 11.8+)
+# 모델: deepseek-ai/DeepSeek-OCR-2 (~HF Hub 다운로드)
+# OpenAI-compatible API: http://deepseek-ocr2-server:8000/v1
+#
+# ⚠️ 사전 조건:
+#   - GPU 노드에 nvidia-device-plugin 설치 필요
+#   - 노드 라벨: accelerator=gpu 또는 nvidia.com/gpu.present=true
+#   - model-cache PVC (50Gi+) — HF 모델 캐시 공유
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepseek-ocr2-server
+  namespace: rag-bench-test
+  labels:
+    app: deepseek-ocr2-server
+    component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deepseek-ocr2-server
+  template:
+    metadata:
+      labels:
+        app: deepseek-ocr2-server
+        component: inference
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      # GPU 노드 선택 — 환경에 맞게 label 조정 필요
+      nodeSelector:
+        accelerator: gpu
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      initContainers:
+        - name: model-download
+          image: ${IMAGE_REGISTRY}/rag-bench-test/deepseek-ocr2:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              CACHE_DIR=/models/hf/models--deepseek-ai--DeepSeek-OCR-2
+              if [ -d "$CACHE_DIR" ] && [ "$(ls -A $CACHE_DIR 2>/dev/null)" ]; then
+                echo "[init] DeepSeek-OCR-2 캐시 발견 — 다운로드 생략"
+              else
+                echo "[init] DeepSeek-OCR-2 모델 사전 다운로드 시작..."
+                python -c "
+              from transformers import AutoTokenizer, AutoModel
+              print('[init] Tokenizer 다운로드...')
+              AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-OCR-2', trust_remote_code=True)
+              print('[init] 완료 (모델 가중치는 서버 시작 시 GPU 로드)')
+              "
+              fi
+          env:
+            - name: HF_HOME
+              value: /models/hf
+            - name: TRANSFORMERS_CACHE
+              value: /models/hf
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: deepseek-ocr2
+          image: ${IMAGE_REGISTRY}/rag-bench-test/deepseek-ocr2:latest
+          ports:
+            - containerPort: 8000
+              name: api
+          env:
+            - name: MODEL_NAME
+              value: "deepseek-ai/DeepSeek-OCR-2"
+            - name: HF_HOME
+              value: /models/hf
+            - name: TRANSFORMERS_CACHE
+              value: /models/hf
+          resources:
+            requests:
+              cpu: "2"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: "24Gi"
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 80      # 최대 20분 대기 (모델 다운로드 + GPU 로드)
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 1800 # 30분 후 시작 (추론 중 probe 실패 방지)
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache   # 기존 50Gi PVC 공유
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepseek-ocr2-server
+  namespace: rag-bench-test
+  labels:
+    app: deepseek-ocr2-server
+spec:
+  selector:
+    app: deepseek-ocr2-server
+  ports:
+    - name: api
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

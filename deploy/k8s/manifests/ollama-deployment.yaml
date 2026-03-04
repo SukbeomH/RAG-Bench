@@ -1,0 +1,135 @@
+# Ollama K8s Deployment — OCR VLM 벤치마크용
+#
+# 서빙 모델:
+#   - ibm/granite3.3-vision:2b (~3.6GB Q8_0)
+#
+# OpenAI-compatible API: http://ollama-server:11434/v1
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-model-cache
+  namespace: rag-bench-test
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-zcp
+  resources:
+    requests:
+      storage: 10Gi   # granite3.3-vision:2b(3.6G) + 여유분
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-server
+  namespace: rag-bench-test
+  labels:
+    app: ollama-server
+    component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-server
+  template:
+    metadata:
+      labels:
+        app: ollama-server
+        component: inference
+    spec:
+      imagePullSecrets:
+        - name: harbor-cred
+      # 모델 사전 다운로드 (PVC에 캐싱 → 재기동 시 즉시 사용)
+      initContainers:
+        - name: pull-models
+          image: ollama/ollama:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "[init] Ollama 서버 기동..."
+              OLLAMA_MODELS=/ollama-models ollama serve &
+              OLLAMA_PID=$!
+              sleep 8
+
+              echo "[init] Granite Vision 3.3 2B 다운로드..."
+              OLLAMA_MODELS=/ollama-models ollama pull ibm/granite3.3-vision:2b || echo "granite pull 실패 (무시)"
+
+              kill $OLLAMA_PID 2>/dev/null || true
+              echo "[init] 모델 사전 로드 완료"
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "10Gi"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /ollama-models
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: api
+          env:
+            - name: OLLAMA_MODELS
+              value: "/ollama-models"
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            # CPU 환경 최적화
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"          # CPU 순차 처리
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"          # 동시 1개 모델만 메모리 유지
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"        # Job 간 재로드 방지
+            - name: OMP_NUM_THREADS
+              value: "4"          # CPU 스레드 제한
+          resources:
+            requests:
+              cpu: "2"
+              memory: "10Gi"
+            limits:
+              cpu: "6"
+              memory: "20Gi"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /ollama-models
+          readinessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-server
+  namespace: rag-bench-test
+  labels:
+    app: ollama-server
+spec:
+  selector:
+    app: ollama-server
+  ports:
+    - name: api
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP

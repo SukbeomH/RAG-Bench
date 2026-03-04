@@ -57,6 +57,14 @@ markdown/
 
 # PDF 벤치마크 대용량 파일 (GitHub 100MB 한도 초과)
 pdf_parser/benchmark_pdfs/*.pdf
-
+data/benchmark_pdfs/*.pdf
 
 pdf_parser/bench_results/
+
+# Frontend
+packages/rag-frontend/node_modules/
+packages/rag-frontend/.next/
+packages/rag-frontend/out/
+
+# PaddleOCR fork
+PaddleOCR/
