@@ -49,17 +49,34 @@ class DoclingParser:
         t0 = time.perf_counter()
         converter = self._get_converter()
         result = converter.convert(pdf_path)
-        md = result.document.export_to_markdown()
+        doc = result.document
 
-        # Docling doesn't provide per-page output natively, treat as single page
-        pages = [
-            PageResult(
-                page_num=1,
-                markdown=md,
-                backend="docling",
-                metadata={"source": "docling"},
+        # Per-page markdown export via docling-core API
+        page_numbers = sorted(doc.pages.keys()) if doc.pages else []
+
+        pages: list[PageResult] = []
+        if page_numbers:
+            for page_no in page_numbers:
+                md = doc.export_to_markdown(page_no=page_no)
+                pages.append(
+                    PageResult(
+                        page_num=page_no,
+                        markdown=md,
+                        backend="docling",
+                        metadata={"source": "docling"},
+                    )
+                )
+        else:
+            # Fallback: single-page output if page info unavailable
+            md = doc.export_to_markdown()
+            pages.append(
+                PageResult(
+                    page_num=1,
+                    markdown=md,
+                    backend="docling",
+                    metadata={"source": "docling"},
+                )
             )
-        ]
 
         return ConversionResult(
             pdf_path=pdf_path,

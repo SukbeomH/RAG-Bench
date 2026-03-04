@@ -12,7 +12,9 @@ dependencies = [
 docling = ["docling>=2.75"]
 openai = ["openai>=1.0"]
 upstage = ["requests"]
-all = ["autorag-parsers[docling,openai,upstage]"]
+# all은 docling 제외 (transformers>=4.49 ↔ langchain-upstage tokenizers 충돌)
+# docling은 별도: uv sync --package autorag-parsers --extra docling
+all = ["autorag-parsers[openai,upstage]"]
 
 [build-system]
 requires = ["hatchling"]

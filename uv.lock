@@ -242,7 +242,6 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "docling" },
     { name = "openai" },
     { name = "requests" },
 ]
@@ -258,7 +257,7 @@ upstage = [
 
 [package.metadata]
 requires-dist = [
-    { name = "autorag-parsers", extras = ["docling", "openai", "upstage"], marker = "extra == 'all'" },
+    { name = "autorag-parsers", extras = ["openai", "upstage"], marker = "extra == 'all'" },
     { name = "docling", marker = "extra == 'docling'", specifier = ">=2.75" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
     { name = "pymupdf", specifier = ">=1.26.7" },

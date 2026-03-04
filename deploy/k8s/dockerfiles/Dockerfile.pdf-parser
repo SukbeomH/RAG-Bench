@@ -28,11 +28,13 @@ COPY deploy/k8s/requirements-pdf-parser.txt ./requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
-# autorag-pdf-eval 패키지 설치
+# autorag-pdf-eval + autorag-parsers 패키지 설치
+# docling은 all에서 제외 (transformers ↔ langchain-upstage tokenizers 충돌)
+# Docker 환경에서는 langchain-upstage 불필요하므로 docling을 별도 설치
 COPY packages/pdf-eval/ ./packages/pdf-eval/
 COPY packages/pdf-parsers/ ./packages/pdf-parsers/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir "./packages/pdf-parsers[all]" ./packages/pdf-eval
+    pip install --no-cache-dir "./packages/pdf-parsers[all,docling]" ./packages/pdf-eval
 
 # ── Stage 2: 런타임 ──
 FROM python:3.12-slim
