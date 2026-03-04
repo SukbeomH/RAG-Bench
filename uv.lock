@@ -18,6 +18,7 @@ members = [
     "autorag-api",
     "autorag-parsers",
     "autorag-pdf-eval",
+    "autorag-pipeline",
     "autorag-rag-eval",
     "autorag-retrieval",
 ]
@@ -231,14 +232,21 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+pipeline = [
+    { name = "autorag-pipeline" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "autorag-parsers", editable = "packages/pdf-parsers" },
+    { name = "autorag-pipeline", marker = "extra == 'pipeline'", editable = "packages/rag-pipeline" },
     { name = "autorag-retrieval", editable = "packages/rag-retrieval" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
+provides-extras = ["pipeline"]
 
 [[package]]
 name = "autorag-parsers"
@@ -292,6 +300,25 @@ requires-dist = [
     { name = "autorag-parsers", editable = "packages/pdf-parsers" },
     { name = "nltk", specifier = ">=3.8" },
     { name = "rapidfuzz", specifier = ">=3.14" },
+]
+
+[[package]]
+name = "autorag-pipeline"
+version = "0.1.0"
+source = { editable = "packages/rag-pipeline" }
+dependencies = [
+    { name = "autorag-parsers" },
+    { name = "autorag-retrieval" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "autorag-parsers", editable = "packages/pdf-parsers" },
+    { name = "autorag-retrieval", editable = "packages/rag-retrieval" },
+    { name = "langchain-core", specifier = ">=0.3" },
+    { name = "langgraph", specifier = ">=0.2" },
 ]
 
 [[package]]

@@ -1,44 +1,28 @@
 # Current Session Context
 
 ## Session Narrative
-> On 2026-03-04 16:17:25, the developer was working on the **master** branch, modifying 14 files across `.,.gsd,.gsd/memories/session-summary`. The recent work involved: chore: test_e2e_eval.py 삭제 반영 + GSD 세션 메모리 추가.
+> On 2026-03-04, implemented `rag-pipeline` package — LangGraph StateGraph 기반 파이프라인 재구성. 3개 그래프(RAG, RAG Bench, PDF Bench), 7개 노드, FastAPI v2 + CLI. 22 tests all passed.
 
 ## Context Snapshot
-- **Active Task**: chore: test_e2e_eval.py 삭제 반영 + GSD 세션 메모리 추가
+- **Active Task**: feat: LangGraph 기반 rag-pipeline 패키지 신규 생성
 - **Branch**: master
-- **Files Changed**: 14
-- **Last Updated**: 2026-03-04 16:17:25
+- **Last Updated**: 2026-03-04
 
-## Working Files
+## Key Files
 ```
- D .gsd/.modified-this-session
- M .gsd/CURRENT.md
- M packages/pdf-eval/src/autorag_pdf_eval/runner.py
- M packages/rag-eval/pyproject.toml
- M packages/rag-eval/src/autorag_rag_eval/__init__.py
- M uv.lock
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-00-00-master.md
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-02-45-master.md
-?? k8s_results/20260227-1046/rag_benchmark_report.md
-?? packages/pdf-eval/src/autorag_pdf_eval/report.py
-?? packages/pdf-eval/tests/test_report.py
-?? packages/rag-eval/src/autorag_rag_eval/display.py
-?? packages/rag-eval/src/autorag_rag_eval/report.py
-?? packages/rag-eval/tests/test_report.py
+packages/rag-pipeline/src/autorag_pipeline/
+  states/rag_state.py          — RAGState TypedDict
+  nodes/{parse,index,retrieve,generate}.py — RAG 노드
+  nodes/{bench_prep,bench_run,bench_eval,pdf_bench}.py — 벤치마크 노드
+  graphs/{rag_pipeline,rag_bench_graph,pdf_bench_graph}.py — 3개 그래프
+  integration/{api_adapter,cli}.py — API v2 + CLI
 ```
 
-## Recent Commits
-```
-3e64b7c chore: test_e2e_eval.py 삭제 반영 + GSD 세션 메모리 추가
-5b6c5d1 fix: 기술부채 일괄 정리 — 버그 수정, 하드코딩 제거, 레거시 삭제, 단위 테스트 77개 추가
-4452f17 feat: docling 격리 subprocess backend + 코드베이스 맵 추가
-```
+## Test Results
+- rag-pipeline: 22/22 passed
+- 전체: 227 passed (기존 10 fixture errors 무관)
 
-## Diff Stats
-```
- packages/pdf-eval/src/autorag_pdf_eval/runner.py   | 44 ++++++++++++++++++++--
- packages/rag-eval/pyproject.toml                   |  1 +
- packages/rag-eval/src/autorag_rag_eval/__init__.py |  2 +
- uv.lock                                            |  2 +
- 6 files changed, 63 insertions(+), 27 deletions(-)
-```
+## Next Steps
+- E2E 통합 테스트 (실제 PDF + LLM)
+- Agentic RAG 확장
+- K8s 오케스트레이터 → LangGraph 교체

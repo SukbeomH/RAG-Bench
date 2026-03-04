@@ -5,6 +5,7 @@ members = [
     "packages/rag-retrieval",
     "packages/rag-eval",
     "packages/rag-api",
+    "packages/rag-pipeline",
 ]
 
 [tool.uv]
