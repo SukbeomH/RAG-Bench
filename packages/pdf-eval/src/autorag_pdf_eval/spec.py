@@ -7,27 +7,26 @@ PRESETS: 자주 쓰는 조합 모음
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Literal
 
 # ── 타입 정의 ─────────────────────────────────────────────────────────────────
 
 Backend = Literal[
-    "pymupdf",          # Category 1: 빠른 텍스트 추출 (PyMuPDF4LLM)
-    "docling",          # Category 2: OCR + 레이아웃 (Docling)
-    "openai",           # Category 3: VLM (GPT-4o)
-    "openai-4.1",       # Category 3: VLM (GPT-4.1, 2025.04 최고성능)
-    "upstage",          # Category 3: Document Parse API (auto mode)
-    "upstage-enhanced", # Category 3: Document Parse API (enhanced mode, 차트·표 특화)
-    "paddleocr-vl",     # Category 3: PaddleOCR-VL-1.5 0.9B (K8s FastAPI, CPU)
-    "deepseek-ocr2",    # Category 3: DeepSeek-OCR-2 (K8s FastAPI, GPU 필수)
-    "mineru",           # Phase 5 예정
+    "pymupdf",  # Category 1: 빠른 텍스트 추출 (PyMuPDF4LLM)
+    "docling",  # Category 2: OCR + 레이아웃 (Docling)
+    "openai",  # Category 3: VLM (GPT-4o)
+    "openai-4.1",  # Category 3: VLM (GPT-4.1, 2025.04 최고성능)
+    "upstage",  # Category 3: Document Parse API (auto mode)
+    "upstage-enhanced",  # Category 3: Document Parse API (enhanced mode, 차트·표 특화)
+    "paddleocr-vl",  # Category 3: PaddleOCR-VL-1.5 0.9B (K8s FastAPI, CPU)
+    "deepseek-ocr2",  # Category 3: DeepSeek-OCR-2 (K8s FastAPI, GPU 필수)
 ]
 ParseMode = Literal["direct", "document", "hybrid"]
 
 
 # ── 개별 명세 ─────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class BenchSpec:
@@ -40,6 +39,7 @@ class BenchSpec:
         mode:      라우팅 모드
         gt_name:   gt/ 내 Ground Truth 파일명 (없으면 None)
     """
+
     backend: Backend
     pdf_name: str
     mode: ParseMode = "direct"
@@ -57,17 +57,17 @@ class BenchSpec:
 
 # Ground Truth 매핑: PDF → GT 파일
 GT_MAP: dict[str, str] = {
-    "text_only.pdf":        "text_only.md",
-    "table_native.pdf":     "table_native.md",
-    "table_image.pdf":      "table_native.md",   # 같은 내용의 래스터 버전
+    "text_only.pdf": "text_only.md",
+    "table_native.pdf": "table_native.md",
+    "table_image.pdf": "table_native.md",  # 같은 내용의 래스터 버전
     "table_image_200dpi.pdf": "table_native.md",
     "table_image_150dpi.pdf": "table_native.md",
-    "table_image_72dpi.pdf":  "table_native.md",
-    "graph_rich.pdf":       "graph_rich.md",
+    "table_image_72dpi.pdf": "table_native.md",
+    "graph_rich.pdf": "graph_rich.md",
     "graph_rich_image.pdf": "graph_rich.md",
     "graph_rich_image_200dpi.pdf": "graph_rich.md",
     "graph_rich_image_150dpi.pdf": "graph_rich.md",
-    "graph_rich_image_72dpi.pdf":  "graph_rich.md",
+    "graph_rich_image_72dpi.pdf": "graph_rich.md",
 }
 
 ALL_PDFS = list(GT_MAP.keys())
@@ -77,16 +77,19 @@ VLM_BACKENDS: list[Backend] = ["openai", "upstage", "upstage-enhanced"]
 OPENSOURCE_BACKENDS: list[Backend] = ["paddleocr-vl", "deepseek-ocr2"]
 ALL_VLM_BACKENDS: list[Backend] = VLM_BACKENDS + OPENSOURCE_BACKENDS
 ALL_BACKENDS: list[Backend] = [
-    "pymupdf", "docling",
-    "openai", "openai-4.1",
-    "upstage", "upstage-enhanced",
+    "pymupdf",
+    "docling",
+    "openai",
+    "openai-4.1",
+    "upstage",
+    "upstage-enhanced",
     "paddleocr-vl",
     "deepseek-ocr2",
-    "mineru",
 ]
 
 
 # ── 프리셋 ────────────────────────────────────────────────────────────────────
+
 
 def _make_specs(
     backends: list[Backend],
@@ -108,40 +111,41 @@ def _make_specs(
 PRESETS: dict[str, list[BenchSpec]] = {
     # 빠른 검증: pymupdf + docling × text_only
     "quick": _make_specs(EXISTING_BACKENDS, ["text_only.pdf"]),
-
     # Phase 1: pymupdf + docling × 11 PDF
     "phase1": _make_specs(EXISTING_BACKENDS, ALL_PDFS),
-
     # VLM 비교: openai / upstage × 11 PDF
     "vlm": _make_specs(VLM_BACKENDS, ALL_PDFS),
-
     # Upstage 전용: upstage / upstage-enhanced × 11 PDF
     "upstage-only": _make_specs(["upstage", "upstage-enhanced"], ALL_PDFS),
-
     # OCR 특화 오픈소스 모델: paddleocr-vl × 11 PDF (CPU)
     "ocr": _make_specs(["paddleocr-vl"], ALL_PDFS),
-
     # DeepSeek-OCR-2 전용 (GPU 필요)
     "deepseek": _make_specs(["deepseek-ocr2"], ALL_PDFS),
-
     # VLM 전체 비교: 상용 + 오픈소스 × 11 PDF
     "vlm-all": _make_specs(ALL_VLM_BACKENDS, ALL_PDFS),
-
     # Phase 2: 전체 백엔드 × 11 PDF
     "phase2": _make_specs(ALL_BACKENDS, ALL_PDFS),
-
     # 표 집중 테스트
     "tables": _make_specs(
         EXISTING_BACKENDS,
-        ["table_native.pdf", "table_image.pdf", "table_image_200dpi.pdf",
-         "table_image_150dpi.pdf", "table_image_72dpi.pdf"],
+        [
+            "table_native.pdf",
+            "table_image.pdf",
+            "table_image_200dpi.pdf",
+            "table_image_150dpi.pdf",
+            "table_image_72dpi.pdf",
+        ],
     ),
-
     # 그래프 집중 테스트
     "graphs": _make_specs(
         EXISTING_BACKENDS,
-        ["graph_rich.pdf", "graph_rich_image.pdf", "graph_rich_image_200dpi.pdf",
-         "graph_rich_image_150dpi.pdf", "graph_rich_image_72dpi.pdf"],
+        [
+            "graph_rich.pdf",
+            "graph_rich_image.pdf",
+            "graph_rich_image_200dpi.pdf",
+            "graph_rich_image_150dpi.pdf",
+            "graph_rich_image_72dpi.pdf",
+        ],
     ),
 }
 

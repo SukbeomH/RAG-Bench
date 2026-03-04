@@ -1,7 +1,5 @@
 """OpenAI GPT-4o Vision backend — page-by-page VLM extraction."""
 
-from __future__ import annotations
-
 import base64
 import os
 import time
@@ -52,17 +50,16 @@ SYSTEM_PROMPT = """**[Role & Objective]**
    - 페이지가 넘어갈 때는 반드시 `---` (수평선)을 추가하고, 그 바로 위에 `` 주석을 달아 페이지 경계를 명확히 표시하십시오."""
 
 
-def _make_parser(model: str, name: str) -> type:
+def _make_parser(model: str, parser_name: str) -> type:
     """Factory to create OpenAI Vision parser classes for different models."""
 
-    @register(name)
+    @register(parser_name)
     class _OpenAIVisionParser:
-        _model = model
-        _name = name
-
         def __init__(self, api_key: str | None = None, dpi: int = 300):
             self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
             self._dpi = dpi
+            self._model = model
+            self._name = parser_name
 
         @property
         def name(self) -> str:
@@ -131,7 +128,7 @@ def _make_parser(model: str, name: str) -> type:
                 total_time_s=time.perf_counter() - t0,
             )
 
-    _OpenAIVisionParser.__name__ = f"OpenAI_{name.replace('-', '_')}"
+    _OpenAIVisionParser.__name__ = f"OpenAI_{parser_name.replace('-', '_')}"
     _OpenAIVisionParser.__qualname__ = _OpenAIVisionParser.__name__
     return _OpenAIVisionParser
 

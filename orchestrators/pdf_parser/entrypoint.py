@@ -30,80 +30,26 @@ from datetime import datetime
 from pathlib import Path
 
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
-sys.path.insert(0, "/app")
-
 RESULTS_DIR = Path(os.environ.get("RESULTS_DIR", "/results"))
 BENCH_DIR = Path(os.environ.get("BENCHMARK_PDFS_DIR", "/app/benchmark_pdfs"))
 GT_DIR = BENCH_DIR / "gt"
 
 
-# ── 백엔드 디스패처 (runner.py와 동일 로직) ───────────────────────────────────
+# ── 백엔드 디스패처 (autorag_parsers 레지스트리 사용) ─────────────────────────
 
 
 def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
+    """autorag_parsers 레지스트리로 PDF → Markdown 변환."""
+    from autorag_parsers import get_parser
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if backend == "pymupdf":
-        import category1_simple as cat
+    parser = get_parser(backend)
+    result = parser.convert(str(pdf_path))
+    md_text = result.full_markdown
 
-        return cat.convert_pdf(str(pdf_path), str(output_path))
-
-    elif backend == "docling":
-        import category2_medium as cat
-
-        converter = cat.build_converter()
-        return cat.convert_pdf(str(pdf_path), str(output_path), converter=converter)
-
-    elif backend == "openai":
-        key = os.environ.get("OPENAI_API_KEY", "")
-        if not key:
-            raise ValueError("OPENAI_API_KEY 환경변수 필요")
-        import category3_openai as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4o")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "openai-4.1":
-        key = os.environ.get("OPENAI_API_KEY", "")
-        if not key:
-            raise ValueError("OPENAI_API_KEY 환경변수 필요")
-        import category3_openai as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4.1")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "upstage":
-        key = os.environ.get("UPSTAGE_API_KEY", "")
-        if not key:
-            raise ValueError("UPSTAGE_API_KEY 환경변수 필요")
-        import category3_upstage as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, mode="auto")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "upstage-enhanced":
-        key = os.environ.get("UPSTAGE_API_KEY", "")
-        if not key:
-            raise ValueError("UPSTAGE_API_KEY 환경변수 필요")
-        import category3_upstage as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, mode="enhanced")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend in ("granite-vision", "got-ocr2", "paddleocr-vl"):
-        # K8s 내부 OCR 서비스 호출 (OpenAI-compatible API)
-        import category3_opensource as cat
-
-        pages = cat.convert_pdf(str(pdf_path), api_key="ollama", backend_key=backend)
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    else:
-        raise ValueError(f"알 수 없는 백엔드: {backend}")
+    output_path.write_text(md_text, encoding="utf-8")
+    return md_text
 
 
 def _save_metrics(

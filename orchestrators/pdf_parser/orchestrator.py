@@ -370,7 +370,6 @@ def main() -> None:
             "granite-vision",
             "got-ocr2",
             "paddleocr-vl",
-            "mineru",
         ],
         help="단일 백엔드 (--pdf와 함께)",
     )

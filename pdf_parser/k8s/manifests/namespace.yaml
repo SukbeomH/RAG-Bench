@@ -1,6 +1,0 @@
-# pdf-parser 네임스페이스
-# bench 네임스페이스와 분리하여 독립 운용
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: pdf-parser

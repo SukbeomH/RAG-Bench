@@ -1,7 +1,5 @@
 """Upstage Document Parse API backend — Korean document specialist."""
 
-from __future__ import annotations
-
 import os
 import time
 from pathlib import Path
@@ -64,12 +62,9 @@ def _parse_response(
     return {1 + page_offset: markdown_text}
 
 
-def _make_upstage_parser(name: str, default_mode: str) -> type:
-    @register(name)
+def _make_upstage_parser(parser_name: str, default_mode: str) -> type:
+    @register(parser_name)
     class _UpstageParser:
-        _name = name
-        _default_mode = default_mode
-
         def __init__(
             self,
             api_key: str | None = None,
@@ -82,7 +77,8 @@ def _make_upstage_parser(name: str, default_mode: str) -> type:
             self._model = model
             self._output_format = output_format
             self._ocr = ocr
-            self._mode = mode or self._default_mode
+            self._mode = mode or default_mode
+            self._name = parser_name
 
         @property
         def name(self) -> str:
@@ -155,7 +151,7 @@ def _make_upstage_parser(name: str, default_mode: str) -> type:
             doc.close()
             return all_pages
 
-    _UpstageParser.__name__ = f"Upstage_{name.replace('-', '_')}"
+    _UpstageParser.__name__ = f"Upstage_{parser_name.replace('-', '_')}"
     _UpstageParser.__qualname__ = _UpstageParser.__name__
     return _UpstageParser
 

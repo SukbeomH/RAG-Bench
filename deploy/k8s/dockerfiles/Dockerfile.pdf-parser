@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY packages/pdf-eval/ ./packages/pdf-eval/
 COPY packages/pdf-parsers/ ./packages/pdf-parsers/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir ./packages/pdf-parsers ./packages/pdf-eval
+    pip install --no-cache-dir "./packages/pdf-parsers[all]" ./packages/pdf-eval
 
 # ── Stage 2: 런타임 ──
 FROM python:3.12-slim
@@ -45,13 +45,6 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
-
-# PDF 파서 코드 복사
-COPY pdf_parser/category1_simple.py      ./category1_simple.py
-COPY pdf_parser/category2_medium.py     ./category2_medium.py
-COPY pdf_parser/category3_openai.py     ./category3_openai.py
-COPY pdf_parser/category3_upstage.py    ./category3_upstage.py
-COPY pdf_parser/category3_opensource.py ./category3_opensource.py
 
 # 벤치마크 PDF + GT 복사
 COPY data/benchmark_pdfs/       ./benchmark_pdfs/

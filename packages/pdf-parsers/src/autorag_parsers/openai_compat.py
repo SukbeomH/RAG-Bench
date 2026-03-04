@@ -1,7 +1,5 @@
 """OpenAI-compatible OCR VLM backend — K8s local serving."""
 
-from __future__ import annotations
-
 import base64
 import os
 import time
@@ -46,11 +44,9 @@ def _resolve_endpoint_and_model(
     return resolved_url, resolved_model, resolved_key
 
 
-def _make_compat_parser(backend_key: str) -> type:
-    @register(backend_key)
+def _make_compat_parser(parser_key: str) -> type:
+    @register(parser_key)
     class _OpenAICompatParser:
-        _backend_key = backend_key
-
         def __init__(
             self,
             api_key: str | None = None,
@@ -62,6 +58,7 @@ def _make_compat_parser(backend_key: str) -> type:
             self._model_override = model
             self._base_url_override = base_url
             self._dpi = dpi
+            self._backend_key = parser_key
 
         @property
         def name(self) -> str:
@@ -137,7 +134,7 @@ def _make_compat_parser(backend_key: str) -> type:
                 total_time_s=time.perf_counter() - t0,
             )
 
-    _OpenAICompatParser.__name__ = f"Compat_{backend_key.replace('-', '_')}"
+    _OpenAICompatParser.__name__ = f"Compat_{parser_key.replace('-', '_')}"
     _OpenAICompatParser.__qualname__ = _OpenAICompatParser.__name__
     return _OpenAICompatParser
 

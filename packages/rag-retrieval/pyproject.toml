@@ -5,7 +5,6 @@ description = "RAG retrieval strategies — Dense+Sparse hybrid, reranking"
 requires-python = ">=3.12"
 dependencies = [
     "langchain>=1.0",
-    "langchain-community>=0.3",
     "langchain-core>=0.3",
     "langchain-huggingface>=0.1",
     "langchain-openai>=0.2",
@@ -22,7 +21,8 @@ colbert = ["pylate>=1.0"]
 flashrank = ["flashrank>=0.2"]
 upstage = ["langchain-upstage>=0.3"]
 ollama = ["langchain-ollama>=0.2"]
-all = ["autorag-retrieval[colbert,flashrank,upstage,ollama]"]
+token-tracking = ["langchain-community>=0.3"]
+all = ["autorag-retrieval[colbert,flashrank,upstage,ollama,token-tracking]"]
 
 [build-system]
 requires = ["hatchling"]

@@ -305,7 +305,6 @@ version = "0.1.0"
 source = { editable = "packages/rag-retrieval" }
 dependencies = [
     { name = "langchain" },
-    { name = "langchain-community" },
     { name = "langchain-core" },
     { name = "langchain-huggingface" },
     { name = "langchain-openai" },
@@ -320,6 +319,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "flashrank" },
+    { name = "langchain-community" },
     { name = "langchain-ollama" },
     { name = "langchain-upstage" },
     { name = "pylate" },
@@ -333,16 +333,19 @@ flashrank = [
 ollama = [
     { name = "langchain-ollama" },
 ]
+token-tracking = [
+    { name = "langchain-community" },
+]
 upstage = [
     { name = "langchain-upstage" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "autorag-retrieval", extras = ["colbert", "flashrank", "upstage", "ollama"], marker = "extra == 'all'" },
+    { name = "autorag-retrieval", extras = ["colbert", "flashrank", "upstage", "ollama", "token-tracking"], marker = "extra == 'all'" },
     { name = "flashrank", marker = "extra == 'flashrank'", specifier = ">=0.2" },
     { name = "langchain", specifier = ">=1.0" },
-    { name = "langchain-community", specifier = ">=0.3" },
+    { name = "langchain-community", marker = "extra == 'token-tracking'", specifier = ">=0.3" },
     { name = "langchain-core", specifier = ">=0.3" },
     { name = "langchain-huggingface", specifier = ">=0.1" },
     { name = "langchain-ollama", marker = "extra == 'ollama'", specifier = ">=0.2" },
@@ -356,7 +359,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=3.1" },
     { name = "torch", specifier = ">=2.2" },
 ]
-provides-extras = ["colbert", "flashrank", "upstage", "ollama", "all"]
+provides-extras = ["colbert", "flashrank", "upstage", "ollama", "token-tracking", "all"]
 
 [[package]]
 name = "beautifulsoup4"

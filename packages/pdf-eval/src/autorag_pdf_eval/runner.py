@@ -1,18 +1,13 @@
 """
 로컬 벤치마크 러너
 
-backends/ 패키지(Phase 2)가 없어도 기존 category*.py로 동작하는
-로컬 실행 루프. K8s 없이 빠른 검증용.
+autorag_parsers 레지스트리를 통해 PDF → Markdown 변환 후 평가.
+K8s 없이 빠른 검증용.
 
 사용법:
-    # 빠른 테스트
-    python -m benchmark.runner --preset quick
-
-    # Phase 1 전체 (기존 3 백엔드 × 11 PDF)
-    python -m benchmark.runner --preset phase1 --output ./bench_results
-
-    # 특정 조합
-    python -m benchmark.runner --backend pymupdf --pdf text_only.pdf
+    python -m autorag_pdf_eval.runner --preset quick
+    python -m autorag_pdf_eval.runner --preset phase1 --output ./bench_results
+    python -m autorag_pdf_eval.runner --backend pymupdf --pdf text_only.pdf
 """
 
 from __future__ import annotations
@@ -57,106 +52,20 @@ def run_backend(
     backend: Backend, pdf_path: Path, output_path: Path, api_key: str | None
 ) -> str:
     """
-    지정 백엔드로 PDF → Markdown 변환.
+    autorag_parsers 레지스트리로 PDF → Markdown 변환.
 
     반환: 변환된 마크다운 문자열
     """
+    from autorag_parsers import get_parser
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if backend == "pymupdf":
-        import category1_simple as cat
+    parser = get_parser(backend)
+    result = parser.convert(str(pdf_path))
+    md_text = result.full_markdown
 
-        return cat.convert_pdf(str(pdf_path), str(output_path))
-
-    elif backend == "docling":
-        import category2_medium as cat
-
-        converter = cat.build_converter()
-        return cat.convert_pdf(str(pdf_path), str(output_path), converter=converter)
-
-    elif backend == "openai":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError("OpenAI 백엔드는 OPENAI_API_KEY 필요 (.env 또는 환경변수)")
-        import category3_openai as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4o")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "openai-4.1":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError("OpenAI 백엔드는 OPENAI_API_KEY 필요 (.env 또는 환경변수)")
-        import category3_openai as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4.1")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "upstage":
-        key = os.environ.get("UPSTAGE_API_KEY")
-        if not key:
-            raise ValueError(
-                "Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)"
-            )
-        import category3_upstage as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, mode="auto")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend == "upstage-enhanced":
-        key = os.environ.get("UPSTAGE_API_KEY")
-        if not key:
-            raise ValueError(
-                "Upstage 백엔드는 UPSTAGE_API_KEY 필요 (.env 또는 환경변수)"
-            )
-        import category3_upstage as cat
-
-        pages = cat.convert_pdf(str(pdf_path), key, mode="enhanced")
-        cat.save_markdown(pages, str(output_path))
-        return output_path.read_text(encoding="utf-8")
-
-    elif backend in ("paddleocr", "paddleocr-vl"):
-        # 로컬 패들 파이프라인 호출 (subprocess Worker 이용)
-        try:
-            import importlib
-
-            mod = importlib.import_module("backends.paddle_backend")
-            return mod.convert_pdf(str(pdf_path), str(output_path))
-        except ModuleNotFoundError:
-            raise NotImplementedError(
-                "backends.paddle_backend 패키지를 찾을 수 없습니다."
-            )
-
-    elif backend == "deepseek-ocr2":
-        # 로컬 격리 venv subprocess 실행 (MPS/CUDA/CPU 자동 선택)
-        # 사전 준비: bash pdf_parser/backends/setup_deepseek_venv.sh
-        try:
-            import importlib
-
-            mod = importlib.import_module("backends.deepseek_ocr2_backend")
-            return mod.convert_pdf(str(pdf_path), str(output_path))
-        except ModuleNotFoundError:
-            raise NotImplementedError(
-                "backends.deepseek_ocr2_backend 패키지를 찾을 수 없습니다."
-            )
-
-    elif backend == "mineru":
-        # Phase 2에서 backends/ 패키지 구현 예정
-        try:
-            import importlib
-
-            mod = importlib.import_module("backends.mineru")
-            return mod.convert_pdf(str(pdf_path), str(output_path))
-        except ModuleNotFoundError:
-            raise NotImplementedError(
-                "'mineru' 백엔드는 Phase 2에서 구현 예정입니다. "
-                "backends/ 패키지가 없습니다."
-            )
-    else:
-        raise ValueError(f"알 수 없는 백엔드: {backend}")
+    output_path.write_text(md_text, encoding="utf-8")
+    return md_text
 
 
 # ── 단일 스펙 실행 ────────────────────────────────────────────────────────────
@@ -372,7 +281,6 @@ def main() -> None:
             "upstage-enhanced",
             "paddleocr-vl",
             "deepseek-ocr2",
-            "mineru",
         ],
         help="단일 백엔드 지정 (--pdf와 함께 사용)",
     )
