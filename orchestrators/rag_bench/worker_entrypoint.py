@@ -38,7 +38,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 
 def env_bool(key: str) -> bool:
@@ -49,20 +49,20 @@ def env_bool(key: str) -> bool:
 # 직렬화 유틸
 # ---------------------------------------------------------------------------
 
+
 def serialize_documents(docs: list) -> list:
     """langchain Document → JSON-serializable dict."""
     return [
-        {"page_content": doc.page_content, "metadata": doc.metadata}
-        for doc in docs
+        {"page_content": doc.page_content, "metadata": doc.metadata} for doc in docs
     ]
 
 
 def deserialize_documents(data: list) -> list:
     """JSON dict → langchain Document."""
     from langchain_core.documents import Document
+
     return [
-        Document(page_content=d["page_content"], metadata=d["metadata"])
-        for d in data
+        Document(page_content=d["page_content"], metadata=d["metadata"]) for d in data
     ]
 
 
@@ -81,8 +81,12 @@ def serialize_parent_pairs(pairs: list) -> list:
 def deserialize_parent_pairs(data: list) -> list:
     """JSON → (parent_id, Document) 튜플 리스트."""
     from langchain_core.documents import Document
+
     return [
-        (d["parent_id"], Document(page_content=d["page_content"], metadata=d["metadata"]))
+        (
+            d["parent_id"],
+            Document(page_content=d["page_content"], metadata=d["metadata"]),
+        )
         for d in data
     ]
 
@@ -93,6 +97,7 @@ PREPARED_DIR_NAME = "prepared"
 # ===========================================================================
 # Phase 1: Prep
 # ===========================================================================
+
 
 def phase_prep():
     """카테고리 데이터 준비 + Contextual enrichment → PVC에 직렬화."""
@@ -110,23 +115,33 @@ def phase_prep():
     print(f"  Context LLM  : {contextual_llm}")
     print()
 
-    from rag_bench.config import setup_ssl_bypass
+    from autorag_retrieval.config import setup_ssl_bypass
+
     setup_ssl_bypass()
 
-    from rag_bench.document_types.types import DocType
+    from autorag_retrieval.document_types.types import DocType
+
     doc_type = DocType(category)
 
     # ── 1. HF 데이터 로드 + 청킹 ──────────────────────────────
     t0 = time.time()
     parent_pairs, child_chunks, qa_pairs = _load_hf_data(
-        doc_type, results_dir / category, max_corpus, max_queries,
+        doc_type,
+        results_dir / category,
+        max_corpus,
+        max_queries,
     )
     t_data = time.time() - t0
-    print(f"\n  데이터 준비: {len(child_chunks):,} children / {len(qa_pairs):,} QA ({t_data:.0f}s)")
+    print(
+        f"\n  데이터 준비: {len(child_chunks):,} children / {len(qa_pairs):,} QA ({t_data:.0f}s)"
+    )
 
     # ── 2. Contextual enrichment ───────────────────────────────
     t0 = time.time()
-    from rag_bench.strategies.contextual_retrieval import ContextualRetrievalStrategy
+    from autorag_retrieval.strategies.contextual_retrieval import (
+        ContextualRetrievalStrategy,
+    )
+
     cache_dir = results_dir / category / "ctx_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     ctx = ContextualRetrievalStrategy(
@@ -149,16 +164,19 @@ def phase_prep():
     _write_json(out_dir / "enriched_chunks.json", serialize_documents(enriched_chunks))
 
     # 완료 시그널
-    _write_json(out_dir / "DONE", {
-        "category": category,
-        "n_children": len(child_chunks),
-        "n_parents": len(parent_pairs),
-        "n_qa": len(qa_pairs),
-        "n_enriched": len(enriched_chunks),
-        "data_time_s": round(t_data, 1),
-        "enrich_time_s": round(t_enrich, 1),
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    })
+    _write_json(
+        out_dir / "DONE",
+        {
+            "category": category,
+            "n_children": len(child_chunks),
+            "n_parents": len(parent_pairs),
+            "n_qa": len(qa_pairs),
+            "n_enriched": len(enriched_chunks),
+            "data_time_s": round(t_data, 1),
+            "enrich_time_s": round(t_enrich, 1),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
 
     total = t_data + t_enrich
     print(f"\n  Phase 1 완료: {total:.0f}s ({total / 60:.1f}min)")
@@ -168,6 +186,7 @@ def phase_prep():
 # ===========================================================================
 # Phase 2: Bench
 # ===========================================================================
+
 
 def phase_bench():
     """단일 (카테고리 × 전략 조합) 벤치마크 실행."""
@@ -197,7 +216,8 @@ def phase_bench():
     print(f"  k={k}  pass1_only={pass1_only}  no_ragas={no_ragas}")
     print()
 
-    from rag_bench.config import setup_ssl_bypass
+    from autorag_retrieval.config import setup_ssl_bypass
+
     setup_ssl_bypass()
 
     # ── 1. 준비된 데이터 로드 ──────────────────────────────────
@@ -210,15 +230,21 @@ def phase_bench():
     child_chunks = deserialize_documents(_read_json(prep_dir / "child_chunks.json"))
     parent_pairs = deserialize_parent_pairs(_read_json(prep_dir / "parent_pairs.json"))
     qa_pairs = _read_json(prep_dir / "qa_pairs.json")
-    enriched_chunks = deserialize_documents(_read_json(prep_dir / "enriched_chunks.json"))
+    enriched_chunks = deserialize_documents(
+        _read_json(prep_dir / "enriched_chunks.json")
+    )
     t_load = time.time() - t0
-    print(f"  데이터 로드: {len(child_chunks):,} children, {len(enriched_chunks):,} enriched ({t_load:.1f}s)")
+    print(
+        f"  데이터 로드: {len(child_chunks):,} children, {len(enriched_chunks):,} enriched ({t_load:.1f}s)"
+    )
 
     # ── 2. 전략 빌드 ──────────────────────────────────────────
-    from rag_bench.combo import CacheConfig, ComboSpec, IndexCacheManager
-    from rag_bench.combo.builder import build_strategy_from_spec
+    from autorag_retrieval.combo import CacheConfig, ComboSpec, IndexCacheManager
+    from autorag_retrieval.combo.builder import build_strategy_from_spec
 
-    spec = ComboSpec(dense=dense, sparse=sparse, reranker=reranker, llm_support=llm_support)
+    spec = ComboSpec(
+        dense=dense, sparse=sparse, reranker=reranker, llm_support=llm_support
+    )
     cfg = CacheConfig(
         colbert_model=colbert_model,
         colbert_device="cpu",
@@ -245,13 +271,15 @@ def phase_bench():
     _release_memory()
 
     # ── 3. Pass 1: 레이턴시 ────────────────────────────────────
-    from rag_bench.runner import BenchmarkRunner
+    from autorag_retrieval.runner import BenchmarkRunner
 
     queries = [qa["question"] for qa in qa_pairs]
     ground_truths = [qa.get("ground_truth", "") for qa in qa_pairs]
 
     print(f"\n  Pass 1 — 레이턴시 (1 전략 x {len(queries)} 쿼리)")
-    runner = BenchmarkRunner(strategies=[strategy], queries=queries, k=k, evaluator=None)
+    runner = BenchmarkRunner(
+        strategies=[strategy], queries=queries, k=k, evaluator=None
+    )
     runner.run()
     runner.compare()
     latency_df = runner.to_dataframe()
@@ -259,13 +287,17 @@ def phase_bench():
     # ── 4. Pass 2: RAGAS 평가 ─────────────────────────────────
     ragas_df = None
     if not pass1_only and not no_ragas:
-        print(f"\n  Pass 2 — RAGAS 평가")
+        print("\n  Pass 2 — RAGAS 평가")
         try:
-            from rag_bench.evaluation import ExtendedRAGEvaluator
-            from rag_bench.evaluation.metrics import MetricPreset
+            from autorag_rag_eval import ExtendedRAGEvaluator
+            from autorag_rag_eval.metrics import MetricPreset
+
             evaluator = ExtendedRAGEvaluator(preset=MetricPreset("core_only"))
             eval_runner = BenchmarkRunner(
-                strategies=[strategy], queries=queries, k=k, evaluator=evaluator,
+                strategies=[strategy],
+                queries=queries,
+                k=k,
+                evaluator=evaluator,
             )
             eval_runner.inject_results(runner._results)
             ragas_df = eval_runner.evaluate(ground_truths=ground_truths)
@@ -289,25 +321,31 @@ def phase_bench():
 # 공통 유틸
 # ===========================================================================
 
+
 def _load_hf_data(doc_type, cat_dir: Path, max_corpus: int, max_queries: int) -> Tuple:
-    from rag_bench.datasets.hf_loader import HFDatasetLoader, beir_to_parent_child_chunks
-    from rag_bench.document_types.types import DocType
+    from autorag_retrieval.datasets.hf_loader import (
+        HFDatasetLoader,
+        beir_to_parent_child_chunks,
+    )
+    from autorag_retrieval.document_types.types import DocType
 
     loader = HFDatasetLoader(max_corpus=max_corpus, max_queries=max_queries)
     cache_dir = cat_dir / "hf_cache"
 
     source_names = {
-        DocType.GENERAL:   "miracl-ko",
-        DocType.LEGAL:     "markers_bm-law",
-        DocType.BUSINESS:  "markers_bm-finance+public+commerce",
-        DocType.MEDICAL:   "publichealth-qa-ko",
+        DocType.GENERAL: "miracl-ko",
+        DocType.LEGAL: "markers_bm-law",
+        DocType.BUSINESS: "markers_bm-finance+public+commerce",
+        DocType.MEDICAL: "publichealth-qa-ko",
         DocType.TECHNICAL: "nanobeir-ko-NanoSCIDOCS",
     }
     source_name = source_names.get(doc_type, "unknown")
 
     dataset = HFDatasetLoader.load_cache(cache_dir, source_name)
     if dataset:
-        print(f"  [캐시] {source_name} ({dataset.n_docs:,}docs / {dataset.n_queries:,}queries)")
+        print(
+            f"  [캐시] {source_name} ({dataset.n_docs:,}docs / {dataset.n_queries:,}queries)"
+        )
     else:
         print(f"  HuggingFace 데이터셋 로드: {doc_type.value}")
         dataset = loader.load(doc_type)
@@ -328,8 +366,12 @@ def _load_hf_data(doc_type, cat_dir: Path, max_corpus: int, max_queries: int) ->
 
 
 def _save_combo_result(
-    out_dir: Path, category: str, combo_label: str,
-    latency_df, ragas_df, qa_pairs: list,
+    out_dir: Path,
+    category: str,
+    combo_label: str,
+    latency_df,
+    ragas_df,
+    qa_pairs: list,
 ) -> None:
     if latency_df is not None:
         tmp = out_dir / "latency.csv.tmp"
@@ -350,11 +392,14 @@ def _save_combo_result(
 
     _write_json(out_dir / "result.json", result)
     # DONE은 반드시 마지막에 기록 — 수집기가 완료 판단에 사용
-    _write_json(out_dir / "DONE", {
-        "category": category,
-        "combo": combo_label,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    })
+    _write_json(
+        out_dir / "DONE",
+        {
+            "category": category,
+            "combo": combo_label,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
     print(f"  결과 저장: {out_dir}")
 
 
@@ -378,6 +423,7 @@ def _release_memory():
     gc.collect()
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except Exception:
@@ -388,6 +434,7 @@ def _release_memory():
 # Main
 # ===========================================================================
 
+
 def main():
     os.environ.setdefault("LLM_PROVIDER", "openai")
 
@@ -397,7 +444,9 @@ def main():
     elif phase == "bench":
         phase_bench()
     else:
-        print(f"ERROR: WORKER_PHASE 환경변수 필수 ('prep' 또는 'bench'). 현재: '{phase}'")
+        print(
+            f"ERROR: WORKER_PHASE 환경변수 필수 ('prep' 또는 'bench'). 현재: '{phase}'"
+        )
         sys.exit(1)
 
 

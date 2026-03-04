@@ -21,28 +21,58 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-# rag_bench 모듈 임포트
+# 패키지 임포트
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from rag_bench.analysis.ranker import RAGAS_WEIGHTS, RAGAS_COLS
+from autorag_rag_eval.constants import RAGAS_WEIGHTS, RAGAS_COLS
 
 # ---------------------------------------------------------------------------
 # 표시명 매핑
 # ---------------------------------------------------------------------------
 
 DENSE_DISPLAY = {
-    "bge-m3":      {"short": "BGE-M3",      "params": "570M", "note": "100+ 언어, MIRACL 한국어 SOTA", "type": "local"},
-    "e5":          {"short": "E5-multilingual", "params": "560M", "note": "다국어 E5, 명령어 prefix 방식", "type": "local"},
-    "kosimcse":    {"short": "KoSimCSE",     "params": "110M", "note": "한국어 SimCSE 대조 학습", "type": "local"},
-    "snowflake":   {"short": "Snowflake-KO", "params": "600M", "note": "한국어 실무 문서 SOTA", "type": "local"},
-    "text-embedding-3-large": {"short": "OpenAI (API)", "params": "—", "note": "text-embedding-3-large, 3072차원", "type": "api"},
-    "embedding-query": {"short": "Upstage Solar (API)", "params": "—", "note": "Upstage Solar Embedding, 4096차원", "type": "api"},
+    "bge-m3": {
+        "short": "BGE-M3",
+        "params": "570M",
+        "note": "100+ 언어, MIRACL 한국어 SOTA",
+        "type": "local",
+    },
+    "e5": {
+        "short": "E5-multilingual",
+        "params": "560M",
+        "note": "다국어 E5, 명령어 prefix 방식",
+        "type": "local",
+    },
+    "kosimcse": {
+        "short": "KoSimCSE",
+        "params": "110M",
+        "note": "한국어 SimCSE 대조 학습",
+        "type": "local",
+    },
+    "snowflake": {
+        "short": "Snowflake-KO",
+        "params": "600M",
+        "note": "한국어 실무 문서 SOTA",
+        "type": "local",
+    },
+    "text-embedding-3-large": {
+        "short": "OpenAI (API)",
+        "params": "—",
+        "note": "text-embedding-3-large, 3072차원",
+        "type": "api",
+    },
+    "embedding-query": {
+        "short": "Upstage Solar (API)",
+        "params": "—",
+        "note": "Upstage Solar Embedding, 4096차원",
+        "type": "api",
+    },
 }
 
 SPARSE_DISPLAY = {
     "korean_bm25": "BM25",
-    "splade":      "SPLADE",
+    "splade": "SPLADE",
 }
 
 RERANKER_DISPLAY = {
@@ -88,6 +118,7 @@ def _short_name(strategy: str) -> str:
 # ---------------------------------------------------------------------------
 # 데이터 로드 — K8s 콤보별 결과 병합
 # ---------------------------------------------------------------------------
+
 
 def load_k8s_results(run_dir: Path) -> Dict[str, dict]:
     """K8s 콤보별 result.json을 카테고리별로 병합."""
@@ -153,6 +184,7 @@ def load_k8s_latency(run_dir: Path) -> Dict[str, pd.DataFrame]:
 # 순위 계산
 # ---------------------------------------------------------------------------
 
+
 def rank_combos(
     raw_results: Dict[str, dict],
     latency: Dict[str, pd.DataFrame],
@@ -209,6 +241,7 @@ def rank_combos(
 # 보고서 렌더링
 # ---------------------------------------------------------------------------
 
+
 def generate_report(
     run_dir: Path,
     output_dir: Optional[Path] = None,
@@ -261,6 +294,7 @@ def generate_report(
 # Markdown 렌더러
 # ---------------------------------------------------------------------------
 
+
 def _render_markdown(
     run_dir: Path,
     raw_results: Dict[str, dict],
@@ -292,6 +326,7 @@ def _render_markdown(
 # ---------------------------------------------------------------------------
 # 커버
 # ---------------------------------------------------------------------------
+
 
 def _cover(
     generated_at: str,
@@ -342,6 +377,7 @@ def _cover(
 # ---------------------------------------------------------------------------
 # Executive Summary
 # ---------------------------------------------------------------------------
+
 
 def _exec_summary(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     # 사용된 리랭커 감지
@@ -418,9 +454,7 @@ def _exec_summary(ranked: Dict[str, pd.DataFrame]) -> List[str]:
                     f"| **{rank}** | **{name}** | **{composite:.4f}** | {strength} |"
                 )
             else:
-                lines.append(
-                    f"| {rank} | {name} | {composite:.4f} | {strength} |"
-                )
+                lines.append(f"| {rank} | {name} | {composite:.4f} | {strength} |")
 
         lines += [""]
 
@@ -486,6 +520,7 @@ def _derive_strength(row: pd.Series, df: pd.DataFrame) -> str:
 # Section 1: 배경
 # ---------------------------------------------------------------------------
 
+
 def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     n_combos = max(len(df) for df in ranked.values()) if ranked else 0
 
@@ -513,8 +548,8 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     if len(used_rerankers) == 1:
         reranker_name = next(iter(used_rerankers))
         biz_question = (
-            f"> **\"{reranker_name} Rerank를 적용한 상태에서, 어떤 Dense + Sparse 조합이**  \n"
-            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+            f'> **"{reranker_name} Rerank를 적용한 상태에서, 어떤 Dense + Sparse 조합이**  \n'
+            '> **가장 정확한 검색 결과를 제공하는가?"**'
         )
         pipeline_diagram = (
             f"질문 → [Dense 검색] + [Sparse 검색] → [{reranker_name} 리랭킹] → [LLM 답변 생성]\n"
@@ -524,8 +559,8 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     elif len(used_rerankers) >= 2:
         reranker_list = " / ".join(sorted(used_rerankers))
         biz_question = (
-            "> **\"어떤 Dense + Sparse + Reranker 조합이**  \n"
-            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+            '> **"어떤 Dense + Sparse + Reranker 조합이**  \n'
+            '> **가장 정확한 검색 결과를 제공하는가?"**'
         )
         pipeline_diagram = (
             f"질문 → [Dense 검색] + [Sparse 검색] → [리랭킹({reranker_list})] → [LLM 답변 생성]\n"
@@ -533,8 +568,8 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         )
     else:
         biz_question = (
-            "> **\"어떤 Dense + Sparse 조합이**  \n"
-            "> **가장 정확한 검색 결과를 제공하는가?\"**"
+            '> **"어떤 Dense + Sparse 조합이**  \n'
+            '> **가장 정확한 검색 결과를 제공하는가?"**'
         )
         pipeline_diagram = (
             "질문 → [Dense 검색] + [Sparse 검색] → [리랭킹] → [LLM 답변 생성]\n"
@@ -573,9 +608,13 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     if len(used_rerankers) == 1:
         reranker_name = next(iter(used_rerankers))
         if reranker_name == "ColBERT":
-            lines.append("| **ColBERT 리랭커** (jina-colbert-v2) | 최종 답변 후보를 토큰 수준으로 재정렬. 오답률 25% 감소 확인 (IBM). |")
+            lines.append(
+                "| **ColBERT 리랭커** (jina-colbert-v2) | 최종 답변 후보를 토큰 수준으로 재정렬. 오답률 25% 감소 확인 (IBM). |"
+            )
         elif reranker_name == "FlashRank":
-            lines.append("| **FlashRank 리랭커** | 경량 교차 인코더 기반 리랭킹. 속도 대비 품질 균형. |")
+            lines.append(
+                "| **FlashRank 리랭커** | 경량 교차 인코더 기반 리랭킹. 속도 대비 품질 균형. |"
+            )
 
     lines += [
         "| **Contextual 문맥 강화** | 검색 전 청크에 문맥을 AI로 추가. 검색 실패율 67% 감소 (Anthropic). |",
@@ -589,7 +628,9 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     for key in sorted(used_dense, key=lambda k: (DENSE_DISPLAY[k]["type"], k)):
         m = DENSE_DISPLAY[key]
         model_type = "로컬(HF)" if m["type"] == "local" else "API"
-        lines.append(f"| Dense | **{m['short']}** | {m['params']} | {m['note']} | {model_type} |")
+        lines.append(
+            f"| Dense | **{m['short']}** | {m['params']} | {m['note']} | {model_type} |"
+        )
 
     lines += [
         "| Sparse | **BM25** (OKt) | — | 한국어 형태소 기반 키워드 매칭 | — |",
@@ -613,10 +654,13 @@ def _section1_background(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 DATASET_INFO = {
-    "general":  {"source": "MIRACL(ko) + Ko-StrategyQA + Belebele + MrTiDy", "note": "위키피디아 기반 범용 질의응답"},
-    "legal":    {"source": "법률 QA 데이터셋", "note": "법률 문서 질의응답"},
+    "general": {
+        "source": "MIRACL(ko) + Ko-StrategyQA + Belebele + MrTiDy",
+        "note": "위키피디아 기반 범용 질의응답",
+    },
+    "legal": {"source": "법률 QA 데이터셋", "note": "법률 문서 질의응답"},
     "business": {"source": "비즈니스 QA 데이터셋", "note": "비즈니스 문서 질의응답"},
-    "medical":  {"source": "의료 QA 데이터셋", "note": "의료 문서 질의응답"},
+    "medical": {"source": "의료 QA 데이터셋", "note": "의료 문서 질의응답"},
     "technical": {"source": "기술 QA 데이터셋", "note": "기술 문서 질의응답"},
 }
 
@@ -635,7 +679,9 @@ def _section2_measurement(raw_results: Dict[str, dict]) -> List[str]:
         cat_key = category.lower()
         info = DATASET_INFO.get(cat_key, {"source": "—", "note": "—"})
         n_qa = data.get("n_qa", "?")
-        lines.append(f"| {category.upper()} | {info['source']} | {n_qa} | {info['note']} |")
+        lines.append(
+            f"| {category.upper()} | {info['source']} | {n_qa} | {info['note']} |"
+        )
 
     lines += [""]
     lines += [
@@ -664,6 +710,7 @@ def _section2_measurement(raw_results: Dict[str, dict]) -> List[str]:
 # Section 3: 종합 순위
 # ---------------------------------------------------------------------------
 
+
 def _section3_ranking(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     lines = [
         "## 3. 종합 성능 결과",
@@ -676,7 +723,7 @@ def _section3_ranking(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         lines += [
             f"### 3-{cat_idx}. {label} 카테고리",
             "",
-            f"#### 종합 순위표",
+            "#### 종합 순위표",
             "",
             "> 점수는 0~1 범위 (높을수록 우수). 1위 대비 차이(%p)를 병기합니다.",
             "",
@@ -758,7 +805,7 @@ def _derive_ranking_insights(df: pd.DataFrame) -> List[str]:
     else:
         lines += [
             f"**1. {top_name}가 종합 1위인 이유**",
-            f"> 모든 지표에서 균형 있게 높은 성능을 보여 가중 합산에서 최고 점수를 달성했습니다.",
+            "> 모든 지표에서 균형 있게 높은 성능을 보여 가중 합산에서 최고 점수를 달성했습니다.",
         ]
 
     if len(df) >= 2:
@@ -777,15 +824,15 @@ def _derive_ranking_insights(df: pd.DataFrame) -> List[str]:
             second_name = _short_name(df.iloc[1]["strategy"])
             lines += [
                 "**2. 1위와 2위 성능 차이가 미미**",
-                f"> 1위와 2위의 종합 점수 차이가 {gap_1_2:.4f} ({gap_1_2/float(df.iloc[0]['composite'])*100:.1f}%)로 "
+                f"> 1위와 2위의 종합 점수 차이가 {gap_1_2:.4f} ({gap_1_2 / float(df.iloc[0]['composite']) * 100:.1f}%)로 "
                 "통계적으로 유의미하지 않을 수 있습니다.",
-                f"> 두 조합 모두 실서비스 적용이 가능하며, **운영 비용·보안 요건**(API vs 로컬)에 따라 선택하는 것이 합리적입니다.",
+                "> 두 조합 모두 실서비스 적용이 가능하며, **운영 비용·보안 요건**(API vs 로컬)에 따라 선택하는 것이 합리적입니다.",
                 "",
             ]
         else:
             lines += [
                 "**2. 명확한 성능 우열 존재**",
-                f"> 1위와 2위의 종합 점수 차이가 {gap_1_2:.4f} ({gap_1_2/float(df.iloc[0]['composite'])*100:.1f}%)로 "
+                f"> 1위와 2위의 종합 점수 차이가 {gap_1_2:.4f} ({gap_1_2 / float(df.iloc[0]['composite']) * 100:.1f}%)로 "
                 "유의미한 차이입니다.",
                 "> 품질 중심 선택이 타당합니다.",
                 "",
@@ -836,6 +883,7 @@ def _derive_ranking_insights(df: pd.DataFrame) -> List[str]:
 # Section 4: 지표별 상세
 # ---------------------------------------------------------------------------
 
+
 def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     lines = [
         "## 4. 지표별 상세 분석",
@@ -843,17 +891,29 @@ def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     ]
 
     metric_info = [
-        ("faithfulness", "Faithfulness — 지어내지 않는 능력",
-         "답변이 검색된 문서 내용에 근거하는지 측정합니다. "
-         "할루시네이션(거짓 정보 생성) 방지의 핵심 지표입니다."),
-        ("context_recall", "Context Recall — 놓치지 않는 능력",
-         "정답에 필요한 문서를 빠짐없이 검색하는지 측정합니다. "
-         "정보 누락은 서비스 신뢰도를 직접 훼손합니다."),
-        ("context_precision", "Context Precision — 정확하게 찾는 능력",
-         "검색 결과 중 실제 관련 문서의 비율을 측정합니다. "
-         "불필요한 문서가 많으면 LLM 답변 품질이 저하됩니다."),
-        ("answer_relevancy", "Answer Relevancy — 질문에 답하는 능력",
-         "생성된 답변이 질문에 직접적으로 대응하는지 측정합니다."),
+        (
+            "faithfulness",
+            "Faithfulness — 지어내지 않는 능력",
+            "답변이 검색된 문서 내용에 근거하는지 측정합니다. "
+            "할루시네이션(거짓 정보 생성) 방지의 핵심 지표입니다.",
+        ),
+        (
+            "context_recall",
+            "Context Recall — 놓치지 않는 능력",
+            "정답에 필요한 문서를 빠짐없이 검색하는지 측정합니다. "
+            "정보 누락은 서비스 신뢰도를 직접 훼손합니다.",
+        ),
+        (
+            "context_precision",
+            "Context Precision — 정확하게 찾는 능력",
+            "검색 결과 중 실제 관련 문서의 비율을 측정합니다. "
+            "불필요한 문서가 많으면 LLM 답변 품질이 저하됩니다.",
+        ),
+        (
+            "answer_relevancy",
+            "Answer Relevancy — 질문에 답하는 능력",
+            "생성된 답변이 질문에 직접적으로 대응하는지 측정합니다.",
+        ),
     ]
 
     for cat_idx, (category, df) in enumerate(ranked.items(), 1):
@@ -886,7 +946,7 @@ def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
                 elif i == len(sorted_df) - 1:
                     gap = float(best[metric]) - float(row[metric])
                     note = f"최고 대비 −{gap:.4f}"
-                lines.append(f"| {i+1} | {name} | {score:.4f} | {note} |")
+                lines.append(f"| {i + 1} | {name} | {score:.4f} | {note} |")
 
             gap_total = float(best[metric]) - float(worst[metric])
             gap_pct = gap_total / float(best[metric]) * 100 if best[metric] > 0 else 0
@@ -894,8 +954,11 @@ def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
             lines += [
                 "",
                 f"> 전체 편차: {gap_total:.4f} ({gap_pct:.1f}%) — "
-                + ("조합 간 차이가 크므로 모델 선택이 중요합니다."
-                   if gap_pct > 5 else "조합 간 차이가 작아 이 지표만으로는 우열을 가리기 어렵습니다."),
+                + (
+                    "조합 간 차이가 크므로 모델 선택이 중요합니다."
+                    if gap_pct > 5
+                    else "조합 간 차이가 작아 이 지표만으로는 우열을 가리기 어렵습니다."
+                ),
                 "",
             ]
 
@@ -907,12 +970,11 @@ def _section4_metric_detail(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # Section 5: 레이턴시
 # ---------------------------------------------------------------------------
 
+
 def _section5_latency(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     """레이턴시 참고 섹션. 순위 판단에는 미반영."""
     # 레이턴시 데이터가 없으면 섹션 자체를 생략
-    has_latency = any(
-        pd.notna(df["avg_latency_ms"]).any() for df in ranked.values()
-    )
+    has_latency = any(pd.notna(df["avg_latency_ms"]).any() for df in ranked.values())
     if not has_latency:
         return []
 
@@ -944,7 +1006,11 @@ def _section5_latency(ranked: Dict[str, pd.DataFrame]) -> List[str]:
         for _, row in sorted_df.iterrows():
             name = _short_name(row["strategy"])
             avg = row["avg_latency_ms"] / 1000
-            med = row["median_latency_ms"] / 1000 if pd.notna(row.get("median_latency_ms")) else float("nan")
+            med = (
+                row["median_latency_ms"] / 1000
+                if pd.notna(row.get("median_latency_ms"))
+                else float("nan")
+            )
             med_str = f"{med:.0f}" if pd.notna(med) else "—"
             lines.append(f"| {name} | {avg:.0f} | {med_str} |")
 
@@ -956,6 +1022,7 @@ def _section5_latency(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # ---------------------------------------------------------------------------
 # Section 6: 모델 비교
 # ---------------------------------------------------------------------------
+
 
 def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     lines = [
@@ -998,13 +1065,15 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
                     if meta["short"] == name:
                         model_type = "API" if meta.get("type") == "api" else "로컬"
                         break
-                dense_summary.append({
-                    "name": name,
-                    "type": model_type,
-                    "composite": rdf["composite"].mean(),
-                    "recall": rdf["context_recall"].mean(),
-                    "faith": rdf["faithfulness"].mean(),
-                })
+                dense_summary.append(
+                    {
+                        "name": name,
+                        "type": model_type,
+                        "composite": rdf["composite"].mean(),
+                        "recall": rdf["context_recall"].mean(),
+                        "faith": rdf["faithfulness"].mean(),
+                    }
+                )
 
             dense_summary.sort(key=lambda x: -x["composite"])
             for ds in dense_summary:
@@ -1021,7 +1090,7 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
             gap = best_dense["composite"] - worst_dense["composite"]
             lines += [
                 f"> **{best_dense['name']}**가 평균 복합 점수 {best_dense['composite']:.4f}로 Dense 모델 중 1위.",
-                f"> 최하위({worst_dense['name']}) 대비 {gap:.4f} ({gap/best_dense['composite']*100:.1f}%) 우세.",
+                f"> 최하위({worst_dense['name']}) 대비 {gap:.4f} ({gap / best_dense['composite'] * 100:.1f}%) 우세.",
                 "",
             ]
 
@@ -1048,12 +1117,14 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
             sparse_summary = []
             for name, rows in sparse_groups.items():
                 rdf = pd.DataFrame(rows)
-                sparse_summary.append({
-                    "name": name,
-                    "composite": rdf["composite"].mean(),
-                    "recall": rdf["context_recall"].mean(),
-                    "precision": rdf["context_precision"].mean(),
-                })
+                sparse_summary.append(
+                    {
+                        "name": name,
+                        "composite": rdf["composite"].mean(),
+                        "recall": rdf["context_recall"].mean(),
+                        "precision": rdf["context_precision"].mean(),
+                    }
+                )
 
             sparse_summary.sort(key=lambda x: -x["composite"])
             for ss in sparse_summary:
@@ -1106,6 +1177,7 @@ def _section6_model_comparison(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # Section 7: 최종 추천
 # ---------------------------------------------------------------------------
 
+
 def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     lines = [
         "## 7. 최종 모델 선정 가이드",
@@ -1156,13 +1228,15 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
             if m.get("type") == "api"
         )
         if is_top_api:
-            local_only = df[~df["strategy"].apply(
-                lambda s: any(
-                    k.lower() in s.lower()
-                    for k, m in DENSE_DISPLAY.items()
-                    if m.get("type") == "api"
+            local_only = df[
+                ~df["strategy"].apply(
+                    lambda s: any(
+                        k.lower() in s.lower()
+                        for k, m in DENSE_DISPLAY.items()
+                        if m.get("type") == "api"
+                    )
                 )
-            )]
+            ]
             if not local_only.empty:
                 local_best = local_only.iloc[0]
                 local_best_name = _short_name(local_best["strategy"])
@@ -1183,40 +1257,42 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
             gap_1_2 = abs(float(top["composite"]) - float(second["composite"]))
             if gap_1_2 < 0.02 and is_top_api:
                 # 동점 구간이고 1위가 API → 로컬 모델 추천
-                local_only = df[~df["strategy"].apply(
-                    lambda s: any(
-                        k.lower() in s.lower()
-                        for k, m in DENSE_DISPLAY.items()
-                        if m.get("type") == "api"
+                local_only = df[
+                    ~df["strategy"].apply(
+                        lambda s: any(
+                            k.lower() in s.lower()
+                            for k, m in DENSE_DISPLAY.items()
+                            if m.get("type") == "api"
+                        )
                     )
-                )]
+                ]
                 if not local_only.empty:
                     local_best = local_only.iloc[0]
                     local_best_name = _short_name(local_best["strategy"])
                     lines += [
                         f"> **{local_best_name}**",
-                        f">",
+                        ">",
                         f"> 종합 점수 {local_best['composite']:.4f}로 1위({top_name}, {top['composite']:.4f})와 "
-                        f"{gap_1_2:.4f} ({gap_1_2/float(top['composite'])*100:.1f}%) 차이로 동등 수준이며, "
+                        f"{gap_1_2:.4f} ({gap_1_2 / float(top['composite']) * 100:.1f}%) 차이로 동등 수준이며, "
                         "로컬 실행으로 데이터 외부 전송 없이 보안을 확보할 수 있습니다.",
                     ]
                 else:
                     lines += [
                         f"> **{top_name}**",
-                        f">",
+                        ">",
                         f"> 종합 점수 {top['composite']:.4f}로 1위입니다.",
                     ]
             else:
                 lines += [
                     f"> **{top_name}**",
-                    f">",
+                    ">",
                     f"> 종합 점수 {top['composite']:.4f}로 1위이며, "
-                    f"2위 대비 {gap_1_2:.4f} ({gap_1_2/float(top['composite'])*100:.1f}%) 우세합니다.",
+                    f"2위 대비 {gap_1_2:.4f} ({gap_1_2 / float(top['composite']) * 100:.1f}%) 우세합니다.",
                 ]
         else:
             lines += [
                 f"> **{top_name}**",
-                f">",
+                ">",
                 f"> 종합 점수 {top['composite']:.4f}로 1위입니다.",
             ]
 
@@ -1231,7 +1307,9 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
     untested = all_categories - tested_categories
     if untested:
         untested_list = ", ".join(c.upper() for c in sorted(untested))
-        lines.append(f"- [ ] **추가 카테고리 벤치마크**: {untested_list} 카테고리에서 동일 조합 검증")
+        lines.append(
+            f"- [ ] **추가 카테고리 벤치마크**: {untested_list} 카테고리에서 동일 조합 검증"
+        )
 
     # 사용된 리랭커 확인
     used_rerankers = set()
@@ -1242,9 +1320,13 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
                     used_rerankers.add(rlabel)
 
     if "FlashRank" not in used_rerankers:
-        lines.append("- [ ] **FlashRank 리랭커 비교**: ColBERT 대비 경량 리랭커의 품질-속도 트레이드오프 확인")
+        lines.append(
+            "- [ ] **FlashRank 리랭커 비교**: ColBERT 대비 경량 리랭커의 품질-속도 트레이드오프 확인"
+        )
     if "ColBERT" not in used_rerankers:
-        lines.append("- [ ] **ColBERT 리랭커 비교**: FlashRank 대비 토큰 수준 리랭커의 품질 확인")
+        lines.append(
+            "- [ ] **ColBERT 리랭커 비교**: FlashRank 대비 토큰 수준 리랭커의 품질 확인"
+        )
 
     lines += [
         "- [ ] **분기별 재평가**: Dense 모델 신규 릴리스에 맞춘 정기 벤치마크 실행",
@@ -1258,6 +1340,7 @@ def _section7_recommendation(ranked: Dict[str, pd.DataFrame]) -> List[str]:
 # ---------------------------------------------------------------------------
 # 부록
 # ---------------------------------------------------------------------------
+
 
 def _appendix(
     ranked: Dict[str, pd.DataFrame],
@@ -1318,12 +1401,22 @@ def _appendix(
 
         for _, row in df.iterrows():
             rank = int(row["rank"])
-            lat_avg = row["avg_latency_ms"] / 1000 if pd.notna(row["avg_latency_ms"]) else "—"
-            lat_med = row["median_latency_ms"] / 1000 if pd.notna(row.get("median_latency_ms")) else "—"
+            lat_avg = (
+                row["avg_latency_ms"] / 1000 if pd.notna(row["avg_latency_ms"]) else "—"
+            )
+            lat_med = (
+                row["median_latency_ms"] / 1000
+                if pd.notna(row.get("median_latency_ms"))
+                else "—"
+            )
             lat_avg_str = f"{lat_avg:.1f}" if isinstance(lat_avg, float) else lat_avg
             lat_med_str = f"{lat_med:.1f}" if isinstance(lat_med, float) else lat_med
 
-            score_str = f"**{row['composite']:.4f}**" if rank == 1 else f"{row['composite']:.4f}"
+            score_str = (
+                f"**{row['composite']:.4f}**"
+                if rank == 1
+                else f"{row['composite']:.4f}"
+            )
             lines.append(
                 f"| {rank} | `{row['strategy']}` "
                 f"| {row['context_recall']:.4f} | {row['context_precision']:.4f} "
@@ -1357,6 +1450,7 @@ def _appendix(
 # 콘솔 요약 출력
 # ---------------------------------------------------------------------------
 
+
 def _print_summary(ranked: Dict[str, pd.DataFrame]) -> None:
     print("\n" + "=" * 60)
     print(" K8s 벤치마크 — 핵심 결론")
@@ -1376,13 +1470,15 @@ def _print_summary(ranked: Dict[str, pd.DataFrame]) -> None:
 # CLI 진입점
 # ---------------------------------------------------------------------------
 
+
 def main():
     import argparse
-    parser = argparse.ArgumentParser(
-        description="K8s 벤치마크 결과 — 보고서 생성"
-    )
+
+    parser = argparse.ArgumentParser(description="K8s 벤치마크 결과 — 보고서 생성")
     parser.add_argument("--run_dir", required=True, help="K8s 결과 디렉토리")
-    parser.add_argument("--output_dir", default=None, help="보고서 저장 위치 (기본: run_dir)")
+    parser.add_argument(
+        "--output_dir", default=None, help="보고서 저장 위치 (기본: run_dir)"
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)

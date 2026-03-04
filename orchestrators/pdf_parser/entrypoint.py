@@ -32,22 +32,25 @@ from pathlib import Path
 # ── 경로 설정 ────────────────────────────────────────────────────────────────
 sys.path.insert(0, "/app")
 
-RESULTS_DIR   = Path(os.environ.get("RESULTS_DIR", "/results"))
-BENCH_DIR     = Path(os.environ.get("BENCHMARK_PDFS_DIR", "/app/benchmark_pdfs"))
-GT_DIR        = BENCH_DIR / "gt"
+RESULTS_DIR = Path(os.environ.get("RESULTS_DIR", "/results"))
+BENCH_DIR = Path(os.environ.get("BENCHMARK_PDFS_DIR", "/app/benchmark_pdfs"))
+GT_DIR = BENCH_DIR / "gt"
 
 
 # ── 백엔드 디스패처 (runner.py와 동일 로직) ───────────────────────────────────
+
 
 def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if backend == "pymupdf":
         import category1_simple as cat
+
         return cat.convert_pdf(str(pdf_path), str(output_path))
 
     elif backend == "docling":
         import category2_medium as cat
+
         converter = cat.build_converter()
         return cat.convert_pdf(str(pdf_path), str(output_path), converter=converter)
 
@@ -56,6 +59,7 @@ def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
         if not key:
             raise ValueError("OPENAI_API_KEY 환경변수 필요")
         import category3_openai as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4o")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -65,6 +69,7 @@ def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
         if not key:
             raise ValueError("OPENAI_API_KEY 환경변수 필요")
         import category3_openai as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, model="gpt-4.1")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -74,6 +79,7 @@ def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
         if not key:
             raise ValueError("UPSTAGE_API_KEY 환경변수 필요")
         import category3_upstage as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, mode="auto")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -83,6 +89,7 @@ def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
         if not key:
             raise ValueError("UPSTAGE_API_KEY 환경변수 필요")
         import category3_upstage as cat
+
         pages = cat.convert_pdf(str(pdf_path), key, mode="enhanced")
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -90,6 +97,7 @@ def run_backend(backend: str, pdf_path: Path, output_path: Path) -> str:
     elif backend in ("granite-vision", "got-ocr2", "paddleocr-vl"):
         # K8s 내부 OCR 서비스 호출 (OpenAI-compatible API)
         import category3_opensource as cat
+
         pages = cat.convert_pdf(str(pdf_path), api_key="ollama", backend_key=backend)
         cat.save_markdown(pages, str(output_path))
         return output_path.read_text(encoding="utf-8")
@@ -109,7 +117,7 @@ def _save_metrics(
     error: str | None = None,
 ) -> None:
     """metrics.json 원자적 저장 + DONE 파일 생성."""
-    from benchmark.evaluator import evaluate_document
+    from autorag_pdf_eval.evaluator import evaluate_document
 
     if error:
         data = {
@@ -137,23 +145,25 @@ def _save_metrics(
             "error": None,
             "pages": [
                 {
-                    "page":        p.page,
-                    "text_ned":    round(p.text_ned, 4) if p.text_ned >= 0 else None,
-                    "table_teds":  round(p.table_teds, 4) if p.table_teds >= 0 else None,
-                    "speed_s":     round(p.speed_s, 3),
-                    "word_count":  p.word_count,
+                    "page": p.page,
+                    "text_ned": round(p.text_ned, 4) if p.text_ned >= 0 else None,
+                    "table_teds": round(p.table_teds, 4) if p.table_teds >= 0 else None,
+                    "speed_s": round(p.speed_s, 3),
+                    "word_count": p.word_count,
                     "has_headers": p.has_headers,
-                    "has_tables":  p.has_tables,
-                    "has_formulas":p.has_formulas,
+                    "has_tables": p.has_tables,
+                    "has_formulas": p.has_formulas,
                 }
                 for p in result.pages
             ],
             "summary": {
-                "avg_text_ned":   round(result.avg_text_ned, 4)   if result.pages else None,
-                "avg_table_teds": round(result.avg_table_teds, 4) if result.avg_table_teds >= 0 else None,
-                "avg_speed_s":    round(result.avg_speed, 3)      if result.pages else None,
-                "total_time_s":   round(result.total_time_s, 3)   if result.pages else None,
-                "total_words":    result.total_words,
+                "avg_text_ned": round(result.avg_text_ned, 4) if result.pages else None,
+                "avg_table_teds": round(result.avg_table_teds, 4)
+                if result.avg_table_teds >= 0
+                else None,
+                "avg_speed_s": round(result.avg_speed, 3) if result.pages else None,
+                "total_time_s": round(result.total_time_s, 3) if result.pages else None,
+                "total_words": result.total_words,
             },
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -166,9 +176,9 @@ def _save_metrics(
 
 
 def main() -> None:
-    backend  = os.environ.get("PDF_BACKEND", "")
+    backend = os.environ.get("PDF_BACKEND", "")
     pdf_name = os.environ.get("PDF_FILE", "")
-    mode     = os.environ.get("PARSE_MODE", "direct")
+    mode = os.environ.get("PARSE_MODE", "direct")
 
     if not backend or not pdf_name:
         print("오류: PDF_BACKEND, PDF_FILE 환경변수를 설정하세요.", file=sys.stderr)
@@ -180,7 +190,8 @@ def main() -> None:
         sys.exit(1)
 
     # GT 로드
-    from benchmark.spec import GT_MAP
+    from autorag_pdf_eval.spec import GT_MAP
+
     gt_name = GT_MAP.get(pdf_name)
     gt_text: str | None = None
     if gt_name:
@@ -191,7 +202,7 @@ def main() -> None:
     # 결과 디렉토리
     pdf_stem = pdf_name.replace(".pdf", "").replace("_", "-")
     label = f"{backend}-{pdf_stem}-{mode}"[:63]
-    result_dir  = RESULTS_DIR / label
+    result_dir = RESULTS_DIR / label
     result_dir.mkdir(parents=True, exist_ok=True)
     output_path = result_dir / "output.md"
 
@@ -203,15 +214,28 @@ def main() -> None:
     except Exception as e:
         speed_s = time.perf_counter() - t0
         print(f"[ERROR] {e}", file=sys.stderr)
-        _save_metrics(result_dir, backend, pdf_name, mode,
-                      pred_text="", gt_text=None,
-                      speed_s=speed_s, error=str(e))
+        _save_metrics(
+            result_dir,
+            backend,
+            pdf_name,
+            mode,
+            pred_text="",
+            gt_text=None,
+            speed_s=speed_s,
+            error=str(e),
+        )
         sys.exit(1)
 
     speed_s = time.perf_counter() - t0
-    _save_metrics(result_dir, backend, pdf_name, mode,
-                  pred_text=pred_text, gt_text=gt_text,
-                  speed_s=speed_s)
+    _save_metrics(
+        result_dir,
+        backend,
+        pdf_name,
+        mode,
+        pred_text=pred_text,
+        gt_text=gt_text,
+        speed_s=speed_s,
+    )
 
     print(f"[DONE]  {label}  {speed_s:.1f}s")
 

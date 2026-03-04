@@ -117,7 +117,7 @@ build_images() {
         --platform linux/amd64 \
         --push \
         -t "$IMAGE_PDF_PARSER" \
-        -f k8s/Dockerfile.pdf-parser \
+        -f deploy/k8s/dockerfiles/Dockerfile.pdf-parser \
         .
     ok "pdf-parser 이미지 완료"
 
@@ -128,7 +128,7 @@ build_images() {
         --platform linux/amd64 \
         --push \
         -t "$IMAGE_GOT_OCR2" \
-        -f k8s/Dockerfile.got-ocr2 \
+        -f deploy/k8s/dockerfiles/Dockerfile.got-ocr2 \
         .
     ok "got-ocr2 이미지 완료"
 
@@ -139,7 +139,7 @@ build_images() {
         --platform linux/amd64 \
         --push \
         -t "$IMAGE_PADDLEOCR_VL" \
-        -f k8s/Dockerfile.paddleocr-vl \
+        -f deploy/k8s/dockerfiles/Dockerfile.paddleocr-vl \
         .
     ok "paddleocr-vl 이미지 완료"
 

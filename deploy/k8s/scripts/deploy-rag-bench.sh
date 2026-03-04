@@ -100,7 +100,7 @@ build_image() {
         --platform linux/amd64 \
         --push \
         -t "$IMAGE_WORKER" \
-        -f k8s/Dockerfile \
+        -f deploy/k8s/dockerfiles/Dockerfile \
         .
     ok "worker 이미지 완료"
 

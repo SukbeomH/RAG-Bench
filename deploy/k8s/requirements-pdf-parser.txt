@@ -1,0 +1,16 @@
+# PDF Parser Benchmark Worker 의존성
+# category1 (PyMuPDF4LLM)
+pymupdf4llm>=0.0.17
+pymupdf>=1.24
+
+# category2 (Docling + 의존 패키지)
+docling>=2.0
+transformers>=4.40
+torch>=2.2
+
+# category3 (VLM APIs)
+openai>=1.0
+requests>=2.31
+
+# 벤치마크 유틸
+python-dotenv>=1.0

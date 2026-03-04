@@ -5,7 +5,7 @@
 # Build (프로젝트 루트에서):
 #   docker buildx build --platform linux/amd64 \
 #     -t $HARBOR_REGISTRY/rag-bench-test/pdf-parser:latest \
-#     -f k8s/Dockerfile.pdf-parser --load .
+#     -f deploy/k8s/dockerfiles/Dockerfile.pdf-parser --load .
 
 # ── Stage 1: 빌드 ──
 FROM python:3.12-slim AS builder
@@ -24,9 +24,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 # PDF 파서 의존성
-COPY k8s/requirements-pdf-parser.txt ./requirements.txt
+COPY deploy/k8s/requirements-pdf-parser.txt ./requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
+
+# autorag-pdf-eval 패키지 설치
+COPY packages/pdf-eval/ ./packages/pdf-eval/
+COPY packages/pdf-parsers/ ./packages/pdf-parsers/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir ./packages/pdf-parsers ./packages/pdf-eval
 
 # ── Stage 2: 런타임 ──
 FROM python:3.12-slim
@@ -46,13 +52,12 @@ COPY pdf_parser/category2_medium.py     ./category2_medium.py
 COPY pdf_parser/category3_openai.py     ./category3_openai.py
 COPY pdf_parser/category3_upstage.py    ./category3_upstage.py
 COPY pdf_parser/category3_opensource.py ./category3_opensource.py
-COPY pdf_parser/benchmark/              ./benchmark/
 
 # 벤치마크 PDF + GT 복사
-COPY pdf_parser/benchmark_pdfs/       ./benchmark_pdfs/
+COPY data/benchmark_pdfs/       ./benchmark_pdfs/
 
 # 워커 엔트리포인트
-COPY k8s/pdf_parser_entrypoint.py     ./pdf_parser_entrypoint.py
+COPY orchestrators/pdf_parser/entrypoint.py     ./pdf_parser_entrypoint.py
 
 ENV RESULTS_DIR=/results
 ENV BENCHMARK_PDFS_DIR=/app/benchmark_pdfs

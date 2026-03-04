@@ -3,7 +3,7 @@
 # 카테고리별 벤치마크를 K8s Job으로 실행하기 위한 워커 이미지.
 #
 # Build (프로젝트 루트에서):
-#   docker buildx build --platform linux/amd64 -t $HARBOR_REGISTRY/rag-bench-test/worker:latest -f k8s/Dockerfile --load .
+#   docker buildx build --platform linux/amd64 -t $HARBOR_REGISTRY/rag-bench-test/worker:latest -f deploy/k8s/dockerfiles/Dockerfile --load .
 
 # ── Stage 1: 빌드 (컴파일 의존성 포함) ──
 FROM python:3.12-slim AS builder
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 # 나머지 의존성 설치 (requirements 변경 시에만 재실행)
-COPY k8s/requirements-worker.txt ./requirements.txt
+COPY deploy/k8s/requirements-worker.txt ./requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
@@ -35,10 +35,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps && \
     pip uninstall -y $(pip list 2>/dev/null | grep -oP '^nvidia-\S+') triton 2>/dev/null; true
 
-# rag_bench 패키지 설치 (소스 변경 시에만 재실행)
-COPY pyproject.toml ./
-COPY rag_bench/ ./rag_bench/
-RUN pip install --no-cache-dir --no-deps .
+# 패키지 설치 (소스 변경 시에만 재실행)
+COPY packages/rag-retrieval/ ./packages/rag-retrieval/
+COPY packages/rag-eval/ ./packages/rag-eval/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir ./packages/rag-retrieval[colbert,flashrank,upstage] ./packages/rag-eval
 
 # ── Stage 2: 런타임 (경량) ──
 FROM python:3.12-slim
@@ -53,7 +54,7 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
-COPY k8s/worker_entrypoint.py ./worker_entrypoint.py
+COPY orchestrators/rag_bench/worker_entrypoint.py ./worker_entrypoint.py
 
 ENV HF_HOME=/models
 ENV TOKENIZERS_PARALLELISM=false

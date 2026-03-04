@@ -43,19 +43,18 @@ from typing import Optional
 
 # ── 상수 ─────────────────────────────────────────────────────────────────────
 
-NAMESPACE     = "rag-bench-test"
+NAMESPACE = "rag-bench-test"
 MANIFESTS_DIR = Path(__file__).parent / "manifests"
-JOB_TEMPLATE  = MANIFESTS_DIR / "pdf-parser-job-template.yaml"
+JOB_TEMPLATE = MANIFESTS_DIR / "pdf-parser-job-template.yaml"
 
 POLL_INTERVAL_S = 20  # Job 상태 폴링 간격 (초)
-MAX_PARALLEL    = 10  # 동시 실행 Job 상도
+MAX_PARALLEL = 10  # 동시 실행 Job 상도
 
-# spec 모듈 경로
-sys.path.insert(0, str(Path(__file__).parent.parent / "pdf_parser"))
-from benchmark.spec import BenchSpec, get_preset, GT_MAP
+from autorag_pdf_eval.spec import BenchSpec, get_preset, GT_MAP
 
 
 # ── kubectl 래퍼 ──────────────────────────────────────────────────────────────
+
 
 def kubectl(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     cmd = ["kubectl", "-n", NAMESPACE] + args
@@ -80,9 +79,11 @@ def delete_job(job_name: str) -> None:
 
 # ── 매니페스트 렌더링 ─────────────────────────────────────────────────────────
 
+
 def _k8s_safe(s: str) -> str:
     """K8s 이름 안전 문자열: 소문자, 숫자, 하이픈만, 최대 63자."""
     import re
+
     s = s.lower().replace("_", "-").replace(".", "-")
     s = re.sub(r"[^a-z0-9-]", "", s)
     return s[:63]
@@ -103,18 +104,18 @@ def render_job(
 
     template = JOB_TEMPLATE.read_text(encoding="utf-8")
     yaml_text = (
-        template
-        .replace("${JOB_NAME}", _k8s_safe(raw_name))
-        .replace("${RUN_ID}",   run_id)
-        .replace("${BACKEND}",  spec.backend)
+        template.replace("${JOB_NAME}", _k8s_safe(raw_name))
+        .replace("${RUN_ID}", run_id)
+        .replace("${BACKEND}", spec.backend)
         .replace("${PDF_FILE}", spec.pdf_name)
         .replace("${PARSE_MODE}", spec.mode)
-        .replace("${IMAGE}",    image)
+        .replace("${IMAGE}", image)
     )
     return yaml_text, job_name
 
 
 # ── Job 상태 조회 ─────────────────────────────────────────────────────────────
+
 
 def get_job_status(job_name: str) -> str:
     """'running' | 'succeeded' | 'failed' | 'unknown'"""
@@ -132,6 +133,7 @@ def get_job_status(job_name: str) -> str:
 
 
 # ── 결과 수집 ─────────────────────────────────────────────────────────────────
+
 
 def collect_results(run_id: str, results_base: Path) -> list[dict]:
     """
@@ -156,24 +158,35 @@ def collect_results(run_id: str, results_base: Path) -> list[dict]:
 
 
 def print_summary(results: list[dict]) -> None:
-    print(f"\n{'='*75}")
+    print(f"\n{'=' * 75}")
     print("결과 요약")
-    print(f"{'='*75}")
+    print(f"{'=' * 75}")
     print(f"{'백엔드':<12} {'PDF':<35} {'NED':>6} {'TEDS':>6} {'속도':>8} {'단어':>6}")
     print("-" * 75)
     for r in results:
         s = r.get("summary", {})
-        ned  = f"{s['avg_text_ned']:.3f}"   if s.get("avg_text_ned")   is not None else "  N/A"
-        teds = f"{s['avg_table_teds']:.3f}" if s.get("avg_table_teds") is not None else "  N/A"
-        spd  = f"{s['avg_speed_s']:.2f}s"  if s.get("avg_speed_s")    is not None else "  N/A"
-        w    = str(s.get("total_words", 0))
-        err  = r.get("error") or ""
-        tag  = f"  ERROR: {err[:30]}" if err else ""
-        print(f"{r['backend']:<12} {r['pdf_name']:<35} {ned:>6} {teds:>6} {spd:>8} {w:>6}{tag}")
-    print(f"{'='*75}\n")
+        ned = (
+            f"{s['avg_text_ned']:.3f}" if s.get("avg_text_ned") is not None else "  N/A"
+        )
+        teds = (
+            f"{s['avg_table_teds']:.3f}"
+            if s.get("avg_table_teds") is not None
+            else "  N/A"
+        )
+        spd = (
+            f"{s['avg_speed_s']:.2f}s" if s.get("avg_speed_s") is not None else "  N/A"
+        )
+        w = str(s.get("total_words", 0))
+        err = r.get("error") or ""
+        tag = f"  ERROR: {err[:30]}" if err else ""
+        print(
+            f"{r['backend']:<12} {r['pdf_name']:<35} {ned:>6} {teds:>6} {spd:>8} {w:>6}{tag}"
+        )
+    print(f"{'=' * 75}\n")
 
 
 # ── 메인 루프 ─────────────────────────────────────────────────────────────────
+
 
 def wait_for_job(job_name: str) -> str:
     """Job이 완료(succeeded/failed)될 때까지 블로킹. 최종 상태 반환.
@@ -204,8 +217,8 @@ def run_jobs(
     max_parallel: int = MAX_PARALLEL,
 ) -> None:
     total = len(specs)
-    print(f"\n{'='*75}")
-    print(f"PDF Parser K8s 벤치마크 시작")
+    print(f"\n{'=' * 75}")
+    print("PDF Parser K8s 벤치마크 시작")
     print(f"  조합 수  : {total}")
     print(f"  Run ID   : {run_id}")
     print(f"  네임스페이스: {NAMESPACE}")
@@ -213,7 +226,7 @@ def run_jobs(
     print(f"  동시 실행 : {max_parallel}")
     if dry_run:
         print("  [DRY-RUN 모드]")
-    print(f"{'='*75}\n")
+    print(f"{'=' * 75}\n")
 
     job_names: list[str] = []
     succeeded, failed = [], []
@@ -230,7 +243,9 @@ def run_jobs(
                 if not dry_run:
                     status = wait_for_job(job_name)
                     (succeeded if status == "succeeded" else failed).append(job_name)
-                    print(f"  [{('OK' if status=='succeeded' else 'FAIL')}] {job_name}")
+                    print(
+                        f"  [{('OK' if status == 'succeeded' else 'FAIL')}] {job_name}"
+                    )
                 continue
 
             print(f"[{idx:>3}/{total}] CREATE — {job_name}")
@@ -245,8 +260,10 @@ def run_jobs(
                 print(f"  대기 중... ({job_name})")
                 status = wait_for_job(job_name)
                 (succeeded if status == "succeeded" else failed).append(job_name)
-                print(f"  [{('OK' if status=='succeeded' else 'FAIL')}] {job_name}  "
-                      f"(성공 {len(succeeded)}, 실패 {len(failed)} / {idx})")
+                print(
+                    f"  [{('OK' if status == 'succeeded' else 'FAIL')}] {job_name}  "
+                    f"(성공 {len(succeeded)}, 실패 {len(failed)} / {idx})"
+                )
     else:
         # 병렬 실행: 전체 Job 일괄 생성 후 완료 대기
         for idx, spec in enumerate(specs, 1):
@@ -269,7 +286,9 @@ def run_jobs(
                 time.sleep(2)
 
         if dry_run:
-            print(f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)")
+            print(
+                f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)"
+            )
             return
 
         # Job 완료 대기
@@ -291,12 +310,16 @@ def run_jobs(
 
             pending = still_running
             if pending:
-                print(f"  대기 중 {len(pending)}개 / 완료 {len(succeeded)+len(failed)}개 "
-                      f"(성공 {len(succeeded)}, 실패 {len(failed)})")
+                print(
+                    f"  대기 중 {len(pending)}개 / 완료 {len(succeeded) + len(failed)}개 "
+                    f"(성공 {len(succeeded)}, 실패 {len(failed)})"
+                )
                 time.sleep(POLL_INTERVAL_S)
 
     if dry_run:
-        print(f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)")
+        print(
+            f"\n[DRY-RUN] {len(job_names)}개 Job 매니페스트 생성 완료 (실제 적용 안됨)"
+        )
         return
 
     print(f"\n완료: 성공 {len(succeeded)} / 실패 {len(failed)} / 전체 {len(job_names)}")
@@ -312,39 +335,69 @@ def run_jobs(
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="PDF Parser K8s 벤치마크 오케스트레이터",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--image", required=True,
-                        help="컨테이너 이미지 URI")
-    parser.add_argument("--preset", default=None,
-                        choices=["quick", "phase1", "phase2",
-                                 "vlm", "ocr", "vlm-all",
-                                 "tables", "graphs"],
-                        help="사전 정의된 조합 집합")
-    parser.add_argument("--backend", default=None,
-                        choices=["pymupdf", "docling",
-                                 "openai", "openai-4.1",
-                                 "upstage", "upstage-enhanced",
-                                 "granite-vision", "got-ocr2", "paddleocr-vl",
-                                 "mineru"],
-                        help="단일 백엔드 (--pdf와 함께)")
-    parser.add_argument("--pdf", default=None,
-                        help="단일 PDF 파일명 (--backend와 함께)")
-    parser.add_argument("--mode", default="direct",
-                        choices=["direct", "document", "hybrid"])
-    parser.add_argument("--run-id", default=None,
-                        help="실행 ID (기본: 타임스탬프)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="실제 Job 생성 없이 매니페스트만 검증")
-    parser.add_argument("--results-dir", default=None,
-                        help="PVC 결과 디렉토리 로컬 경로 (결과 수집용)")
-    parser.add_argument("--max-parallel", type=int, default=MAX_PARALLEL,
-                        help=f"동시 실행 Job 최대 수 (기본: {MAX_PARALLEL}, 1=순차 실행)")
-    parser.add_argument("--backends", default=None,
-                        help="프리셋에서 실행할 백엔드 필터 (쉼표 구분, 예: granite-vision,got-ocr2)")
+    parser.add_argument("--image", required=True, help="컨테이너 이미지 URI")
+    parser.add_argument(
+        "--preset",
+        default=None,
+        choices=[
+            "quick",
+            "phase1",
+            "phase2",
+            "vlm",
+            "ocr",
+            "vlm-all",
+            "tables",
+            "graphs",
+        ],
+        help="사전 정의된 조합 집합",
+    )
+    parser.add_argument(
+        "--backend",
+        default=None,
+        choices=[
+            "pymupdf",
+            "docling",
+            "openai",
+            "openai-4.1",
+            "upstage",
+            "upstage-enhanced",
+            "granite-vision",
+            "got-ocr2",
+            "paddleocr-vl",
+            "mineru",
+        ],
+        help="단일 백엔드 (--pdf와 함께)",
+    )
+    parser.add_argument(
+        "--pdf", default=None, help="단일 PDF 파일명 (--backend와 함께)"
+    )
+    parser.add_argument(
+        "--mode", default="direct", choices=["direct", "document", "hybrid"]
+    )
+    parser.add_argument("--run-id", default=None, help="실행 ID (기본: 타임스탬프)")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="실제 Job 생성 없이 매니페스트만 검증"
+    )
+    parser.add_argument(
+        "--results-dir", default=None, help="PVC 결과 디렉토리 로컬 경로 (결과 수집용)"
+    )
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=MAX_PARALLEL,
+        help=f"동시 실행 Job 최대 수 (기본: {MAX_PARALLEL}, 1=순차 실행)",
+    )
+    parser.add_argument(
+        "--backends",
+        default=None,
+        help="프리셋에서 실행할 백엔드 필터 (쉼표 구분, 예: granite-vision,got-ocr2)",
+    )
     args = parser.parse_args()
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M")
@@ -359,19 +412,25 @@ def main() -> None:
             if not specs:
                 parser.error(f"--backends 필터 결과 스펙 없음: {args.backends}")
     elif args.backend and args.pdf:
-        specs = [BenchSpec(
-            backend=args.backend,
-            pdf_name=args.pdf,
-            mode=args.mode,
-            gt_name=GT_MAP.get(args.pdf),
-        )]
+        specs = [
+            BenchSpec(
+                backend=args.backend,
+                pdf_name=args.pdf,
+                mode=args.mode,
+                gt_name=GT_MAP.get(args.pdf),
+            )
+        ]
     else:
         parser.error("--preset 또는 --backend + --pdf 를 지정하세요.")
 
-    run_jobs(specs, args.image, run_id,
-             dry_run=args.dry_run,
-             results_dir=results_dir,
-             max_parallel=args.max_parallel)
+    run_jobs(
+        specs,
+        args.image,
+        run_id,
+        dry_run=args.dry_run,
+        results_dir=results_dir,
+        max_parallel=args.max_parallel,
+    )
 
 
 if __name__ == "__main__":
