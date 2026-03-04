@@ -1,28 +1,39 @@
 # Current Session Context
 
 ## Session Narrative
-> On 2026-03-04, the developer completed E2E test suite for all 5 Python packages in the uv workspace. 48 tests passing, zero external dependencies.
+> On 2026-03-04 15:20:39, the developer was working on the **master** branch, modifying 10 files across `.,.gsd,.gsd/memories`. The recent work involved: fix: docling 파서 subprocess fallback + per-page 출력 정리.
 
 ## Context Snapshot
-- **Active Task**: E2E 테스트 스위트 작성 완료
+- **Active Task**: fix: docling 파서 subprocess fallback + per-page 출력 정리
 - **Branch**: master
-- **Last Updated**: 2026-03-04
+- **Files Changed**: 10
+- **Last Updated**: 2026-03-04 15:20:39
 
-## Completed This Session
-1. **conftest.py** (root): 공통 fixture (benchmark_pdf_dir, gt_dir, sample_pdf, table_pdf)
-2. **autorag_parsers** (7 tests): pymupdf 파싱, 청킹, ChunkProvenance, registry
-3. **autorag_pdf_eval** (11 tests): NED/TEDS 메트릭, evaluate_document, presets, GT_MAP 파일 존재
-4. **autorag_retrieval** (15 tests): ComboSpec, generate_combinations, DocType, model registry
-5. **autorag_rag_eval** (9 tests): RAGAS_WEIGHTS, MetricPreset, METRIC_REGISTRY
-6. **autorag_api** (6 tests): /health, /api/parse (pymupdf + invalid backend), schema validation
-7. **pyproject.toml**: pytest importmode=importlib 추가 (패키지별 tests/ 이름 충돌 해결)
-
-## Key Findings
-- API `/api/parse` 에러 핸들링 미비: 잘못된 backend → unhandled KeyError (향후 HTTPException으로 래핑 필요)
-- docling.py 수정: per-page 출력 + 의존성 충돌 해소 (이전 세션에서 수행)
+## Working Files
+```
+ M .gitignore
+ D .gsd/.modified-this-session
+ M .gsd/CURRENT.md
+?? .gsd/memories/codebase-map.md
+?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-15-09-47-master.md
+?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-15-12-14-master.md
+?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-15-14-36-master.md
+?? isolated_backends/docling/
+?? isolated_backends/paddleocr/
+?? pdf_parser/
+```
 
 ## Recent Commits
 ```
-9a45327 fix: docling per-page 출력 + 의존성 충돌 해소
-816c956 refactor: pdf_parser 레거시 삭제 + autorag_parsers 통합
+10ce3fa fix: docling 파서 subprocess fallback + per-page 출력 정리
+de537b0 chore: GSD 세션 핸드오프 + 메모리 업데이트
+f294ce7 test: 5개 패키지 E2E 테스트 스위트 48개 추가
+```
+
+## Diff Stats
+```
+ .gitignore                  |  3 ---
+ .gsd/.modified-this-session |  0
+ .gsd/CURRENT.md             | 40 +++++++++++++++++++++++-----------------
+ 3 files changed, 23 insertions(+), 20 deletions(-)
 ```
