@@ -70,3 +70,10 @@ packages/rag-frontend/out/
 
 # PaddleOCR fork
 PaddleOCR/
+
+# 레거시 대용량 디렉토리
+paddleocr_standalone/
+pdf_parser/backends/
+
+# Frontend 자동 생성
+packages/rag-frontend/next-env.d.ts

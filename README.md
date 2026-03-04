@@ -1,10 +1,8 @@
 # RAG Bench - 한국어 RAG 파이프라인 비교 평가
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/autorag/blob/main/rag_bench_colab/rag_benchmark.ipynb)
-
 한국어 문서(PDF)를 대상으로 다양한 RAG 파이프라인 성능을 정량 평가하는 프로젝트입니다.
 
-Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 다양한 전략 조합을 통일된 인터페이스로 비교합니다. 로컬(60개 조합), K8s 병렬(2-Phase), Google Colab 세 가지 실행 환경을 지원합니다.
+Strategy Pattern 기반 모듈화 벤치마크 시스템으로, RAGAS 평가를 통해 다양한 전략 조합을 통일된 인터페이스로 비교합니다. 로컬(60개 조합)과 K8s 병렬(2-Phase) 실행 환경을 지원합니다.
 
 > **최근 변경**: K8s 2-Phase 병렬 벤치마크 시스템 구축 — 문서 카테고리별(GENERAL/LEGAL/BUSINESS/MEDICAL) 6개 Dense×Sparse 조합을 EKS 클러스터에서 병렬 실행. ColBERT Reranker + Contextual Retrieval 고정 파이프라인.
 
@@ -308,31 +306,6 @@ uv run python -m rag_bench.scripts.prefetch_models
 
 ---
 
-## Google Colab 실행
-
-로컬 환경 없이 Google Colab T4 GPU에서 벤치마크를 실행할 수 있습니다.
-
-1. [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SukbeomH/autorag/blob/main/rag_bench_colab/rag_benchmark.ipynb) 클릭
-2. **런타임 → 런타임 유형 변경 → GPU (T4)** 선택
-3. Colab Secrets에 `OPENAI_API_KEY` 등록
-4. 노트북 셀 순서대로 실행
-
-### Colab 프리셋
-
-| 프리셋 | 조합 수 | Dense | Sparse | 예상 시간 | API 비용 |
-|--------|---------|-------|--------|----------|---------|
-| `quick` | 2 | bge-m3 (1종) | korean_bm25 (1종) | ~10분 | ~$0.3 |
-| `standard` | 20 | HF 3종 + 유료 2종 | 2종 | ~45분 | ~$2 |
-| `full` | 60 | 5종 | 2종 | ~3시간 | ~$5 |
-
-### Colab 특징
-
-- **Monkey-patch 접근**: `rag_bench` 코어 코드 수정 없이 런타임 패치로 Colab 환경 대응 (CUDA 디바이스, Qdrant 인메모리 등)
-- **체크포인트 시스템**: 전략별 JSON을 Google Drive에 저장. 12시간 세션 제한으로 커널이 재시작되어도 완료된 전략을 건너뛰고 이어서 실행
-- **Qdrant 3모드**: `ephemeral` (로컬), `drive` (Google Drive 영속), `memory` (인메모리)
-
----
-
 ## K8s 병렬 벤치마크
 
 EKS 클러스터에서 문서 카테고리별 벤치마크를 병렬 실행합니다. 서비스 모델 선정을 위한 대규모 벤치마크에 적합합니다.
@@ -379,8 +352,6 @@ python3 k8s/orchestrator.py --image $IMAGE --categories general,legal
 python3 k8s/orchestrator.py --image $IMAGE --categories general \
     --max-corpus 1000 --max-queries 50
 ```
-
-상세 배포 가이드: [`k8s/DEPLOY_GUIDE.md`](k8s/DEPLOY_GUIDE.md)
 
 ---
 
@@ -494,13 +465,6 @@ python3 k8s/orchestrator.py --image $IMAGE --categories general \
 │   ├── _benchdata/                    # 산출물 (.gitignore)
 │   │   └── run_history/               # 수행 이력 JSON + latest.json 심링크
 │   └── _models/                       # HF 모델 로컬 캐시 (.gitignore)
-├── rag_bench_colab/                   # Google Colab 벤치마크 환경
-│   ├── rag_benchmark.ipynb            # 메인 Colab 노트북 (9 섹션)
-│   ├── colab_config.py                # Colab 환경 설정 + monkey-patch
-│   ├── colab_runner.py                # 체크포인트 지원 벤치마크 러너
-│   ├── colab_visualizer.py            # 12개 시각화 함수 (수행 이력 4종 포함)
-│   ├── requirements_colab.txt         # Colab 전용 의존성
-│   └── data/                          # QA 데이터셋 + 문서 복사본
 └── scripts/                           # 환경 검증 스크립트
     ├── verify_env.py
     ├── verify_rag_bench.py
