@@ -411,7 +411,7 @@ def merge_results(
     bench_results: Dict[str, str],
 ) -> None:
     """수집된 (카테고리/조합) 결과를 merge_service_results 형식으로 재구성 후 병합."""
-    print(f"\n  결과 재구성 + 병합...")
+    print("\n  결과 재구성 + 병합...")
 
     # 부분 실패 감지
     for cat in categories:
@@ -469,27 +469,6 @@ def merge_results(
             encoding="utf-8",
         )
         print(f"    [{cat}] {found}/{expected_combos} 조합 → 통합 result.json")
-
-    # 기존 merge 스크립트 실행
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "rag_bench.scripts.merge_service_results",
-                "--run_dirs",
-                str(local_output),
-                "--output",
-                str(local_output / "merged_report.html"),
-            ],
-            check=True,
-        )
-        print(f"  병합 리포트: {local_output / 'merged_report.html'}")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print(f"  병합 스크립트 실행 실패. 수동 실행:")
-        print(
-            f"    python -m rag_bench.scripts.merge_service_results --run_dirs {local_output}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +800,7 @@ def main():
     n_fail = sum(1 for v in bench_results.values() if v != "succeeded")
 
     print(f"\n{'=' * 60}")
-    print(f" 완료")
+    print(" 완료")
     print(f"{'=' * 60}")
     print(f"  Run ID   : {run_id}")
     print(f"  성공     : {n_ok}/{len(bench_results)} Jobs")

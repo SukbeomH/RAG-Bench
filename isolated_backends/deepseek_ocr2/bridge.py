@@ -26,6 +26,7 @@ def _get_python() -> str:
         return str(VENV_PYTHON)
     # fallback: 현재 실행 중인 python (transformers 버전 호환 여부 주의)
     import sys
+
     print(
         f"  [DeepSeek] ⚠️  격리 venv 없음 ({VENV_PYTHON}). "
         "setup_deepseek_venv.sh 실행 권장. 현재 Python 사용.",
@@ -39,12 +40,15 @@ def convert_pdf(pdf_path: str, output_path: str) -> str:
     python = _get_python()
 
     env = os.environ.copy()
-    cert = "/Users/sukbeom/Documents/cert/combined-ca-bundle.pem"
-    if os.path.exists(cert):
+    cert = os.environ.get("SSL_CERT_BUNDLE", "")
+    if cert and os.path.exists(cert):
         env["SSL_CERT_FILE"] = cert
         env["REQUESTS_CA_BUNDLE"] = cert
 
-    print(f"  [DeepSeek-OCR-2] worker 실행: {Path(python).parent.parent.name}/python", flush=True)
+    print(
+        f"  [DeepSeek-OCR-2] worker 실행: {Path(python).parent.parent.name}/python",
+        flush=True,
+    )
 
     result = subprocess.run(
         [python, str(WORKER_SCRIPT), str(pdf_path)],
@@ -67,7 +71,7 @@ def convert_pdf(pdf_path: str, output_path: str) -> str:
             f"출력 토큰 없음. STDOUT:\n{stdout[:1000]}\nSTDERR:\n{result.stderr[-500:]}"
         )
 
-    json_str = stdout[stdout.find(START) + len(START): stdout.find(END)].strip()
+    json_str = stdout[stdout.find(START) + len(START) : stdout.find(END)].strip()
 
     try:
         data = json.loads(json_str)

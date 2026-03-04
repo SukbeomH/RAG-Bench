@@ -25,8 +25,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-SSL_CERT = "/Users/sukbeom/Documents/cert/combined-ca-bundle.pem"
-if os.path.exists(SSL_CERT):
+SSL_CERT = os.environ.get("SSL_CERT_BUNDLE", "")
+if SSL_CERT and os.path.exists(SSL_CERT):
     os.environ.setdefault("SSL_CERT_FILE", SSL_CERT)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", SSL_CERT)
 
@@ -36,6 +36,7 @@ DOC_PROMPT = "<image>\n<|grounding|>Convert the document to markdown."
 
 def _get_device():
     import torch
+
     if torch.backends.mps.is_available():
         return "mps"
     if torch.cuda.is_available():
@@ -50,7 +51,10 @@ def _load_model():
     device = _get_device()
     attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
 
-    print(f"[DeepSeek-OCR-2] 모델 로딩: {MODEL_NAME} | device={device} | attn={attn_impl}", file=sys.stderr)
+    print(
+        f"[DeepSeek-OCR-2] 모델 로딩: {MODEL_NAME} | device={device} | attn={attn_impl}",
+        file=sys.stderr,
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     model = AutoModel.from_pretrained(

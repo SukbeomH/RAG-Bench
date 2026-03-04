@@ -1,5 +1,6 @@
 # Python
 .venv/
+.venv*/
 __pycache__/
 *.pyc
 *.pyo
@@ -67,9 +68,6 @@ pdf_parser/bench_results/
 packages/rag-frontend/node_modules/
 packages/rag-frontend/.next/
 packages/rag-frontend/out/
-
-# PaddleOCR fork
-PaddleOCR/
 
 # 레거시 대용량 디렉토리
 paddleocr_standalone/

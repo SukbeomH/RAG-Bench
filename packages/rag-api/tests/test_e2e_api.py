@@ -43,13 +43,14 @@ class TestParseEndpoint:
         assert len(data["pages"]) > 0
 
     def test_parse_invalid_backend(self, client: TestClient, sample_pdf: Path) -> None:
-        with pytest.raises(Exception):
-            with open(sample_pdf, "rb") as f:
-                client.post(
-                    "/api/parse",
-                    files={"file": ("text_only.pdf", f, "application/pdf")},
-                    data={"backend": "nonexistent_backend_xyz"},
-                )
+        with open(sample_pdf, "rb") as f:
+            resp = client.post(
+                "/api/parse",
+                files={"file": ("text_only.pdf", f, "application/pdf")},
+                data={"backend": "nonexistent_backend_xyz"},
+            )
+        assert resp.status_code == 400
+        assert "nonexistent_backend_xyz" in resp.json()["detail"]
 
 
 class TestSchemaValidation:

@@ -7,9 +7,9 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from autorag_parsers import ChunkConfig, chunk_document, get_parser
+from autorag_parsers import ChunkConfig, available_backends, chunk_document, get_parser
 
 from autorag_api.schemas import PageResponse, ParseResponse
 
@@ -35,7 +35,13 @@ async def parse_pdf(
         tmp_path = tmp.name
 
     try:
-        parser = get_parser(backend)
+        try:
+            parser = get_parser(backend)
+        except KeyError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown backend '{backend}'. Available: {available_backends()}",
+            )
         result = parser.convert(tmp_path)
 
         doc_id = hashlib.sha256(tmp_path.encode()).hexdigest()[:12]

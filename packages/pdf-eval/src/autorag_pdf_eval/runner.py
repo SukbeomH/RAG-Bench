@@ -28,12 +28,10 @@ if _env_path.exists():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip())
 
-cert_path = os.environ.get("SSL_CERT_FILE", "")
-if not cert_path:
-    _default_cert = "/Users/sukbeom/Documents/cert/combined-ca-bundle.pem"
-    if os.path.exists(_default_cert):
-        os.environ["SSL_CERT_FILE"] = _default_cert
-        os.environ["REQUESTS_CA_BUNDLE"] = _default_cert
+_cert_bundle = os.environ.get("SSL_CERT_BUNDLE", "")
+if _cert_bundle and os.path.exists(_cert_bundle):
+    os.environ.setdefault("SSL_CERT_FILE", _cert_bundle)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", _cert_bundle)
 
 from autorag_pdf_eval.evaluator import BenchResult, evaluate_document
 from autorag_pdf_eval.spec import Backend, BenchSpec, GT_MAP, get_preset
@@ -136,14 +134,14 @@ def run_spec(
 
     if verbose:
         ned_str = (
-            f"NED={result.avg_text_ned:.3f}"
-            if result.pages[0].text_ned >= 0
+            f"NED={result.avg_edit_dist:.3f}"
+            if result.avg_edit_dist is not None
             else "NED=  N/A"
         )
         teds_str = (
-            f"TEDS={result.avg_table_teds:.3f}"
-            if result.avg_table_teds >= 0
-            else "TEDS=  N/A"
+            f"TEDS-H={result.avg_teds_html:.3f}"
+            if result.avg_teds_html is not None
+            else "TEDS-H=  N/A"
         )
         print(f"{ned_str}  {teds_str}  {speed_s:.1f}s  {result.total_words}w")
 
@@ -154,6 +152,17 @@ def _save_metrics(
     result: BenchResult, result_dir: Path, error: str | None = None
 ) -> None:
     """metrics.json 원자적 기록."""
+
+    def _omnidoc_dict(o) -> dict | None:
+        if o is None:
+            return None
+        return {
+            "edit_dist": o.edit_dist,
+            "bleu": o.bleu,
+            "meteor": o.meteor,
+            "teds_html": o.teds_html,
+        }
+
     data = {
         "backend": result.backend,
         "pdf_name": result.pdf_name,
@@ -162,21 +171,20 @@ def _save_metrics(
         "pages": [
             {
                 "page": p.page,
-                "text_ned": round(p.text_ned, 4) if p.text_ned >= 0 else None,
-                "table_teds": round(p.table_teds, 4) if p.table_teds >= 0 else None,
                 "speed_s": round(p.speed_s, 3),
                 "word_count": p.word_count,
                 "has_headers": p.has_headers,
                 "has_tables": p.has_tables,
                 "has_formulas": p.has_formulas,
+                "omnidoc": _omnidoc_dict(p.omnidoc),
             }
             for p in result.pages
         ],
         "summary": {
-            "avg_text_ned": round(result.avg_text_ned, 4) if result.pages else None,
-            "avg_table_teds": round(result.avg_table_teds, 4)
-            if result.avg_table_teds >= 0
-            else None,
+            "avg_edit_dist": result.avg_edit_dist,
+            "avg_bleu": result.avg_bleu,
+            "avg_meteor": result.avg_meteor,
+            "avg_teds_html": result.avg_teds_html,
             "avg_speed_s": round(result.avg_speed, 3) if result.pages else None,
             "total_time_s": round(result.total_time_s, 3) if result.pages else None,
             "total_words": result.total_words,
@@ -222,20 +230,26 @@ def run_all(
 
 def _print_summary(results: list[BenchResult]) -> None:
     """백엔드×문서유형 요약 테이블 출력."""
-    print(f"\n{'=' * 70}")
+    print(f"\n{'=' * 100}")
     print("결과 요약")
-    print(f"{'=' * 70}")
-    print(f"{'백엔드':<12} {'PDF':<35} {'NED':>6} {'TEDS':>6} {'속도':>7} {'단어':>6}")
-    print("-" * 70)
+    print(f"{'=' * 100}")
+    print(
+        f"{'백엔드':<12} {'PDF':<35} {'NED':>6} "
+        f"{'BLEU':>6} {'METEOR':>7} {'TEDS-H':>7} {'속도':>7} {'단어':>6}"
+    )
+    print("-" * 100)
     for r in results:
-        ned = (
-            f"{r.avg_text_ned:.3f}" if r.pages and r.pages[0].text_ned >= 0 else "  N/A"
-        )
-        teds = f"{r.avg_table_teds:.3f}" if r.avg_table_teds >= 0 else "  N/A"
+        ned = f"{r.avg_edit_dist:.3f}" if r.avg_edit_dist is not None else "  N/A"
+        bleu = f"{r.avg_bleu:.1f}" if r.avg_bleu is not None else "  N/A"
+        meteor = f"{r.avg_meteor:.1f}" if r.avg_meteor is not None else "    N/A"
+        teds_h = f"{r.avg_teds_html:.3f}" if r.avg_teds_html is not None else "    N/A"
         spd = f"{r.avg_speed:.2f}s"
         w = str(r.total_words)
-        print(f"{r.backend:<12} {r.pdf_name:<35} {ned:>6} {teds:>6} {spd:>7} {w:>6}")
-    print(f"{'=' * 70}\n")
+        print(
+            f"{r.backend:<12} {r.pdf_name:<35} {ned:>6} "
+            f"{bleu:>6} {meteor:>7} {teds_h:>7} {spd:>7} {w:>6}"
+        )
+    print(f"{'=' * 100}\n")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
