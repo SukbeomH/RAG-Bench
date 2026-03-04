@@ -301,6 +301,7 @@ source = { editable = "packages/rag-eval" }
 dependencies = [
     { name = "autorag-retrieval" },
     { name = "langchain-openai" },
+    { name = "pandas" },
     { name = "ragas" },
 ]
 
@@ -308,6 +309,7 @@ dependencies = [
 requires-dist = [
     { name = "autorag-retrieval", editable = "packages/rag-retrieval" },
     { name = "langchain-openai", specifier = ">=0.2" },
+    { name = "pandas", specifier = ">=2.0" },
     { name = "ragas", specifier = ">=0.4.3" },
 ]
 

@@ -3,6 +3,7 @@
 from autorag_rag_eval.constants import RAGAS_COLS, RAGAS_WEIGHTS
 from autorag_rag_eval.evaluator import EvaluationReport, ExtendedRAGEvaluator
 from autorag_rag_eval.metrics import MetricPreset
+from autorag_rag_eval.report import generate_report as generate_benchmark_report
 
 __all__ = [
     "RAGAS_COLS",
@@ -10,4 +11,5 @@ __all__ = [
     "EvaluationReport",
     "ExtendedRAGEvaluator",
     "MetricPreset",
+    "generate_benchmark_report",
 ]
