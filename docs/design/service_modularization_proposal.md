@@ -62,7 +62,7 @@ autorag/
 │       ├── generate_html_report.py
 │       └── prefetch_models.py
 │
-└── rag_bench_colab/                    # Google Colab 벤치마크 환경
+└── rag_bench_colab/                    # (삭제됨) Google Colab 벤치마크 환경
 ```
 
 ---
@@ -129,7 +129,7 @@ strategy.index(chunks)
 |------|------|------|
 | **BenchmarkRunner** | `runner.py` | 비교 실행 로직, RAGAS 통합에 결합 |
 | **run_all_combos.py** | `scripts/` | 72조합 오케스트레이션, IndexCacheManager 결합 |
-| **colab_runner.py** | `rag_bench_colab/` | Colab 체크포인트, Google Drive, monkey-patching |
+| **colab_runner.py** | `rag_bench_colab/` (삭제됨) | Colab 체크포인트, Google Drive, monkey-patching |
 | **generate_qa.py** | `scripts/` | 벤치마크 데이터 생성 전용 |
 | **ComboSpec / IndexCacheManager** | `run_all_combos.py` | 3-Layer 벤치마크 전용 구조 |
 

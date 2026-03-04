@@ -11,57 +11,45 @@ import os
 import fitz  # PyMuPDF
 from openai import OpenAI
 
-SYSTEM_PROMPT = """You are an expert document parser specializing in converting PDF pages to markdown format.
+SYSTEM_PROMPT = """**[Role & Objective]**
+당신은 복잡한 레이아웃을 가진 PDF 문서를 완벽한 구조의 마크다운(Markdown)으로 변환하는 최고 수준의 문서 분석 및 추출 AI입니다.
+당신의 유일한 목표는 제공된 문서 이미지에서 텍스트, 위계 구조(Hierarchy), 시각적 요소, 표(Table), 콜아웃(Callout) 등 모든 문서 요소를 단 하나의 누락이나 왜곡 없이 100% 동일하게 마크다운 문법으로 변환하는 것입니다.
 
-**Your task:**
-Extract ALL content from the provided page image and return it as clean, well-structured markdown.
+**[Core Principles: 절대 규칙]**
+1. **Zero Omission**: 원문의 텍스트, 띄어쓰기, 기호, 오탈자까지 임의로 수정하거나 생략하지 말고 그대로 추출하십시오.
+2. **No Yapping**: 인사말, 설명, 요약 등 변환 결과물 외의 어떠한 텍스트(메타 코멘트)도 출력하지 마십시오. 오직 마크다운 본문만 출력합니다.
 
-**Text Extraction Rules:**
-1. Preserve the EXACT text as written (including typos, formatting, special characters)
-2. Maintain the logical reading order (top-to-bottom, left-to-right)
-3. Preserve hierarchical structure using appropriate markdown headers (#, ##, ###)
-4. Keep paragraph breaks and line spacing as they appear
-5. Use markdown lists (-, *, 1.) for bullet points and numbered lists
-6. Preserve text emphasis: **bold**, *italic*, `code`
-7. For multi-column layouts, extract left column first, then right column
+**[Structural Guidelines: 위계 및 서식 지침]**
+1. **문서 위계구조(Hierarchy) 및 헤더 완벽 보존**:
+   - 폰트의 크기, 굵기(Bold), 색상, 들여쓰기, 번호 매기기(예: I, A, 1, a, • 등) 등 시각적 단서를 철저히 분석하여 문서의 위계 구조를 파악하십시오.
+   - 파악된 위계에 따라 대제목은 `#`, 중제목은 `##`, 소제목은 `###`부터 `######`까지 마크다운 헤더를 정확하게 매핑하십시오.
+   - 제목에 포함된 번호나 기호(예: "II. 주류 연구방향", "1)")도 생략하지 말고 포함하십시오.
 
-**Tables:**
-- Convert all tables to markdown table format
-- Preserve column alignment and structure
-- Use | for columns and - for headers
+2. **콜아웃(Callout) 및 인용구/박스 텍스트**:
+   - 본문과 분리된 배경색이 있는 박스, 요약 하이라이트, 콜아웃, 또는 인용구 형태의 텍스트는 마크다운 인용문 문법(`> `)을 사용하여 시각적으로 철저히 분리하십시오.
+   - 다중 단락으로 이루어진 콜아웃의 경우 모든 줄에 `> `를 적용하십시오.
 
-**Mathematical Formulas:**
-- Convert to LaTeX format: inline `$formula$`, display `$$formula$$`
-- If LaTeX conversion is uncertain, describe the formula clearly
+3. **표 (Table)**:
+   - 모든 표는 마크다운 테이블 문법(`|---|---|`)으로 변환하십시오.
+   - 병합된 셀(Merged Cells)이 있는 경우, 데이터의 의미가 훼손되지 않도록 병합된 모든 칸에 내용을 반복해서 채워 넣거나, 문맥에 맞게 풀어서 기입하십시오.
+   - 셀 내부의 줄바꿈은 반드시 `<br>` 태그를 사용하십시오.
+   - 표 내부의 숫자, 소수점, 단위는 반올림하거나 축약하지 마십시오.
 
-**Images, Diagrams, Charts:**
-- Insert markdown image placeholder: `![Description](image)`
-- Provide a detailed, informative description including:
-  * Type of visual (photo, diagram, chart, graph, illustration)
-  * Main subject or purpose
-  * Key elements, labels, or data points
-  * Colors, patterns, or notable visual features
-  * Context or relationship to surrounding text
-- For charts/graphs: mention axes, data trends, and key values
-- For diagrams: describe components and their relationships
+4. **이미지, 차트, 다이어그램 (Visual Elements)**:
+   - 문서 내의 이미지, 차트, 그래프는 `![설명](image)` 형태의 플레이스홀더로 대체하십시오.
+   - `[설명]` 영역에는 다음 요소가 빠짐없이 포함되어야 합니다:
+     (1) 차트/이미지의 종류 (막대형, 선형, 모식도 등)
+     (2) 제목 및 축 이름 (X축, Y축)
+     (3) 범례(Legend) 항목
+     (4) 차트에 명시된 핵심 데이터 값과 텍스트
+     (5) 보여주고자 하는 데이터의 추세나 시각적 핵심 포인트
 
-**Special Elements:**
-- Footnotes: Use markdown footnote syntax `[^1]`
-- Citations: Preserve as written
-- Code blocks: Use triple backticks with language specification
-- Quotes: Use `>` for blockquotes
-- Links: Preserve as `[text](url)` if visible
+5. **목록 (Lists)**:
+   - 글머리 기호(Bullet points)와 번호 매기기(Numbered lists)는 원문의 들여쓰기 깊이(Depth) 수준을 정확히 반영하여 `-` 또는 `1.` 형식으로 변환하십시오. 하위 목록은 들여쓰기(Space 2번 또는 4번)를 통해 계층을 명확히 하십시오.
 
-**Quality Guidelines:**
-- DO NOT add explanations, comments, or meta-information
-- DO NOT skip or summarize content
-- DO NOT invent or hallucinate text not present in the image
-- DO NOT include "Here is the markdown..." or similar preambles
-- Output ONLY the markdown content, nothing else
-
-**Output Format:**
-Return raw markdown with no wrapper, no code blocks, no explanations.
-Start immediately with the page content."""
+6. **메타데이터 (머리말, 꼬리말, 출처, 페이지 구분)**:
+   - 문서 상단/하단에 위치한 출처, 주석, 페이지 번호, 보고서명 등도 빠짐없이 텍스트로 추출하여 제 위치에 배치하십시오.
+   - 페이지가 넘어갈 때는 반드시 `---` (수평선)을 추가하고, 그 바로 위에 `` 주석을 달아 페이지 경계를 명확히 표시하십시오."""
 
 
 def convert_pdf(
@@ -108,10 +96,7 @@ def convert_pdf(
                         "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    "Convert this PDF page to clean, structured markdown. "
-                                    "Extract all text, describe images, and preserve the layout."
-                                ),
+                                "text": "이 PDF 페이지의 모든 내용을 마크다운으로 변환하십시오.",
                             },
                             {
                                 "type": "image_url",

@@ -132,6 +132,19 @@ def run_backend(
                 "backends.paddle_backend 패키지를 찾을 수 없습니다."
             )
 
+    elif backend == "deepseek-ocr2":
+        # 로컬 격리 venv subprocess 실행 (MPS/CUDA/CPU 자동 선택)
+        # 사전 준비: bash pdf_parser/backends/setup_deepseek_venv.sh
+        try:
+            import importlib
+
+            mod = importlib.import_module("backends.deepseek_ocr2_backend")
+            return mod.convert_pdf(str(pdf_path), str(output_path))
+        except ModuleNotFoundError:
+            raise NotImplementedError(
+                "backends.deepseek_ocr2_backend 패키지를 찾을 수 없습니다."
+            )
+
     elif backend == "mineru":
         # Phase 2에서 backends/ 패키지 구현 예정
         try:
@@ -342,6 +355,7 @@ def main() -> None:
             "vlm",
             "upstage-only",
             "ocr",
+            "deepseek",
             "vlm-all",
             "tables",
             "graphs",
@@ -359,6 +373,7 @@ def main() -> None:
             "upstage",
             "upstage-enhanced",
             "paddleocr-vl",
+            "deepseek-ocr2",
             "mineru",
         ],
         help="단일 백엔드 지정 (--pdf와 함께 사용)",

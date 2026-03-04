@@ -20,8 +20,9 @@ Backend = Literal[
     "openai-4.1",       # Category 3: VLM (GPT-4.1, 2025.04 최고성능)
     "upstage",          # Category 3: Document Parse API (auto mode)
     "upstage-enhanced", # Category 3: Document Parse API (enhanced mode, 차트·표 특화)
-    "paddleocr-vl",     # Category 3: PaddleOCR-VL-1.5 0.9B (K8s FastAPI)
-    "mineru",           # Phase 2 예정
+    "paddleocr-vl",     # Category 3: PaddleOCR-VL-1.5 0.9B (K8s FastAPI, CPU)
+    "deepseek-ocr2",    # Category 3: DeepSeek-OCR-2 (K8s FastAPI, GPU 필수)
+    "mineru",           # Phase 5 예정
 ]
 ParseMode = Literal["direct", "document", "hybrid"]
 
@@ -73,13 +74,14 @@ ALL_PDFS = list(GT_MAP.keys())
 
 EXISTING_BACKENDS: list[Backend] = ["pymupdf", "docling"]
 VLM_BACKENDS: list[Backend] = ["openai", "upstage", "upstage-enhanced"]
-OPENSOURCE_BACKENDS: list[Backend] = ["paddleocr-vl"]
+OPENSOURCE_BACKENDS: list[Backend] = ["paddleocr-vl", "deepseek-ocr2"]
 ALL_VLM_BACKENDS: list[Backend] = VLM_BACKENDS + OPENSOURCE_BACKENDS
 ALL_BACKENDS: list[Backend] = [
     "pymupdf", "docling",
     "openai", "openai-4.1",
     "upstage", "upstage-enhanced",
     "paddleocr-vl",
+    "deepseek-ocr2",
     "mineru",
 ]
 
@@ -116,8 +118,11 @@ PRESETS: dict[str, list[BenchSpec]] = {
     # Upstage 전용: upstage / upstage-enhanced × 11 PDF
     "upstage-only": _make_specs(["upstage", "upstage-enhanced"], ALL_PDFS),
 
-    # OCR 특화 오픈소스 모델: paddleocr-vl × 11 PDF
-    "ocr": _make_specs(OPENSOURCE_BACKENDS, ALL_PDFS),
+    # OCR 특화 오픈소스 모델: paddleocr-vl × 11 PDF (CPU)
+    "ocr": _make_specs(["paddleocr-vl"], ALL_PDFS),
+
+    # DeepSeek-OCR-2 전용 (GPU 필요)
+    "deepseek": _make_specs(["deepseek-ocr2"], ALL_PDFS),
 
     # VLM 전체 비교: 상용 + 오픈소스 × 11 PDF
     "vlm-all": _make_specs(ALL_VLM_BACKENDS, ALL_PDFS),

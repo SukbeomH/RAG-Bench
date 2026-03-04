@@ -181,4 +181,4 @@ ColBERT 리랭킹과 Contextual Retrieval은 **모든 조합에 고정 적용**�
 | `rag_bench/evaluation/evaluator.py` | RAGAS 1차 지표 계산 |
 | `rag_bench/run_tracker.py` | 실행 시간, 토큰 수 등 보조 참고값 기록 |
 | `rag_bench/analysis/reporter_exec.py` | 경영진 보고서 (1차 지표 중심 서술) |
-| `docs/report_design_exec.md` | 보고서 설계 근거 |
+| `docs/design/report_design_exec.md` | 보고서 설계 근거 |

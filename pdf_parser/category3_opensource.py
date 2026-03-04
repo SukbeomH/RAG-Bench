@@ -41,7 +41,7 @@ MODEL_PROFILES: dict[str, tuple[str, str]] = {
         "ibm/granite3.3-vision:2b",
         "http://ollama-server:11434/v1",
     ),
-    # FastAPI 서빙 (K8s 내부)
+    # FastAPI 서빙 (K8s 내부, CPU)
     "got-ocr2": (
         "got-ocr2",
         "http://got-ocr2-server:8000/v1",
@@ -49,6 +49,11 @@ MODEL_PROFILES: dict[str, tuple[str, str]] = {
     "paddleocr-vl": (
         "paddleocr-vl-1.5",
         "http://paddleocr-vl-server:8000/v1",
+    ),
+    # FastAPI 서빙 (K8s 내부, GPU 필수)
+    "deepseek-ocr2": (
+        "deepseek-ocr2",
+        "http://deepseek-ocr2-server:8000/v1",
     ),
 }
 
@@ -134,8 +139,7 @@ def convert_pdf(
                         "role": "user",
                         "content": [
                             {"type": "text", "text": (
-                                "Convert this PDF page to clean, structured markdown. "
-                                "Extract all text, describe images, and preserve the layout."
+                                "이 PDF 페이지의 모든 내용을 마크다운으로 변환하십시오."
                             )},
                             {"type": "image_url", "image_url": {
                                 "url": f"data:image/png;base64,{img_b64}",
