@@ -261,9 +261,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  python -m benchmark.runner --preset quick
-  python -m benchmark.runner --preset phase1 --output ./bench_results
-  python -m benchmark.runner --backend docling --pdf table_native.pdf
+  python -m autorag_pdf_eval.runner --preset quick
+  python -m autorag_pdf_eval.runner --preset phase1 --output ./bench_results
+  python -m autorag_pdf_eval.runner --backend docling --pdf table_native.pdf
+  python -m autorag_pdf_eval.runner --report-only --results-dir dir1,dir2
         """,
     )
     parser.add_argument(
@@ -314,9 +315,35 @@ def main() -> None:
         default=0.0,
         help="스펙 간 대기 시간(초) — API rate limit 회피용 (예: --delay 5)",
     )
+    parser.add_argument(
+        "--no-report",
+        action="store_true",
+        help="벤치마크 완료 후 보고서 자동 생성 건너뛰기",
+    )
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="벤치마크 실행 없이 기존 결과로 보고서만 생성 (--results-dir 필요)",
+    )
+    parser.add_argument(
+        "--results-dir",
+        default=None,
+        help="보고서 생성할 결과 디렉토리 (쉼표 구분, --report-only와 함께 사용)",
+    )
     args = parser.parse_args()
 
-    api_key = None  # 오픈소스 백엔드는 API 키 불필요 (K8s 로컬 서비스)
+    # report-only 모드
+    if args.report_only:
+        if not args.results_dir:
+            parser.error("--report-only 사용 시 --results-dir 를 지정하세요.")
+
+        from autorag_pdf_eval.report import generate_report
+
+        dirs = [Path(d.strip()) for d in args.results_dir.split(",")]
+        generate_report(dirs)
+        return
+
+    api_key = None
     output_dir = Path(args.output) / datetime.now().strftime("%Y%m%d-%H%M")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -338,6 +365,15 @@ def main() -> None:
     run_all(
         specs, output_dir, api_key=api_key, verbose=not args.quiet, delay_s=args.delay
     )
+
+    # 자동 보고서 생성
+    if not args.no_report:
+        try:
+            from autorag_pdf_eval.report import generate_report
+
+            generate_report([output_dir])
+        except Exception as e:
+            print(f"보고서 생성 실패 (무시): {e}")
 
 
 if __name__ == "__main__":
