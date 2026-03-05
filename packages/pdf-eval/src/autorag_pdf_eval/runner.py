@@ -120,8 +120,24 @@ def run_spec(
 
     speed_s = time.perf_counter() - t0
 
-    # 평가
+    # 정규화 적용
+    from autorag_pdf_eval.normalize import normalize_markdown
+
+    pred_norm, pred_log = normalize_markdown(pred_text)
+    gt_norm, gt_log = normalize_markdown(gt_text) if gt_text else (None, None)
+
+    # 정규화 후 평가 (보고서 기본 기준)
     result = evaluate_document(
+        pred_text=pred_norm,
+        gt_text=gt_norm,
+        speed_s=speed_s,
+        backend=spec.backend,
+        pdf_name=spec.pdf_name,
+        mode=spec.mode,
+    )
+
+    # raw 평가 (부록용)
+    result_raw = evaluate_document(
         pred_text=pred_text,
         gt_text=gt_text,
         speed_s=speed_s,
@@ -130,7 +146,12 @@ def run_spec(
         mode=spec.mode,
     )
 
-    _save_metrics(result, result_dir)
+    _save_metrics(
+        result,
+        result_dir,
+        raw_result=result_raw,
+        norm_log=pred_log,
+    )
 
     if verbose:
         ned_str = (
@@ -149,9 +170,13 @@ def run_spec(
 
 
 def _save_metrics(
-    result: BenchResult, result_dir: Path, error: str | None = None
+    result: BenchResult,
+    result_dir: Path,
+    error: str | None = None,
+    raw_result: BenchResult | None = None,
+    norm_log: object | None = None,
 ) -> None:
-    """metrics.json 원자적 기록."""
+    """metrics.json 원자적 기록 — normalized(기본) + raw(부록용)."""
 
     def _omnidoc_dict(o) -> dict | None:
         if o is None:
@@ -163,7 +188,18 @@ def _save_metrics(
             "teds_html": o.teds_html,
         }
 
-    data = {
+    def _summary_dict(r: BenchResult) -> dict:
+        return {
+            "avg_edit_dist": r.avg_edit_dist,
+            "avg_bleu": r.avg_bleu,
+            "avg_meteor": r.avg_meteor,
+            "avg_teds_html": r.avg_teds_html,
+            "avg_speed_s": round(r.avg_speed, 3) if r.pages else None,
+            "total_time_s": round(r.total_time_s, 3) if r.pages else None,
+            "total_words": r.total_words,
+        }
+
+    data: dict = {
         "backend": result.backend,
         "pdf_name": result.pdf_name,
         "mode": result.mode,
@@ -180,17 +216,21 @@ def _save_metrics(
             }
             for p in result.pages
         ],
-        "summary": {
-            "avg_edit_dist": result.avg_edit_dist,
-            "avg_bleu": result.avg_bleu,
-            "avg_meteor": result.avg_meteor,
-            "avg_teds_html": result.avg_teds_html,
-            "avg_speed_s": round(result.avg_speed, 3) if result.pages else None,
-            "total_time_s": round(result.total_time_s, 3) if result.pages else None,
-            "total_words": result.total_words,
-        },
+        "summary": _summary_dict(result),
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+    # raw (정규화 전) 결과 추가
+    if raw_result is not None:
+        data["raw_summary"] = _summary_dict(raw_result)
+
+    # 정규화 적용 로그 추가
+    if norm_log is not None:
+        data["normalization"] = {
+            "applied_rules": getattr(norm_log, "applied", {}),
+            "total_changes": getattr(norm_log, "total_changes", 0),
+        }
+
     tmp = result_dir / "metrics.json.tmp"
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.rename(result_dir / "metrics.json")

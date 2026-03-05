@@ -1151,6 +1151,66 @@ def render_report(
     w("3. 보고서는 수집된 metrics.json 데이터를 기반으로 자동 생성됨")
     w()
 
+    # ── 부록 F. 정규화(Normalization) 효과 분석 ──────────────────────────────
+    w("## 부록 F. 정규화(Normalization) 효과 분석")
+    w()
+    w("본 보고서의 모든 평가 지표는 **정규화 후** 텍스트를 기준으로 산출되었습니다.")
+    w(
+        "정규화는 파서 출력과 GT 간 서식 차이(내용 차이가 아닌)를 통일하여 공정한 비교를 보장합니다."
+    )
+    w("GT 텍스트에도 동일한 정규화가 적용됩니다.")
+    w()
+
+    # 정규화 규칙 설명 테이블
+    try:
+        from autorag_pdf_eval.normalize import RULE_DESCRIPTIONS
+    except ImportError:
+        RULE_DESCRIPTIONS = {}
+
+    if RULE_DESCRIPTIONS:
+        w("### F-1. 적용된 정규화 규칙")
+        w()
+        w("| # | 규칙 | 설명 |")
+        w("|---|------|------|")
+        for i, (rule_name, desc) in enumerate(RULE_DESCRIPTIONS.items(), 1):
+            w(f"| {i} | `{rule_name}` | {desc} |")
+        w()
+
+    # 백엔드별 정규화 효과 (raw_summary가 있는 경우)
+    has_raw = any(m.get("raw_summary") for m in metrics)
+    if has_raw:
+        w("### F-2. 백엔드별 정규화 효과 (ΔNED)")
+        w()
+        w("| 백엔드 | PDF | raw NED | norm NED | ΔNED | 적용 규칙 |")
+        w("|--------|-----|---------|----------|------|----------|")
+
+        for m in sorted(
+            metrics, key=lambda x: (x.get("backend", ""), x.get("pdf_name", ""))
+        ):
+            backend = m.get("backend", "")
+            pdf = m.get("pdf_name", "")
+            raw_s = m.get("raw_summary", {})
+            norm_s = m.get("summary", {})
+            norm_info = m.get("normalization", {})
+
+            raw_ned = raw_s.get("avg_edit_dist")
+            norm_ned = norm_s.get("avg_edit_dist")
+
+            if raw_ned is not None and norm_ned is not None:
+                delta = norm_ned - raw_ned
+                rules = norm_info.get("applied_rules", {})
+                rule_str = (
+                    ", ".join(f"{k}({v})" for k, v in rules.items()) if rules else "—"
+                )
+                w(
+                    f"| {backend} | {pdf} | {raw_ned:.4f} | {norm_ned:.4f} | {delta:+.4f} | {rule_str} |"
+                )
+
+        w()
+
+    w("---")
+    w()
+
     return "\n".join(lines)
 
 

@@ -251,6 +251,7 @@ class TestPDFRenderReport:
         assert "## 부록 C." in md
         assert "## 부록 D." in md
         assert "## 부록 E." in md
+        assert "## 부록 F." in md
 
     def test_all_backends_in_report(self, sample_metrics):
         avgs = compute_backend_averages(sample_metrics)
