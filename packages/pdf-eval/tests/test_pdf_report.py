@@ -134,7 +134,7 @@ def metrics_dir(tmp_path: Path, sample_metrics: list[dict]) -> Path:
 # ── load_results ─────────────────────────────────────────────────────────────
 
 
-class TestLoadResults:
+class TestPDFLoadResults:
     def test_loads_all(self, metrics_dir: Path):
         results = load_results([metrics_dir])
         assert len(results) == 6
@@ -180,7 +180,7 @@ class TestLoadResults:
 # ── compute_backend_averages ─────────────────────────────────────────────────
 
 
-class TestComputeBackendAverages:
+class TestPDFComputeBackendAverages:
     def test_basic(self, sample_metrics):
         avgs = compute_backend_averages(sample_metrics)
         assert "paddleocr-vl" in avgs
@@ -203,7 +203,7 @@ class TestComputeBackendAverages:
 # ── compute_weighted_scores ──────────────────────────────────────────────────
 
 
-class TestComputeWeightedScores:
+class TestPDFComputeWeightedScores:
     def test_total_is_sum_of_weighted(self, sample_metrics):
         avgs = compute_backend_averages(sample_metrics)
         scores = compute_weighted_scores(avgs)
@@ -227,7 +227,7 @@ class TestComputeWeightedScores:
 # ── render_report ────────────────────────────────────────────────────────────
 
 
-class TestRenderReport:
+class TestPDFRenderReport:
     def test_contains_all_sections(self, sample_metrics):
         avgs = compute_backend_averages(sample_metrics)
         ws = compute_weighted_scores(avgs)
@@ -243,10 +243,9 @@ class TestRenderReport:
         assert "### 6-1." in md
         assert "### 6-2." in md
         assert "### 6-3." in md
-        assert "## 7. 비용 분석" in md
-        assert "## 8. 리스크 평가" in md
-        assert "## 9. 추천" in md
-        assert "## 10. 다음 단계" in md
+        assert "## 7. 리소스 효율성" in md
+        assert "## 8. 추천" in md
+        assert "## 9. 다음 단계" in md
         assert "## 부록 A." in md
         assert "## 부록 B." in md
         assert "## 부록 C." in md
@@ -273,7 +272,7 @@ class TestRenderReport:
 # ── generate_report (E2E) ────────────────────────────────────────────────────
 
 
-class TestGenerateReport:
+class TestPDFGenerateReport:
     def test_generates_file(self, metrics_dir: Path, tmp_path: Path):
         out = tmp_path / "output" / "report.md"
         result = generate_report([metrics_dir], output_path=out)

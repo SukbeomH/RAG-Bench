@@ -1,11 +1,14 @@
 """
 OmniDocBench 호환 평가 메트릭 — Edit Distance, BLEU, METEOR, TEDS-HTML
 
-CVPR 2025 OmniDocBench 벤치마크의 평가 방법론을 경량 구현.
-- Edit_dist (NED): Normalized Edit Distance (Levenshtein)
+CVPR 2025 OmniDocBench 벤치마크의 평가 방법론을 구현.
+- Edit_dist (NED): Normalized Edit Distance (rapidfuzz Levenshtein)
 - BLEU-4: n-gram 정밀도 (nltk)
 - METEOR: 정밀도+재현율+어순 (nltk)
-- TEDS-HTML: HTML 트리 편집 거리 (apted)
+- TEDS-HTML: IBM 원본 Tree Edit Distance based Similarity (lxml + apted)
+
+TEDS 구현은 OmniDocBench (Apache-2.0) 및 IBM TEDS 원본을 벤더링.
+https://github.com/opendatalab/OmniDocBench
 """
 
 from __future__ import annotations
@@ -28,35 +31,15 @@ class OmniDocScore:
 # ── Edit Distance (NED) ──────────────────────────────────────────────────────
 
 
-def _levenshtein(s1: str, s2: str) -> int:
-    """Levenshtein edit distance (문자 단위)."""
-    if len(s1) < len(s2):
-        s1, s2 = s2, s1
-    if not s2:
-        return len(s1)
-
-    prev = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1, 1):
-        curr = [i]
-        for j, c2 in enumerate(s2, 1):
-            curr.append(
-                min(
-                    prev[j] + 1,
-                    curr[j - 1] + 1,
-                    prev[j - 1] + (c1 != c2),
-                )
-            )
-        prev = curr
-    return prev[-1]
-
-
 def compute_text_ned(pred: str, gt: str) -> float:
     """
     Normalized Edit Distance 기반 텍스트 정확도.
 
-    NED = 1 - (edit_distance / max(len(pred), len(gt)))
+    OmniDocBench Edit_dist 방식: 1 - (levenshtein / max_len).
     반환값: 0.0 ~ 1.0  (1.0 = 완벽 일치)
     """
+    from rapidfuzz.distance import Levenshtein
+
     pred = re.sub(r"\s+", " ", pred.strip())
     gt = re.sub(r"\s+", " ", gt.strip())
 
@@ -64,14 +47,7 @@ def compute_text_ned(pred: str, gt: str) -> float:
     if max_len == 0:
         return 1.0
 
-    if max_len > 5000:
-        pred_words = pred.split()
-        gt_words = gt.split()
-        dist = _levenshtein(" ".join(pred_words), " ".join(gt_words))
-        max_len = max(len(" ".join(pred_words)), len(" ".join(gt_words)))
-    else:
-        dist = _levenshtein(pred, gt)
-
+    dist = Levenshtein.distance(pred, gt)
     return max(0.0, 1.0 - dist / max_len)
 
 
@@ -122,7 +98,6 @@ def compute_meteor(pred: str, gt: str) -> float | None:
     except ImportError:
         return None
 
-    # wordnet 자동 다운로드 (quiet=True → 이미 있으면 무시)
     nltk.download("wordnet", quiet=True)
 
     pred_tokens = pred.strip().split()
@@ -141,7 +116,7 @@ def compute_meteor(pred: str, gt: str) -> float | None:
 
 
 def _extract_md_tables(text: str) -> list[list[list[str]]]:
-    """마크다운에서 테이블 추출. evaluator.py _extract_tables와 동일 로직."""
+    """마크다운에서 테이블 추출."""
     tables: list[list[list[str]]] = []
     current: list[list[str]] = []
 
@@ -164,11 +139,14 @@ def _extract_md_tables(text: str) -> list[list[list[str]]]:
 
 
 def _md_table_to_html(rows: list[list[str]]) -> str:
-    """마크다운 테이블 행 → HTML <table> 변환."""
-    if not rows:
-        return "<table></table>"
+    """마크다운 테이블 행 → HTML 문서 변환.
 
-    parts = ["<table>"]
+    IBM TEDS는 ``body/table`` xpath를 사용하므로 완전한 HTML 문서로 생성.
+    """
+    if not rows:
+        return "<html><body><table></table></body></html>"
+
+    parts = ["<html><body><table>"]
     for i, row in enumerate(rows):
         parts.append("<tr>")
         tag = "th" if i == 0 else "td"
@@ -176,64 +154,31 @@ def _md_table_to_html(rows: list[list[str]]) -> str:
             escaped = html.escape(cell)
             parts.append(f"<{tag}>{escaped}</{tag}>")
         parts.append("</tr>")
-    parts.append("</table>")
+    parts.append("</table></body></html>")
     return "".join(parts)
 
 
-# ── TEDS-HTML ────────────────────────────────────────────────────────────────
+# ── TEDS-HTML (IBM 원본 via OmniDocBench) ────────────────────────────────────
 
 
-def _html_to_tree(html_str: str):
-    """HTML 문자열 → apted Node 트리."""
-
-    # 간단한 재귀 파서: 태그 기반 트리 구축
-    import xml.etree.ElementTree as ET
-
-    try:
-        root = ET.fromstring(html_str)
-    except ET.ParseError:
-        return None
-
-    class _Node:
-        def __init__(self, name: str, children: list | None = None):
-            self.name = name
-            self.children = children or []
-
-    def _build(elem: ET.Element) -> _Node:
-        tag = elem.tag
-        text = (elem.text or "").strip()
-        children = [_build(child) for child in elem]
-        if text and not children:
-            # 리프 노드: 태그 + 텍스트 내용
-            return _Node(tag, [_Node(text)])
-        return _Node(tag, children)
-
-    return _build(root)
-
-
-def _get_apted_config():
-    """apted Config 서브클래스를 지연 생성."""
-    from apted import Config as _BaseConfig
-
-    class _Cfg(_BaseConfig):
-        def rename(self, node1, node2):
-            return 0 if node1.name == node2.name else 1
-
-        def children(self, node):
-            return node.children
-
-    return _Cfg()
-
-
-def compute_teds_html(pred: str, gt: str) -> float | None:
+def compute_teds_html(
+    pred: str, gt: str, *, structure_only: bool = False
+) -> float | None:
     """
-    HTML 트리 기반 TEDS (0~1).
+    IBM TEDS (Tree Edit Distance based Similarity) (0~1).
 
-    마크다운에서 테이블을 추출 → HTML 변환 → apted 트리 편집 거리.
+    OmniDocBench에서 벤더링한 IBM 원본 TEDS 구현 사용:
+    - lxml HTML 파싱 (malformed HTML 허용)
+    - colspan/rowspan 지원
+    - Levenshtein 기반 셀 토큰 비교
+    - apted Tree 서브클래스 (TableTree)
+
+    마크다운에서 테이블 추출 → HTML 변환 → IBM TEDS evaluate.
     GT에 테이블 없으면 -1.0, pred에 테이블 없으면 0.0.
+    structure_only=True → 셀 내용 무시, 구조만 비교.
     """
     try:
-        from apted import APTED
+        from autorag_pdf_eval._vendor_teds import TEDS
     except ImportError:
         return None
 
@@ -245,33 +190,17 @@ def compute_teds_html(pred: str, gt: str) -> float | None:
     if not pred_tables:
         return 0.0
 
+    teds = TEDS(structure_only=structure_only)
+
     scores: list[float] = []
     for gt_tbl in gt_tables:
         gt_html = _md_table_to_html(gt_tbl)
-        gt_tree = _html_to_tree(gt_html)
-        if gt_tree is None:
-            continue
 
         best = 0.0
         for pred_tbl in pred_tables:
             pred_html = _md_table_to_html(pred_tbl)
-            pred_tree = _html_to_tree(pred_html)
-            if pred_tree is None:
-                continue
-
-            apted_inst = APTED(pred_tree, gt_tree, _get_apted_config())
-            edit_dist = apted_inst.compute_edit_distance()
-
-            # 트리 크기: 노드 수
-            def _count(node) -> int:
-                return 1 + sum(_count(c) for c in node.children)
-
-            max_nodes = max(_count(pred_tree), _count(gt_tree))
-            if max_nodes == 0:
-                sim = 1.0
-            else:
-                sim = max(0.0, 1.0 - edit_dist / max_nodes)
-            best = max(best, sim)
+            score = teds.evaluate(pred_html, gt_html)
+            best = max(best, score)
 
         scores.append(best)
 

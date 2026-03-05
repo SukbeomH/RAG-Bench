@@ -12,7 +12,6 @@ from autorag_pdf_eval.evaluator import (
 from autorag_pdf_eval.omnidoc_metrics import (
     OmniDocScore,
     _extract_md_tables,
-    _levenshtein,
     _md_table_to_html,
     compute_text_ned,
 )
@@ -24,20 +23,32 @@ from autorag_pdf_eval.spec import GT_MAP, BenchSpec, get_preset
 
 class TestLevenshtein:
     def test_identical_strings(self):
-        assert _levenshtein("abc", "abc") == 0
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("abc", "abc") == 0
 
     def test_empty_strings(self):
-        assert _levenshtein("", "") == 0
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("", "") == 0
 
     def test_one_empty(self):
-        assert _levenshtein("abc", "") == 3
-        assert _levenshtein("", "xy") == 2
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("abc", "") == 3
+        assert Levenshtein.distance("", "xy") == 2
 
     def test_single_edit(self):
-        assert _levenshtein("cat", "hat") == 1
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("cat", "hat") == 1
 
     def test_swap_order_same_result(self):
-        assert _levenshtein("short", "longer") == _levenshtein("longer", "short")
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("short", "longer") == Levenshtein.distance(
+            "longer", "short"
+        )
 
 
 # ── compute_text_ned ─────────────────────────────────────────────────────────
@@ -88,7 +99,7 @@ class TestExtractMdTables:
 
 class TestMdTableToHtml:
     def test_empty_rows(self):
-        assert _md_table_to_html([]) == "<table></table>"
+        assert _md_table_to_html([]) == "<html><body><table></table></body></html>"
 
     def test_header_uses_th(self):
         result = _md_table_to_html([["h1", "h2"], ["a", "b"]])

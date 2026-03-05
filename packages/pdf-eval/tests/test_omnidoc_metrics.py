@@ -8,7 +8,6 @@ import pytest
 
 from autorag_pdf_eval.omnidoc_metrics import (
     OmniDocScore,
-    _levenshtein,
     _md_table_to_html,
     compute_bleu,
     compute_meteor,
@@ -26,25 +25,37 @@ from autorag_pdf_eval.evaluator import (
 from autorag_pdf_eval.spec import GT_MAP, BenchSpec, get_preset
 
 
-# ── Levenshtein ──────────────────────────────────────────────────────────────
+# ── Levenshtein (rapidfuzz) ──────────────────────────────────────────────────
 
 
 class TestLevenshtein:
     def test_identical_strings(self):
-        assert _levenshtein("abc", "abc") == 0
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("abc", "abc") == 0
 
     def test_empty_strings(self):
-        assert _levenshtein("", "") == 0
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("", "") == 0
 
     def test_one_empty(self):
-        assert _levenshtein("abc", "") == 3
-        assert _levenshtein("", "xy") == 2
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("abc", "") == 3
+        assert Levenshtein.distance("", "xy") == 2
 
     def test_single_edit(self):
-        assert _levenshtein("cat", "hat") == 1
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("cat", "hat") == 1
 
     def test_swap_order_same_result(self):
-        assert _levenshtein("short", "longer") == _levenshtein("longer", "short")
+        from rapidfuzz.distance import Levenshtein
+
+        assert Levenshtein.distance("short", "longer") == Levenshtein.distance(
+            "longer", "short"
+        )
 
 
 # ── compute_text_ned ─────────────────────────────────────────────────────────
@@ -141,7 +152,7 @@ class TestMdTableToHtml:
         assert "<td>1</td>" in html
 
     def test_empty_rows(self) -> None:
-        assert _md_table_to_html([]) == "<table></table>"
+        assert _md_table_to_html([]) == "<html><body><table></table></body></html>"
 
     def test_special_chars_escaped(self) -> None:
         rows = [["<script>", "a&b"]]

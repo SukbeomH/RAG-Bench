@@ -26,15 +26,15 @@ WEIGHTS: dict[str, float] = {
     "ease_of_adoption": 0.05,
 }
 
-BACKEND_ATTRS: dict[str, dict[str, int]] = {
-    "pymupdf": {"security": 5, "cost": 5, "ease": 5},
-    "docling": {"security": 5, "cost": 5, "ease": 2},
-    "openai": {"security": 2, "cost": 1, "ease": 5},
-    "openai-4.1": {"security": 2, "cost": 1, "ease": 5},
-    "upstage": {"security": 2, "cost": 2, "ease": 5},
-    "upstage-enhanced": {"security": 2, "cost": 2, "ease": 5},
-    "paddleocr-vl": {"security": 5, "cost": 5, "ease": 3},
-    "deepseek-ocr2": {"security": 5, "cost": 5, "ease": 3},
+BACKEND_ATTRS: dict[str, dict[str, int | float | None]] = {
+    "pymupdf": {"security": 5, "cost": 5, "ease": 5, "params_b": None},
+    "docling": {"security": 5, "cost": 5, "ease": 2, "params_b": None},
+    "openai": {"security": 2, "cost": 1, "ease": 5, "params_b": 200.0},
+    "openai-4.1": {"security": 2, "cost": 1, "ease": 5, "params_b": 200.0},
+    "upstage": {"security": 2, "cost": 2, "ease": 5, "params_b": None},
+    "upstage-enhanced": {"security": 2, "cost": 2, "ease": 5, "params_b": None},
+    "paddleocr-vl": {"security": 5, "cost": 5, "ease": 3, "params_b": 0.9},
+    "deepseek-ocr2": {"security": 5, "cost": 5, "ease": 3, "params_b": None},
 }
 
 BACKEND_PROFILES: dict[str, dict[str, str]] = {
@@ -377,6 +377,15 @@ _CRITERION_KR = {
     "ease_of_adoption": "도입 용이성",
 }
 
+_CRITERION_DESC = {
+    "parsing_accuracy": "RAG 검색 품질에 직결. 종합 NED 기반 (OmniDocBench)",
+    "data_security": "기업 문서 유출 방지. 로컬 처리 가능 여부",
+    "cost_efficiency": "대규모 처리 시 비용 예측 가능성. 종량제 vs 인프라 비용",
+    "table_accuracy": "재무제표·사양서 등 표 구조 재현 능력. IBM TEDS 기반",
+    "dpi_stability": "다양한 스캔 해상도에서 파싱 품질 일관성",
+    "ease_of_adoption": "초기 셋업 복잡도와 운영 부담",
+}
+
 
 def _fmt(val: float | None, fmt: str = ".4f") -> str:
     if val is None:
@@ -453,6 +462,32 @@ def render_report(
     # ── 3. 평가 방법론 ──────────────────────────────────────────────────────
     w("## 3. 평가 방법론")
     w()
+    w("### 3-1. OmniDocBench 프레임워크")
+    w()
+    w("본 벤치마크의 평가 메트릭은 **OmniDocBench** (CVPR 2025)의 방법론을 따릅니다.")
+    w()
+    w(
+        "> **OmniDocBench: Benchmarking Diverse PDF Document Parsing with Comprehensive Annotations**"
+    )
+    w("> — OpenDataLab, Shanghai AI Laboratory (CVPR 2025)")
+    w("> — GitHub: opendatalab/OmniDocBench (Apache-2.0)")
+    w()
+    w(
+        "OmniDocBench는 다양한 문서 유형(텍스트, 표, 수식, 그래프 등)에 대해 "
+        "체계적인 평가를 제공하는 종합 벤치마크입니다. "
+        "PDF 파싱 솔루션의 텍스트 추출 정확도와 표 구조 재현 능력을 "
+        "공정하고 재현 가능한 방식으로 측정합니다."
+    )
+    w()
+    w("**채택 이유:**")
+    w()
+    w("- CVPR 2025 정식 발표 논문으로 학술적 검증 완료")
+    w("- 텍스트(NED, BLEU, METEOR) + 표 구조(TEDS) 메트릭을 통합 제공")
+    w("- PaddleOCR, MinerU, Docling 등 주요 파싱 솔루션이 OmniDocBench 리더보드에 참여")
+    w("- Apache-2.0 라이선스로 상업적 활용 가능")
+    w()
+    w("### 3-2. 평가 지표 요약")
+    w()
     w("| 지표 | 정식 명칭 | 의미 | 범위 |")
     w("|---|---|---|---|")
     w("| **NED** | Normalized Edit Distance | 텍스트 정확도 | 0~1 |")
@@ -464,16 +499,239 @@ def render_report(
         "| **TEDS-HTML** | Tree Edit Distance Similarity | HTML 기반 표 구조 정확도 | 0~1 |"
     )
     w()
+    w("### 3-3. 지표별 상세 해설")
+    w()
+    w("#### NED (Normalized Edit Distance)")
+    w()
+    w("두 텍스트 간 **편집 거리(Levenshtein Distance)**를 정규화한 값입니다.")
+    w()
+    w(
+        "- **편집 거리(Edit Distance)**: 한 문자열을 다른 문자열로 바꾸기 위해 "
+        "필요한 최소 편집 횟수 (삽입·삭제·치환)"
+    )
+    w(
+        "- **정규화(Normalization)**: 편집 거리를 두 문자열의 최대 길이로 나누어 "
+        "0~1 범위로 변환"
+    )
+    w("- **산출 공식**: `NED = 1 - (편집 거리 / max(예측 길이, 정답 길이))`")
+    w("- **해석**: 1.0 = 완벽 일치, 0.0 = 완전히 다름")
+    w("- **전처리**: 연속 공백을 단일 공백으로 정규화 후 비교")
+    w()
+    w("#### BLEU (Bilingual Evaluation Understudy)")
+    w()
+    w("기계 번역 평가에서 유래한 **n-gram 정밀도** 기반 지표입니다.")
+    w()
+    w("- **n-gram**: 연속된 n개 단어의 조합 (unigram=1개, bigram=2개, ...)")
+    w("- **정밀도(Precision)**: 예측 텍스트의 n-gram 중 정답에도 등장하는 비율")
+    w(
+        "- **BLEU-4**: 1-gram~4-gram 정밀도를 균등 가중 기하평균 "
+        "(weights = 0.25, 0.25, 0.25, 0.25)"
+    )
+    w(
+        "- **Smoothing (Method 1)**: 고차 n-gram 매칭이 0일 때 점수가 0이 되지 않도록 "
+        "보정하는 기법"
+    )
+    w("- **해석**: 100 = 완벽 일치, 0 = 겹치는 n-gram 없음")
+    w()
+    w("#### METEOR (Metric for Evaluation of Translation)")
+    w()
+    w("BLEU의 한계를 보완한 **정밀도+재현율+어순** 통합 지표입니다.")
+    w()
+    w("- **정밀도(Precision)**: 예측 단어 중 정답에 포함된 비율")
+    w("- **재현율(Recall)**: 정답 단어 중 예측에 포함된 비율")
+    w("- **F-mean**: 정밀도와 재현율의 조화평균 (재현율에 높은 가중치)")
+    w(
+        "- **어순 패널티(Fragmentation Penalty)**: 일치하는 단어들이 연속되지 않고 "
+        "흩어져 있으면 감점"
+    )
+    w("- **WordNet 동의어 매칭**: 동의어도 일치로 인정 (예: 'big'↔'large')")
+    w("- **해석**: 100 = 완벽 일치, 0 = 겹치는 단어 없음")
+    w()
+    w("#### TEDS-HTML (Tree Edit Distance based Similarity)")
+    w()
+    w("IBM Research가 제안한 **HTML 트리 기반 표 구조 평가** 지표입니다.")
+    w()
+    w(
+        "- **트리 편집 거리(Tree Edit Distance)**: 한 트리를 다른 트리로 변환하기 위한 "
+        "최소 편집 비용 (노드 삽입·삭제·이름변경)"
+    )
+    w("- **HTML 트리 파싱**: 표의 HTML을 `<table>→<tr>→<td>` 계층 트리로 변환")
+    w(
+        "- **셀 토큰화(Cell Tokenization)**: `<td>` 내부의 텍스트와 태그를 "
+        "토큰 시퀀스로 분해하여 비교"
+    )
+    w(
+        "- **셀 내용 비교**: Levenshtein 거리 기반 연속 유사도 "
+        "(0.0=동일, 1.0=완전히 다름)"
+    )
+    w("- **colspan/rowspan 지원**: 병합된 셀의 span 속성을 트리 노드에 반영")
+    w(
+        "- **산출 공식**: `TEDS = 1 - (트리 편집 거리 / max(예측 노드 수, 정답 노드 수))`"
+    )
+    w("- **해석**: 1.0 = 동일한 표 구조+내용, 0.0 = 완전히 다른 표")
+    w()
+    w("### 3-4. 용어 사전 (평가 방법론)")
+    w()
+    w("| 용어 | 설명 |")
+    w("|---|---|")
+    w(
+        "| **Levenshtein Distance** | 두 문자열 간 최소 편집(삽입·삭제·치환) 횟수. "
+        "Vladimir Levenshtein(1965) 제안 |"
+    )
+    w(
+        "| **n-gram** | 연속된 n개 토큰(단어)의 조합. "
+        '예: "the cat sat" → bigram: {"the cat", "cat sat"} |'
+    )
+    w(
+        "| **정밀도 (Precision)** | 예측 결과 중 실제 정답과 일치하는 비율. "
+        "`TP / (TP + FP)` |"
+    )
+    w("| **재현율 (Recall)** | 실제 정답 중 예측이 맞춘 비율. `TP / (TP + FN)` |")
+    w(
+        "| **조화평균 (Harmonic Mean)** | 정밀도·재현율을 균형 있게 결합하는 평균. "
+        "`2PR / (P + R)` |"
+    )
+    w(
+        "| **Tree Edit Distance** | 한 트리를 다른 트리로 변환하는 최소 비용. "
+        "APTED 알고리즘 사용 |"
+    )
+    w("| **토큰화 (Tokenization)** | 텍스트를 최소 의미 단위(토큰)로 분할하는 과정 |")
+    w("| **colspan / rowspan** | HTML 테이블에서 셀이 가로/세로로 병합되는 범위 속성 |")
+    w("| **Smoothing** | n-gram 매칭 0 발생 시 점수 소실을 방지하는 보정 기법 |")
+    w(
+        "| **WordNet** | Princeton 대학 제작 영어 어휘 데이터베이스. 동의어·상위어 관계 제공 |"
+    )
+    w()
+    w("### 3-5. TEDS 구현 출처")
+    w()
+    w(
+        "TEDS(Tree Edit Distance based Similarity)는 IBM Research가 제안한 "
+        "표 구조 평가 메트릭으로, OmniDocBench에서 표준 평가 방법으로 채택되었습니다. "
+        "본 보고서의 TEDS 구현은 **OmniDocBench 원본 코드를 직접 벤더링**하여 사용합니다."
+    )
+    w()
+    w("| 구현 요소 | 상세 |")
+    w("|---|---|")
+    w("| **원본 출처** | OmniDocBench `metrics/table_metric.py` (IBM TEDS) |")
+    w("| **HTML 파싱** | `lxml` — malformed HTML 허용, colspan/rowspan 지원 |")
+    w("| **트리 비교** | `apted` — Tree Edit Distance 알고리즘 |")
+    w("| **셀 내용 비교** | Levenshtein 거리 기반 연속 유사도 (이진 비교 아님) |")
+    w("| **라이선스** | Apache-2.0 (IBM / OpenDataLab) |")
+    w()
     w("---")
     w()
 
     # ── 4. 평가 기준 및 가중치 ──────────────────────────────────────────────
     w("## 4. 평가 기준 및 가중치")
     w()
-    w("| 기준 | 가중치 |")
-    w("|---|:---:|")
+    w("### 4-1. 가중치 배분 원칙")
+    w()
+    w(
+        "가중치는 **RAG 시스템의 핵심 요구사항**에 따라 설정했습니다. "
+        "RAG의 품질은 검색 대상 문서의 파싱 정확도에 가장 크게 의존하며, "
+        "기업 환경에서는 데이터 보안이 필수 요건입니다. "
+        "비용·표 구조·DPI 안정성은 운영 단계에서 유의미한 차이를 만들고, "
+        "도입 용이성은 초기 적용 속도에 영향을 주지만 장기적으로는 비중이 낮습니다."
+    )
+    w()
+    w("| 기준 | 가중치 | 설명 |")
+    w("|---|:---:|---|")
     for k, v in WEIGHTS.items():
-        w(f"| **{_CRITERION_KR[k]}** | {int(v * 100)}% |")
+        w(f"| **{_CRITERION_KR[k]}** | {int(v * 100)}% | {_CRITERION_DESC[k]} |")
+    w()
+    w("### 4-2. 기준별 상세 설명")
+    w()
+    w("#### 파싱 정확도 (35%)")
+    w()
+    w(
+        "RAG 시스템에서 파싱 정확도는 **검색 품질에 직결**되는 핵심 기준입니다. "
+        "PDF에서 추출한 텍스트가 부정확하면, 임베딩과 검색 결과 모두 저하됩니다. "
+        "OmniDocBench NED를 기반으로 측정하며, "
+        "텍스트형·표형·그래프형 문서 전체의 종합 NED 평균을 사용합니다."
+    )
+    w()
+    w("| NED 범위 | 점수 | 의미 |")
+    w("|---|:---:|---|")
+    w("| ≥ 0.70 | 5 | 원문 대비 높은 충실도 |")
+    w("| 0.65~0.70 | 4 | 양호 |")
+    w("| 0.55~0.65 | 3 | 보통 |")
+    w("| 0.45~0.55 | 2 | 미흡 |")
+    w("| < 0.45 | 1 | 부적합 |")
+    w()
+    w("#### 데이터 보안 (20%)")
+    w()
+    w(
+        "기업 문서에는 기밀 정보, 개인정보가 포함될 수 있습니다. "
+        "외부 API로 문서 데이터를 전송하면 유출 리스크가 발생하므로, "
+        "**로컬 처리 가능 여부**가 핵심입니다."
+    )
+    w()
+    w("| 기준 | 점수 |")
+    w("|---|:---:|")
+    w("| 완전 로컬 처리 (오픈소스) | 5 |")
+    w("| 외부 API 사용 (데이터 전송) | 2 |")
+    w()
+    w("#### 비용 효율성 (15%)")
+    w()
+    w(
+        "문서 처리량이 증가할수록 API 종량제 비용은 선형으로 증가하지만, "
+        "로컬 솔루션은 인프라 비용만 발생합니다. "
+        "**대규모 처리 시 비용 예측 가능성**이 핵심입니다."
+    )
+    w()
+    w("| 기준 | 점수 |")
+    w("|---|:---:|")
+    w("| 오픈소스 (인프라 비용만) | 5 |")
+    w("| API 종량제 (중간 단가) | 2 |")
+    w("| API 종량제 (고단가) | 1 |")
+    w()
+    w("#### 표 구조 정확도 (15%)")
+    w()
+    w(
+        "기업 문서에는 재무제표, 사양서, 비교표 등 **표가 빈번하게 등장**합니다. "
+        "표의 행·열 구조와 셀 내용을 정확하게 재현하는 능력은 "
+        "RAG 검색 시 정확한 컨텍스트 제공에 필수적입니다. "
+        "IBM TEDS-HTML을 기반으로 측정합니다."
+    )
+    w()
+    w("| TEDS 범위 | 점수 | 의미 |")
+    w("|---|:---:|---|")
+    w("| ≥ 0.60 | 5 | 표 구조+내용 높은 충실도 |")
+    w("| 0.50~0.60 | 4 | 양호 |")
+    w("| 0.35~0.50 | 3 | 보통 |")
+    w("| 0.20~0.35 | 2 | 미흡 |")
+    w("| < 0.20 | 1 | 부적합 |")
+    w()
+    w("#### DPI 안정성 (10%)")
+    w()
+    w(
+        "실제 운영 환경에서는 다양한 해상도의 스캔 PDF가 유입됩니다. "
+        "**DPI가 달라져도 파싱 품질이 일정한지**가 운영 안정성의 척도입니다. "
+        "동일 문서의 72dpi~native 변형 간 NED 변동폭으로 측정합니다."
+    )
+    w()
+    w("| NED 변동폭 | 점수 | 의미 |")
+    w("|---|:---:|---|")
+    w("| ≤ 3%p | 5 | 매우 안정 |")
+    w("| ≤ 5%p | 4 | 안정 |")
+    w("| ≤ 10%p | 3 | 보통 |")
+    w("| ≤ 20%p | 2 | 불안정 |")
+    w("| > 20%p | 1 | 매우 불안정 |")
+    w()
+    w("#### 도입 용이성 (5%)")
+    w()
+    w(
+        "프로토타입 구축 속도와 운영 복잡도를 반영합니다. "
+        "API 솔루션은 설정이 간단하지만 장기 운영 비용이 높고, "
+        "로컬 솔루션은 초기 셋업이 복잡하지만 안정적입니다. "
+        "**장기 운영 가치 대비 가중치를 낮게(5%) 설정**했습니다."
+    )
+    w()
+    w("| 기준 | 점수 |")
+    w("|---|:---:|")
+    w("| API 키만으로 즉시 사용 | 5 |")
+    w("| K8s/Docker 배포 필요 | 3 |")
+    w("| 의존성 충돌·특수 환경 필요 | 2 |")
     w()
     w("---")
     w()
@@ -499,6 +757,11 @@ def render_report(
 
     # 6-1. 가중 평점 매트릭스
     w("### 6-1. 가중 평점 매트릭스 (종합 결과)")
+    w()
+    w(
+        "각 기준별 1~5 원점수에 가중치를 곱한 후 합산하여 종합 점수를 산출합니다. "
+        "원점수/가중 점수를 함께 표시하여, 어떤 기준에서 강점·약점이 있는지 파악할 수 있습니다."
+    )
     w()
     w("> 점수 척도: 1(최하) ~ 5(최상) | 가중 점수 = 원점수 x 가중치")
     w()
@@ -544,13 +807,33 @@ def render_report(
     # 6-2. 문서 유형별 NED 순위
     w("### 6-2. 문서 유형별 NED 순위")
     w()
+    w(
+        "문서 유형별로 NED를 분리 집계하여, "
+        "솔루션이 특정 유형에서 강점이나 약점을 보이는지 확인합니다. "
+        "NED가 1.0에 가까울수록 원문과 파싱 결과의 일치도가 높습니다."
+    )
+    w()
 
-    for doc_type, doc_label in [
-        ("text", "텍스트형 문서"),
-        ("table", "표형 문서"),
-        ("graph", "그래프형 문서"),
+    for doc_type, doc_label, doc_desc in [
+        (
+            "text",
+            "텍스트형 문서",
+            "본문 위주의 문서. 파싱 난이도가 가장 낮으며, 기본 텍스트 추출 능력을 측정합니다.",
+        ),
+        (
+            "table",
+            "표형 문서",
+            "표가 포함된 문서. NED(텍스트 정확도)와 TEDS-HTML(표 구조 정확도)을 함께 비교합니다.",
+        ),
+        (
+            "graph",
+            "그래프형 문서",
+            "차트·그래프가 포함된 문서. 이미지 내 텍스트 추출 능력과 레이아웃 이해도를 측정합니다.",
+        ),
     ]:
         w(f"#### {doc_label}")
+        w()
+        w(doc_desc)
         w()
 
         ranking = _rank_backends(backend_avgs, f"{doc_type}_ned")
@@ -571,6 +854,11 @@ def render_report(
 
     # 6-3. DPI 안정성
     w("### 6-3. DPI 안정성 분석")
+    w()
+    w(
+        "동일 문서를 72dpi, 150dpi, 200dpi, 원본(native) 등 다양한 해상도로 변환 후 파싱한 결과입니다. "
+        "변동폭이 작을수록 해상도 변화에 강건한 솔루션이며, 실제 운영 환경에서 안정적으로 작동합니다."
+    )
     w()
 
     for doc_type, doc_label in [("table", "표형"), ("graph", "그래프형")]:
@@ -626,33 +914,74 @@ def render_report(
     w("---")
     w()
 
-    # ── 7. 비용 분석 ────────────────────────────────────────────────────────
-    w("## 7. 비용 분석")
+    # ── 7. 리소스 효율성 ────────────────────────────────────────────────────
+    w("## 7. 리소스 효율성")
+    w()
+    w(
+        "모델 파라미터 수 대비 달성한 점수를 비교하여, "
+        "동일한 정확도를 더 적은 리소스로 달성하는 솔루션을 식별합니다. "
+        "파라미터가 적을수록 추론 비용과 배포 부담이 낮습니다."
+    )
+    w()
+
+    # 효율성 테이블: 파라미터 대비 NED
+    w("### 7-1. 파라미터 대비 정확도 (NED/B)")
+    w()
+    w(
+        "모델 파라미터 1B당 달성하는 NED 점수입니다. "
+        "값이 클수록 적은 파라미터로 높은 정확도를 달성하는 효율적인 솔루션입니다."
+    )
+    w()
+    w("| 솔루션 | 파라미터 | 종합 NED | NED/B | 유형 |")
+    w("|---|:---:|:---:|:---:|---|")
+
+    # 효율성 계산 & 정렬
+    eff_rows: list[tuple[str, str, float | None, float | None, str]] = []
+    for b in backends_sorted:
+        attrs = BACKEND_ATTRS.get(b, {})
+        profile = BACKEND_PROFILES.get(b, {})
+        params_b = attrs.get("params_b")
+        ned = backend_avgs.get(b, {}).get("overall_ned")
+        b_type = profile.get("type", "—")
+
+        if params_b is not None and ned is not None and params_b > 0:
+            eff = ned / params_b
+            params_str = f"{params_b}B"
+            eff_rows.append((b, params_str, ned, eff, b_type))
+        else:
+            params_str = "비공개" if params_b is None else f"{params_b}B"
+            eff_rows.append((b, params_str, ned, None, b_type))
+
+    # NED/B 내림차순 (None은 뒤로)
+    eff_with = [(r, r[3]) for r in eff_rows if r[3] is not None]
+    eff_without = [r for r in eff_rows if r[3] is None]
+    eff_with.sort(key=lambda x: x[1], reverse=True)
+    sorted_eff = [r for r, _ in eff_with] + eff_without
+
+    for b, params_str, ned, eff, b_type in sorted_eff:
+        ned_str = _fmt(ned)
+        if eff is not None:
+            eff_str = f"{eff:.4f}"
+        else:
+            eff_str = "—"
+        w(f"| {b} | {params_str} | {ned_str} | {eff_str} | {b_type} |")
+    w()
+
+    # 비용 구조 비교
+    w("### 7-2. 비용 구조 비교")
     w()
     w("| 비용 항목 | 로컬 솔루션 | API 솔루션 |")
     w("|---|---|---|")
     w("| **라이선스/API 비용** | 0원 (오픈소스) | 페이지당 종량제 과금 |")
     w("| **인프라** | K8s 노드 비용 | 해당 없음 |")
     w("| **확장 시 비용 증가** | 선형 미만 | **선형 (문서 수 비례)** |")
+    w("| **파라미터 효율성** | 소형 모델로 동등 품질 가능 | 대형 모델 의존 |")
     w()
     w("---")
     w()
 
-    # ── 8. 리스크 평가 ──────────────────────────────────────────────────────
-    w("## 8. 리스크 평가")
-    w()
-    w("#### 현상 유지 (솔루션 미선정)")
-    w()
-    w("| 리스크 | 발생 가능성 | 영향도 | 판정 |")
-    w("|---|:---:|:---:|:---:|")
-    w("| RAG 시스템 구축 일정 지연 | H | H | [!!] |")
-    w("| 임의 선정 시 정확도 격차 | H | H | [!!] |")
-    w()
-    w("---")
-    w()
-
-    # ── 9. 추천 ─────────────────────────────────────────────────────────────
-    w("## 9. 추천")
+    # ── 8. 추천 ─────────────────────────────────────────────────────────────
+    w("## 8. 추천")
     w()
     w(f"### 기본 추천: {top_backend}")
     w()
@@ -677,8 +1006,8 @@ def render_report(
     w("---")
     w()
 
-    # ── 10. 다음 단계 ───────────────────────────────────────────────────────
-    w("## 10. 다음 단계")
+    # ── 9. 다음 단계 ───────────────────────────────────────────────────────
+    w("## 9. 다음 단계")
     w()
     w("| 순서 | 액션 |")
     w("|:---:|---|")
@@ -699,7 +1028,8 @@ def render_report(
     w(
         "| **METEOR** | Metric for Evaluation of Translation | 정밀도+재현율+어순 (0~100) |"
     )
-    w("| **TEDS** | Tree Edit Distance Similarity | 표 구조 정확도 (0~1) |")
+    w("| **TEDS** | Tree Edit Distance Similarity | IBM 제안 표 구조 정확도 (0~1) |")
+    w("| **OmniDocBench** | — | CVPR 2025 PDF 파싱 종합 벤치마크 (OpenDataLab) |")
     w("| **VLM** | Vision-Language Model | 이미지+텍스트 AI 모델 |")
     w("| **DPI** | Dots Per Inch | 이미지 해상도 단위 |")
     w("| **RAG** | Retrieval-Augmented Generation | 검색 증강 생성 |")

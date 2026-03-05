@@ -290,6 +290,7 @@ source = { editable = "packages/pdf-eval" }
 dependencies = [
     { name = "apted" },
     { name = "autorag-parsers" },
+    { name = "lxml" },
     { name = "nltk" },
     { name = "rapidfuzz" },
 ]
@@ -298,6 +299,7 @@ dependencies = [
 requires-dist = [
     { name = "apted", specifier = ">=1.0.3" },
     { name = "autorag-parsers", editable = "packages/pdf-parsers" },
+    { name = "lxml", specifier = ">=4.9" },
     { name = "nltk", specifier = ">=3.8" },
     { name = "rapidfuzz", specifier = ">=3.14" },
 ]
