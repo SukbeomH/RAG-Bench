@@ -120,7 +120,43 @@ def run_spec(
 
     speed_s = time.perf_counter() - t0
 
-    # 정규화 적용
+    # 정규화 + 평가 (별도 함수로 분리)
+    result = _normalize_and_eval(
+        pred_text=pred_text,
+        gt_text=gt_text,
+        speed_s=speed_s,
+        spec=spec,
+        result_dir=result_dir,
+    )
+
+    if verbose:
+        ned_str = (
+            f"NED={result.avg_edit_dist:.3f}"
+            if result.avg_edit_dist is not None
+            else "NED=  N/A"
+        )
+        teds_str = (
+            f"TEDS-H={result.avg_teds_html:.3f}"
+            if result.avg_teds_html is not None
+            else "TEDS-H=  N/A"
+        )
+        print(f"{ned_str}  {teds_str}  {speed_s:.1f}s  {result.total_words}w")
+
+    return result
+
+
+def _normalize_and_eval(
+    pred_text: str,
+    gt_text: str | None,
+    speed_s: float,
+    spec: BenchSpec,
+    result_dir: Path,
+) -> BenchResult:
+    """정규화 적용 후 평가 — 파싱과 분리된 독립 단계.
+
+    Returns:
+        정규화 후 평가 결과 (BenchResult)
+    """
     from autorag_pdf_eval.normalize import normalize_markdown
 
     pred_norm, pred_log = normalize_markdown(pred_text)
@@ -153,6 +189,73 @@ def run_spec(
         norm_log=pred_log,
     )
 
+    return result
+
+
+def reeval_spec(
+    result_dir: Path,
+    verbose: bool = True,
+) -> BenchResult | None:
+    """기존 파싱 결과(output.md)에 정규화를 재적용하고 재평가.
+
+    파싱 없이 정규화 규칙 변경 후 재평가할 때 사용합니다.
+    output.md와 metrics.json이 있는 결과 디렉토리를 받아 처리합니다.
+
+    Returns:
+        재평가된 BenchResult, 또는 실패 시 None
+    """
+    output_path = result_dir / "output.md"
+    metrics_path = result_dir / "metrics.json"
+
+    if not output_path.exists() or not metrics_path.exists():
+        if verbose:
+            print(f"  SKIP {result_dir.name} — output.md 또는 metrics.json 없음")
+        return None
+
+    # 기존 metrics에서 메타데이터 복원
+    try:
+        meta = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        if verbose:
+            print(f"  SKIP {result_dir.name} — metrics.json 파싱 실패")
+        return None
+
+    backend = meta.get("backend", "")
+    pdf_name = meta.get("pdf_name", "")
+    mode = meta.get("mode", "direct")
+    speed_s = meta.get("summary", {}).get("avg_speed_s", 0.0) or 0.0
+
+    if not backend or not pdf_name:
+        if verbose:
+            print(f"  SKIP {result_dir.name} — backend/pdf_name 누락")
+        return None
+
+    spec = BenchSpec(
+        backend=backend,
+        pdf_name=pdf_name,
+        mode=mode,
+        gt_name=GT_MAP.get(pdf_name),
+    )
+
+    pred_text = output_path.read_text(encoding="utf-8")
+
+    gt_text: str | None = None
+    if spec.gt_name:
+        gt_path = GT_DIR / spec.gt_name
+        if gt_path.exists():
+            gt_text = gt_path.read_text(encoding="utf-8")
+
+    if verbose:
+        print(f"  [{spec.backend:<10}] {spec.pdf_name}", end="  ", flush=True)
+
+    result = _normalize_and_eval(
+        pred_text=pred_text,
+        gt_text=gt_text,
+        speed_s=speed_s,
+        spec=spec,
+        result_dir=result_dir,
+    )
+
     if verbose:
         ned_str = (
             f"NED={result.avg_edit_dist:.3f}"
@@ -164,9 +267,46 @@ def run_spec(
             if result.avg_teds_html is not None
             else "TEDS-H=  N/A"
         )
-        print(f"{ned_str}  {teds_str}  {speed_s:.1f}s  {result.total_words}w")
+        print(f"{ned_str}  {teds_str}  (reeval)")
 
     return result
+
+
+def reeval_dir(
+    results_dir: Path,
+    verbose: bool = True,
+) -> list[BenchResult]:
+    """결과 디렉토리 전체에 정규화 재적용 + 재평가.
+
+    Args:
+        results_dir: 벤치마크 결과 루트 (하위에 {label}/ 디렉토리들)
+        verbose: 진행 출력 여부
+
+    Returns:
+        재평가된 BenchResult 목록
+    """
+    subdirs = sorted(
+        d for d in results_dir.iterdir() if d.is_dir() and (d / "output.md").exists()
+    )
+    results: list[BenchResult] = []
+    total = len(subdirs)
+
+    if verbose:
+        print(f"\n{'=' * 70}")
+        print(f"정규화 재적용 — {total}개 결과 | 디렉토리: {results_dir}")
+        print(f"{'=' * 70}\n")
+
+    for idx, d in enumerate(subdirs, 1):
+        if verbose:
+            print(f"[{idx:>3}/{total}] ", end="")
+        r = reeval_spec(d, verbose=verbose)
+        if r is not None:
+            results.append(r)
+
+    if results:
+        _print_summary(results)
+
+    return results
 
 
 def _save_metrics(
@@ -366,6 +506,11 @@ def main() -> None:
         help="벤치마크 실행 없이 기존 결과로 보고서만 생성 (--results-dir 필요)",
     )
     parser.add_argument(
+        "--reeval-only",
+        action="store_true",
+        help="파싱 없이 기존 output.md에 정규화 재적용 + 재평가 (--results-dir 필요)",
+    )
+    parser.add_argument(
         "--results-dir",
         default=None,
         help="보고서 생성할 결과 디렉토리 (쉼표 구분, --report-only와 함께 사용)",
@@ -381,6 +526,25 @@ def main() -> None:
 
         dirs = [Path(d.strip()) for d in args.results_dir.split(",")]
         generate_report(dirs)
+        return
+
+    # reeval-only 모드: 기존 결과에 정규화 재적용 + 재평가
+    if args.reeval_only:
+        if not args.results_dir:
+            parser.error("--reeval-only 사용 시 --results-dir 를 지정하세요.")
+
+        dirs = [Path(d.strip()) for d in args.results_dir.split(",")]
+        for d in dirs:
+            reeval_dir(d, verbose=not args.quiet)
+
+        # 자동 보고서 생성
+        if not args.no_report:
+            try:
+                from autorag_pdf_eval.report import generate_report
+
+                generate_report(dirs)
+            except Exception as e:
+                print(f"보고서 생성 실패 (무시): {e}")
         return
 
     api_key = None

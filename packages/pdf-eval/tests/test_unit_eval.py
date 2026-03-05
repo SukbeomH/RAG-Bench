@@ -213,3 +213,81 @@ class TestBenchResult:
             ],
         )
         assert r.avg_teds_html is None
+
+
+# ── reeval_spec / reeval_dir ────────────────────────────────────────────────
+
+
+class TestReeval:
+    def test_reeval_spec_basic(self, tmp_path):
+        """기존 output.md + metrics.json으로 재평가가 동작하는지 검증."""
+        import json
+
+        from autorag_pdf_eval.runner import reeval_spec
+
+        result_dir = tmp_path / "pymupdf-text-only-direct"
+        result_dir.mkdir()
+
+        # 가짜 output.md
+        (result_dir / "output.md").write_text("# Title\n\nSome text content.")
+
+        # 가짜 metrics.json (기존 파싱 결과)
+        metrics = {
+            "backend": "pymupdf",
+            "pdf_name": "text_only.pdf",
+            "mode": "direct",
+            "error": None,
+            "summary": {"avg_speed_s": 1.0},
+            "timestamp": "2026-01-01 00:00:00",
+        }
+        (result_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+
+        result = reeval_spec(result_dir, verbose=False)
+        assert result is not None
+        assert result.backend == "pymupdf"
+        assert result.pdf_name == "text_only.pdf"
+
+        # metrics.json이 갱신되었는지 확인
+        updated = json.loads((result_dir / "metrics.json").read_text(encoding="utf-8"))
+        assert "raw_summary" in updated
+        assert "normalization" in updated
+
+    def test_reeval_spec_missing_output_md(self, tmp_path):
+        """output.md가 없으면 None을 반환."""
+        import json
+
+        from autorag_pdf_eval.runner import reeval_spec
+
+        result_dir = tmp_path / "test-result"
+        result_dir.mkdir()
+        (result_dir / "metrics.json").write_text(
+            json.dumps({"backend": "x", "pdf_name": "y.pdf"}), encoding="utf-8"
+        )
+
+        result = reeval_spec(result_dir, verbose=False)
+        assert result is None
+
+    def test_reeval_dir_processes_all(self, tmp_path):
+        """reeval_dir이 모든 하위 결과를 처리하는지 검증."""
+        import json
+
+        from autorag_pdf_eval.runner import reeval_dir
+
+        for label in ["pymupdf-text-only-direct", "docling-text-only-direct"]:
+            d = tmp_path / label
+            d.mkdir()
+            (d / "output.md").write_text(f"# {label}\n\nContent here.")
+            metrics = {
+                "backend": label.split("-")[0],
+                "pdf_name": "text_only.pdf",
+                "mode": "direct",
+                "error": None,
+                "summary": {"avg_speed_s": 0.5},
+            }
+            (d / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+
+        results = reeval_dir(tmp_path, verbose=False)
+        assert len(results) == 2
+        backends = {r.backend for r in results}
+        assert "pymupdf" in backends
+        assert "docling" in backends

@@ -12,9 +12,11 @@ class PDFBenchState(TypedDict, total=False):
     # --- Input ---
     specs: list[dict]  # serialised BenchSpec list (backend × pdf combinations)
     results_dir: str
+    skip_parse: bool  # True → 기존 output.md에 정규화만 재적용
 
     # --- Output ---
     parse_results: list[dict]
+    normalize_results: list[dict]
     eval_results: list[dict]
     summary: str
 

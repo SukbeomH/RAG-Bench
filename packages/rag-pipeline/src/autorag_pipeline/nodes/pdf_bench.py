@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from autorag_pipeline.states.pdf_bench_state import PDFBenchState
@@ -53,10 +54,52 @@ def parse_all_pdfs(state: PDFBenchState) -> dict[str, Any]:
     return {"parse_results": parse_results}
 
 
+def normalize_pdfs(state: PDFBenchState) -> dict[str, Any]:
+    """기존 output.md에 정규화 재적용 + 재평가.
+
+    skip_parse=True 시 파싱을 건너뛰고 이 노드에서
+    기존 결과의 output.md를 읽어 정규화 → 재평가합니다.
+    skip_parse=False 시에도 동일하게 정규화가 적용됩니다
+    (run_spec 내부에서 이미 처리되므로 결과만 수집).
+    """
+    from autorag_pdf_eval.runner import reeval_dir
+
+    results_dir = Path(state.get("results_dir", "/tmp/pdf_bench_results"))
+    skip_parse = state.get("skip_parse", False)
+
+    normalize_results: list[dict] = []
+
+    if skip_parse:
+        # 파싱 없이 기존 output.md에 정규화 재적용
+        results = reeval_dir(results_dir, verbose=True)
+        for r in results:
+            normalize_results.append(
+                {
+                    "backend": r.backend,
+                    "pdf_name": r.pdf_name,
+                    "avg_edit_dist": r.avg_edit_dist,
+                    "avg_teds_html": r.avg_teds_html,
+                    "total_words": r.total_words,
+                }
+            )
+    else:
+        # 파싱 후 정규화는 run_spec 내부에서 이미 처리됨 — parse_results 전달
+        for pr in state.get("parse_results", []):
+            normalize_results.append(
+                {
+                    "backend": pr.get("backend", ""),
+                    "pdf_name": pr.get("pdf_name", ""),
+                    "label": pr.get("label", ""),
+                }
+            )
+
+    return {"normalize_results": normalize_results}
+
+
 def evaluate_pdfs(state: PDFBenchState) -> dict[str, Any]:
     """Evaluate parsed PDF results using NED/TEDS metrics.
 
-    Reads metrics.json files produced by parse_all_pdfs.
+    Reads metrics.json files produced by parse_all_pdfs or normalize_pdfs.
     """
     from autorag_pdf_eval.report import (
         compute_backend_averages,
@@ -65,7 +108,7 @@ def evaluate_pdfs(state: PDFBenchState) -> dict[str, Any]:
     )
 
     results_dir = state.get("results_dir", "/tmp/pdf_bench_results")
-    metrics = load_results([results_dir])
+    metrics = load_results([Path(results_dir)])
     backend_avgs = compute_backend_averages(metrics)
     weighted_scores = compute_weighted_scores(backend_avgs)
 
