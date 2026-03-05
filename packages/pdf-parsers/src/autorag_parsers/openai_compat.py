@@ -7,8 +7,10 @@ import time
 import fitz  # PyMuPDF
 
 from autorag_parsers._protocol import ConversionResult, PageResult
-from autorag_parsers.openai_vision import SYSTEM_PROMPT
 from autorag_parsers.registry import register
+
+# 오픈소스 OCR VLM은 자체 프롬프트 처리 — 긴 시스템 프롬프트는 mlx-vlm 등에서 에러 유발
+_OPENSOURCE_SYSTEM_PROMPT = "PDF를 마크다운으로 변환하세요."
 
 MODEL_PROFILES: dict[str, tuple[str, str]] = {
     "paddleocr-vl": (
@@ -89,8 +91,9 @@ def _make_compat_parser(parser_key: str) -> type:
                     response = client.chat.completions.create(
                         model=model,
                         temperature=0.1,
+                        max_tokens=4096,
                         messages=[
-                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "system", "content": _OPENSOURCE_SYSTEM_PROMPT},
                             {
                                 "role": "user",
                                 "content": [
