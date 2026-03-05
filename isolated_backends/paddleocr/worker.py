@@ -38,7 +38,7 @@ def main():
             device="cpu",
         )
 
-        results = pipeline.predict(pdf_path)
+        results = pipeline.predict(pdf_path, max_new_tokens=4096)
 
         pages_output = {}
         for res in results:

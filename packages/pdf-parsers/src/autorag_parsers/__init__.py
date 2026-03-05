@@ -15,7 +15,7 @@ _LAZY_BACKENDS = {
     "openai-4.1": "autorag_parsers.openai_vision",
     "upstage": "autorag_parsers.upstage",
     "upstage-enhanced": "autorag_parsers.upstage",
-    "paddleocr-vl": "autorag_parsers.openai_compat",
+    "paddleocr-vl": "autorag_parsers.paddleocr_vl",
     "deepseek-ocr2": "autorag_parsers.openai_compat",
 }
 

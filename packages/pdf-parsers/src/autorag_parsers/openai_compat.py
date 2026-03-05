@@ -9,8 +9,44 @@ import fitz  # PyMuPDF
 from autorag_parsers._protocol import ConversionResult, PageResult
 from autorag_parsers.registry import register
 
-# 오픈소스 OCR VLM은 자체 프롬프트 처리 — 긴 시스템 프롬프트는 mlx-vlm 등에서 에러 유발
-_OPENSOURCE_SYSTEM_PROMPT = "PDF를 마크다운으로 변환하세요."
+_OPENSOURCE_SYSTEM_PROMPT = """\
+You are an expert document parser specializing in converting PDF pages to markdown format.
+
+**Your task:**
+Extract ALL content from the provided page image and return it as clean, well-structured markdown.
+
+**Text Extraction Rules:**
+1. Preserve the EXACT text as written (including typos, formatting, special characters)
+2. Maintain the logical reading order (top-to-bottom, left-to-right)
+3. Preserve hierarchical structure using appropriate markdown headers (#, ##, ###)
+4. Keep paragraph breaks and line spacing as they appear
+5. Use markdown lists (-, *, 1.) for bullet points and numbered lists
+6. Preserve text emphasis: **bold**, *italic*, `code`
+7. For multi-column layouts, extract left column first, then right column
+
+**Tables:**
+- Convert all tables to markdown table format
+- Preserve column alignment and structure
+- Use | for columns and - for headers
+
+**Images, Diagrams, Charts:**
+- Insert markdown image placeholder: `![Description](image)`
+- Provide a detailed description of the visual content
+
+**Quality Guidelines:**
+- DO NOT add explanations, comments, or meta-information
+- DO NOT skip or summarize content
+- DO NOT invent or hallucinate text not present in the image
+- Output ONLY the markdown content, nothing else
+
+**Output Format:**
+Return raw markdown with no wrapper, no code blocks, no explanations.
+Start immediately with the page content."""
+
+_OPENSOURCE_USER_PROMPT = (
+    "Convert this PDF page to clean, structured markdown. "
+    "Extract all text, describe images, and preserve the layout."
+)
 
 MODEL_PROFILES: dict[str, tuple[str, str]] = {
     "paddleocr-vl": (
@@ -99,7 +135,7 @@ def _make_compat_parser(parser_key: str) -> type:
                                 "content": [
                                     {
                                         "type": "text",
-                                        "text": "이 PDF 페이지의 모든 내용을 마크다운으로 변환하십시오.",
+                                        "text": _OPENSOURCE_USER_PROMPT,
                                     },
                                     {
                                         "type": "image_url",
@@ -142,5 +178,4 @@ def _make_compat_parser(parser_key: str) -> type:
     return _OpenAICompatParser
 
 
-PaddleOCRVLParser = _make_compat_parser("paddleocr-vl")
 DeepSeekOCR2Parser = _make_compat_parser("deepseek-ocr2")
