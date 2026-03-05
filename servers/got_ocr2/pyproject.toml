@@ -1,0 +1,14 @@
+[project]
+name = "got-ocr2-server"
+version = "0.1.0"
+description = "GOT-OCR2.0 OpenAI-compatible server"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "pillow>=10.0",
+    "pydantic>=2.0",
+    "torch>=2.0",
+    "transformers>=4.49",
+    "accelerate>=0.20",
+]

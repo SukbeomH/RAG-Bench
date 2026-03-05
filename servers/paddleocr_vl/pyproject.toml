@@ -1,0 +1,18 @@
+[project]
+name = "paddleocr-vl-server"
+version = "0.1.0"
+description = "PaddleOCR-VL PPStructureV3 OpenAI-compatible server (CPU)"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "pillow>=10.0",
+    "pydantic>=2.0",
+    "paddleocr>=2.9",
+    "paddlepaddle>=3.2.1",
+    "paddlex[ocr]",
+]
+
+[tool.uv]
+extra-index-url = ["https://www.paddlepaddle.org.cn/packages/stable/cpu/"]
+index-strategy = "unsafe-best-match"

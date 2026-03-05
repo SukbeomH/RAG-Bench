@@ -1,0 +1,16 @@
+[project]
+name = "deepseek-ocr2-server"
+version = "0.1.0"
+description = "DeepSeek-OCR-2 OpenAI-compatible server (CUDA required)"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "pillow>=10.0",
+    "pydantic>=2.0",
+    "torch>=2.0",
+    "transformers>=4.51",
+    "flash-attn>=2.0",
+    "accelerate>=0.20",
+    "safetensors>=0.4",
+]
