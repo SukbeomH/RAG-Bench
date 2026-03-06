@@ -405,6 +405,122 @@ def _rank_backends(
     return with_val + without_val
 
 
+def _derive_exec_insights(
+    backends_sorted: list[str],
+    backend_avgs: dict[str, dict[str, Any]],
+    weighted_scores: dict[str, dict[str, Any]],
+    ranked: list[tuple[str, dict[str, Any]]],
+) -> list[str]:
+    """Executive Summary용 핵심 발견 자동 도출."""
+    lines: list[str] = []
+    if len(ranked) < 2:
+        return lines
+
+    top_b, top_ws = ranked[0]
+    second_b, second_ws = ranked[1]
+    gap = top_ws["total"] - second_ws["total"]
+    top_ned = backend_avgs.get(top_b, {}).get("overall_ned")
+    second_ned = backend_avgs.get(second_b, {}).get("overall_ned")
+
+    # 1위 vs 2위 격차
+    lines.append(
+        f"1. **{top_b}**이 가중 점수 {top_ws['total']}/5.00으로 종합 1위. "
+        f"2위({second_b}, {second_ws['total']}) 대비 **{gap:.2f}점 차**"
+    )
+
+    # NED 격차
+    if top_ned is not None and second_ned is not None:
+        ned_gap = top_ned - second_ned
+        lines.append(
+            f"2. 종합 NED: {top_b} {top_ned:.4f} vs {second_b} {second_ned:.4f} "
+            f"(차이 {ned_gap:+.4f})"
+        )
+
+    # 로컬 vs API 비교
+    local_backends = [
+        b for b in backends_sorted if BACKEND_ATTRS.get(b, {}).get("security", 3) >= 5
+    ]
+    api_backends = [
+        b for b in backends_sorted if BACKEND_ATTRS.get(b, {}).get("security", 3) < 5
+    ]
+    if local_backends and api_backends:
+        best_local = max(
+            local_backends,
+            key=lambda b: backend_avgs.get(b, {}).get("overall_ned") or 0,
+        )
+        best_api = max(
+            api_backends,
+            key=lambda b: backend_avgs.get(b, {}).get("overall_ned") or 0,
+        )
+        local_ned = backend_avgs.get(best_local, {}).get("overall_ned")
+        api_ned = backend_avgs.get(best_api, {}).get("overall_ned")
+        if local_ned is not None and api_ned is not None:
+            if local_ned >= api_ned:
+                lines.append(
+                    f"3. 로컬({best_local}, NED {local_ned:.4f})이 "
+                    f"API({best_api}, {api_ned:.4f}) 대비 동등 이상 → "
+                    f"**데이터 보안 + 비용 우위 확보 가능**"
+                )
+            else:
+                lines.append(
+                    f"3. API({best_api}, NED {api_ned:.4f})가 "
+                    f"로컬({best_local}, {local_ned:.4f}) 대비 NED 우위이나 "
+                    f"보안·비용 감점으로 종합 열세"
+                )
+
+    # 문서유형별 특이사항
+    for doc_type, label in [
+        ("text", "텍스트형"),
+        ("table", "표형"),
+        ("graph", "그래프형"),
+    ]:
+        type_ranking = _rank_backends(backend_avgs, f"{doc_type}_ned")
+        if type_ranking and type_ranking[0][0] != top_b:
+            alt_b, alt_ned = type_ranking[0]
+            top_type_ned = backend_avgs.get(top_b, {}).get(f"{doc_type}_ned")
+            if alt_ned is not None and top_type_ned is not None:
+                lines.append(
+                    f"   - {label}: **{alt_b}**({alt_ned:.4f})이 "
+                    f"{top_b}({top_type_ned:.4f}) 대비 우위"
+                )
+
+    return lines
+
+
+def _derive_weakness(
+    backend: str,
+    backend_avgs: dict[str, dict[str, Any]],
+    weighted_scores: dict[str, dict[str, Any]],
+    top_backend: str,
+) -> str:
+    """미선정 백엔드의 주요 약점을 자동 도출."""
+    reasons: list[str] = []
+    ws = weighted_scores.get(backend, {})
+    scores = ws.get("scores", {})
+    top_ws = weighted_scores.get(top_backend, {})
+    top_scores = top_ws.get("scores", {})
+
+    # 가장 큰 감점 기준 찾기
+    gaps: list[tuple[str, int, float]] = []
+    for criterion in WEIGHTS:
+        diff = top_scores.get(criterion, 0) - scores.get(criterion, 0)
+        if diff > 0:
+            gaps.append((_CRITERION_KR[criterion], diff, WEIGHTS[criterion]))
+    gaps.sort(key=lambda x: x[1] * x[2], reverse=True)
+
+    # 상위 2개 약점
+    for kr_name, diff, _w in gaps[:2]:
+        reasons.append(f"{kr_name} -{diff}점")
+
+    # NED 비교
+    ned = backend_avgs.get(backend, {}).get("overall_ned")
+    top_ned = backend_avgs.get(top_backend, {}).get("overall_ned")
+    if ned is not None and top_ned is not None and top_ned > ned:
+        reasons.append(f"NED {ned:.4f} (1위 대비 {ned - top_ned:+.4f})")
+
+    return ", ".join(reasons) if reasons else "종합 점수 열세"
+
+
 def render_report(
     metrics: list[dict],
     backend_avgs: dict[str, dict[str, Any]],
@@ -424,6 +540,7 @@ def render_report(
     top_ned = backend_avgs.get(top_backend, {}).get("overall_ned")
 
     now = datetime.now().strftime("%Y-%m-%d")
+    total_pdfs = len({m.get("pdf_name") for m in metrics})
 
     # ── 1. 헤더 + Executive Summary ─────────────────────────────────────────
     w("# PDF 파서 솔루션 비교·선정 보고서")
@@ -438,10 +555,68 @@ def render_report(
     w("## 1. Executive Summary")
     w()
     w(
-        f"**{top_backend}**이 종합 가중 점수 **{top_score}/5.00**으로 1위를 차지했습니다."
+        f"> 이 보고서는 RAG 시스템의 PDF 파싱 백엔드로 **어떤 솔루션이 최적인지**를\n"
+        f"> {len(backends_sorted)}종 솔루션 × {total_pdfs}개 PDF 벤치마크로 확인한 결과입니다."
     )
-    if top_ned is not None:
-        w(f"텍스트 정확도(NED) 종합 {top_ned:.4f}.")
+    w()
+    w(
+        f"**종합 1위: {top_backend}** (가중 점수 {top_score}/5.00"
+        + (f", NED {top_ned:.4f}" if top_ned is not None else "")
+        + ")"
+    )
+    w()
+
+    # 문서유형별 1위 요약
+    w("### 문서유형별 1위")
+    w()
+    w("| 문서 유형 | 1위 솔루션 | NED | 비고 |")
+    w("|----------|----------|:---:|------|")
+    for doc_type, doc_label in [
+        ("text", "텍스트형"),
+        ("table", "표형"),
+        ("graph", "그래프형"),
+    ]:
+        type_ranking = _rank_backends(backend_avgs, f"{doc_type}_ned")
+        if type_ranking:
+            best_b, best_ned = type_ranking[0]
+            note = ""
+            if best_b == top_backend:
+                note = "종합 1위"
+            elif best_b != top_backend:
+                top_type_ned = backend_avgs.get(top_backend, {}).get(f"{doc_type}_ned")
+                if top_type_ned is not None and best_ned is not None:
+                    gap = best_ned - top_type_ned
+                    note = f"종합 1위({top_backend}) 대비 +{gap:.4f}"
+            w(f"| {doc_label} | **{best_b}** | {_fmt(best_ned)} | {note} |")
+    w()
+
+    # 핵심 발견
+    w("### 핵심 발견")
+    w()
+    _exec_insights = _derive_exec_insights(
+        backends_sorted, backend_avgs, weighted_scores, ranked
+    )
+    for line in _exec_insights:
+        w(line)
+    w()
+
+    # 즉시 실행 항목
+    w("### 즉시 실행 항목")
+    w()
+    w(f"- [ ] **{top_backend}**을 프로덕션 PDF 파싱 백엔드로 적용")
+    # Hybrid 라우팅 제안
+    text_ranking = _rank_backends(backend_avgs, "text_ned")
+    if text_ranking and text_ranking[0][0] != top_backend:
+        text_best = text_ranking[0][0]
+        w(
+            f"- [ ] 텍스트 전용 문서에 **{text_best}** Hybrid 라우팅 검토 "
+            f"(텍스트형 1위, 종합 1위 대비 NED 우세)"
+        )
+    has_api = any(
+        BACKEND_ATTRS.get(b, {}).get("security", 5) < 5 for b in backends_sorted
+    )
+    if has_api:
+        w("- [ ] API 솔루션 사용 시 데이터 보안(문서 외부 전송) 검토")
     w()
     w("---")
     w()
@@ -449,7 +624,6 @@ def render_report(
     # ── 2. 배경 및 범위 ─────────────────────────────────────────────────────
     w("## 2. 배경 및 범위")
     w()
-    total_pdfs = len({m.get("pdf_name") for m in metrics})
     w("| 항목 | 내용 |")
     w("|---|---|")
     w(f"| **평가 대상** | {len(backends_sorted)}종 파싱 솔루션 |")
@@ -844,6 +1018,18 @@ def render_report(
                 teds = backend_avgs[b].get("table_teds")
                 bold = "**" if i == 1 else ""
                 w(f"| {i} | {bold}{b}{bold} | {bold}{_fmt(ned)}{bold} | {_fmt(teds)} |")
+            # NED vs TEDS 역전 인사이트
+            teds_ranking = _rank_backends(backend_avgs, "table_teds")
+            if ranking and teds_ranking and ranking[0][0] != teds_ranking[0][0]:
+                ned_1st = ranking[0][0]
+                teds_1st = teds_ranking[0][0]
+                w()
+                w(
+                    f"> **참고**: 텍스트 정확도(NED) 1위는 **{ned_1st}**이지만, "
+                    f"표 구조 정확도(TEDS) 1위는 **{teds_1st}**입니다. "
+                    f"NED는 셀 텍스트 추출 정확도를, TEDS는 행·열 구조 재현 능력을 측정하므로 "
+                    f"용도에 따라 우선순위가 달라질 수 있습니다."
+                )
         else:
             w("| 순위 | 솔루션 | NED |")
             w("|:---:|---|:---:|")
@@ -983,24 +1169,88 @@ def render_report(
     # ── 8. 추천 ─────────────────────────────────────────────────────────────
     w("## 8. 추천")
     w()
-    w(f"### 기본 추천: {top_backend}")
+    w("### 한 가지만 선택해야 한다면")
     w()
     top_avgs = backend_avgs.get(top_backend, {})
+    top_profile = BACKEND_PROFILES.get(top_backend, {})
+    w(
+        f"> **{top_backend}** — {top_profile.get('type', '')} | "
+        f"가중 점수 **{top_score}/5.00** | NED **{_fmt(top_avgs.get('overall_ned'))}**"
+    )
+    w()
     w(f"**{top_backend}**을 RAG 시스템의 기본 PDF 파싱 백엔드로 추천합니다.")
     w()
+
+    # 선정 근거
+    top_strengths: list[str] = []
+    top_scores_dict = weighted_scores.get(top_backend, {}).get("scores", {})
+    for criterion, score in top_scores_dict.items():
+        if score >= 5:
+            top_strengths.append(_CRITERION_KR[criterion])
+    if top_strengths:
+        w(f"- **최고 점수(5점) 기준**: {', '.join(top_strengths)}")
     w(f"- **종합 NED**: {_fmt(top_avgs.get('overall_ned'))}")
     w(f"- **종합 가중 점수**: {top_score}/5.00")
+    w()
+
+    # 용도별 추천
+    w("### 용도별 추천")
+    w()
+    w("| 용도 | 추천 솔루션 | 근거 |")
+    w("|------|-----------|------|")
+
+    # 보안 중시
+    secure_backends = [
+        b for b in backends_sorted if BACKEND_ATTRS.get(b, {}).get("security", 3) >= 5
+    ]
+    if secure_backends:
+        best_secure = max(
+            secure_backends,
+            key=lambda b: backend_avgs.get(b, {}).get("overall_ned") or 0,
+        )
+        w(
+            f"| 보안 최우선 (로컬 처리) | **{best_secure}** | "
+            f"NED {_fmt(backend_avgs.get(best_secure, {}).get('overall_ned'))}, 데이터 외부 전송 없음 |"
+        )
+
+    # 정확도 최우선
+    ned_ranking = _rank_backends(backend_avgs, "overall_ned")
+    if ned_ranking:
+        best_ned_b, best_ned_v = ned_ranking[0]
+        w(
+            f"| 정확도 최우선 | **{best_ned_b}** | "
+            f"NED {_fmt(best_ned_v)}, 종합 NED 1위 |"
+        )
+
+    # 표형 문서 특화
+    teds_ranking = _rank_backends(backend_avgs, "table_teds")
+    if teds_ranking:
+        best_teds_b, best_teds_v = teds_ranking[0]
+        w(
+            f"| 표형 문서 특화 | **{best_teds_b}** | "
+            f"TEDS(구조) {_fmt(best_teds_v)}, 표 구조 재현 1위 |"
+        )
+
+    # 텍스트 전용
+    text_ranking = _rank_backends(backend_avgs, "text_ned")
+    if text_ranking:
+        best_text_b, best_text_v = text_ranking[0]
+        w(
+            f"| 텍스트 전용 문서 | **{best_text_b}** | "
+            f"NED {_fmt(best_text_v)}, 텍스트형 1위 |"
+        )
     w()
 
     # 미선정 사유
     if len(ranked) > 1:
         w("### 미선정 사유")
         w()
-        w("| 솔루션 | 종합 점수 | 종합 NED |")
-        w("|---|:---:|:---:|")
+        w("| 솔루션 | 종합 점수 | 종합 NED | 주요 약점 |")
+        w("|---|:---:|:---:|---|")
         for b, ws in ranked[1:]:
             ned = backend_avgs.get(b, {}).get("overall_ned")
-            w(f"| {b} | {ws['total']} | {_fmt(ned)} |")
+            weakness = _derive_weakness(b, backend_avgs, weighted_scores, top_backend)
+            w(f"| {b} | {ws['total']} | {_fmt(ned)} | {weakness} |")
         w()
 
     w("---")
@@ -1012,7 +1262,17 @@ def render_report(
     w("| 순서 | 액션 |")
     w("|:---:|---|")
     w(f"| 1 | {top_backend} 프로덕션 배포 |")
-    w("| 2 | Hybrid 라우팅 구현 |")
+
+    # Hybrid 라우팅 제안 (유형별 1위가 종합 1위와 다를 때)
+    hybrid_candidates: list[str] = []
+    for doc_type, label in [("text", "텍스트"), ("table", "표"), ("graph", "그래프")]:
+        type_r = _rank_backends(backend_avgs, f"{doc_type}_ned")
+        if type_r and type_r[0][0] != top_backend:
+            hybrid_candidates.append(f"{label}={type_r[0][0]}")
+    if hybrid_candidates:
+        w(f"| 2 | Hybrid 라우팅 검토 ({', '.join(hybrid_candidates)}) |")
+    else:
+        w("| 2 | Hybrid 라우팅 구현 |")
     w("| 3 | 추가 백엔드 벤치마크 |")
     w()
     w("---")
