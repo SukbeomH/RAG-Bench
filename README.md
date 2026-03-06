@@ -15,7 +15,7 @@
 
 | 영역 | 상태 | 결론 |
 |---|---|---|
-| PDF 파서 선정 | 완료 | Upstage 1위(NED 0.69), PaddleOCR-VL 로컬 1위(NED 0.77~0.83) |
+| PDF 파서 선정 | 완료 | PaddleOCR-VL 1위 (NED 0.76, 가중 4.90/5.00, 로컬), Upstage 2위 (NED 0.69, API) |
 | 마크다운 정규화 | 완료 | 7개 규칙 normalize.py, 공정 비교 보장 |
 | Dense 임베딩 | 완료 | E5-multilingual 추천 (3/5 카테고리 1위, 로컬) |
 | Sparse 모델 | 완료 | SPLADE 추천 (BM25와 <2%p 차이, 의미 확장) |
@@ -99,16 +99,33 @@ OmniDocBench (CVPR 2025) 프레임워크 기반으로 PDF 파서 솔루션을 �
 | `pymupdf` | 로컬 (규칙 기반) | 극도로 빠름, 이미지 PDF 처리 불가 |
 | `docling` | 로컬 (OCR 파이프라인) | IBM Research, 레이아웃+OCR+표 인식 통합 |
 | `openai` | API (VLM) | GPT-4o 페이지별 이미지 변환 |
+| `openai-4.1` | API (VLM) | GPT-4.1, 최고 성능 OpenAI 모델 |
 | `upstage` | API (Document Parse) | 문서 파싱 전용 API |
-| `paddleocr-vl` | 로컬 (VLM) | PaddleOCR-VL-1.5 0.9B, OmniDocBench SOTA |
+| `upstage-enhanced` | API (Document Parse) | Upstage enhanced 모드 |
+| `paddleocr-vl` | 로컬 (VLM) | PaddleOCR-VL-1.5 0.9B, 네이티브 파이프라인, OmniDocBench SOTA |
 | `deepseek-ocr2` | 로컬 (VLM) | DeepSeek-OCR-2, GPU 필수 |
+
+### 벤치마크 프리셋
+
+| 프리셋 | 백엔드 | PDF |
+|---|---|---|
+| `quick` | pymupdf + docling | text_only.pdf (최소 검증) |
+| `phase1` | pymupdf + docling | 11 PDF 전체 |
+| `phase2` | 8개 전체 백엔드 | 11 PDF 전체 |
+| `vlm` | openai + upstage + upstage-enhanced | 11 PDF 전체 |
+| `upstage-only` | upstage + upstage-enhanced | 11 PDF 전체 |
+| `ocr` | paddleocr-vl | 11 PDF 전체 (CPU) |
+| `deepseek` | deepseek-ocr2 | 11 PDF 전체 (GPU) |
+| `vlm-all` | 5개 VLM 백엔드 | 11 PDF 전체 |
+| `tables` | pymupdf + docling | 5개 표 PDF (DPI 변형) |
+| `graphs` | pymupdf + docling | 5개 그래프 PDF (DPI 변형) |
 
 ### 마크다운 정규화
 
 파서 출력과 GT 간 서식 차이를 통일하여 공정한 비교를 보장합니다. 7개 규칙을 순서대로 적용:
 
 1. `code_block_wrapper` — VLM 코드블록 래퍼 제거
-2. `vlm_location_tokens` — `<|LOC_XX|>` 위치 토큰 제거
+2. `vlm_location_tokens` — `<|LOC_XX|>`, `<|SEP|>` 위치 토큰 제거
 3. `bullet_markers` — 불릿 기호 통일 (*, +, • → -)
 4. `bold_in_headers` — 헤더 내 볼드 마커 제거
 5. `blockquote_markers` — 인용구 마커 제거
@@ -121,12 +138,30 @@ OmniDocBench (CVPR 2025) 프레임워크 기반으로 PDF 파서 솔루션을 �
 # 전체 벤치마크 (파싱 + 정규화 + 평가 + 보고서)
 uv run python -m autorag_pdf_eval.runner --preset phase1
 
+# 특정 백엔드만 실행
+uv run python -m autorag_pdf_eval.runner --backend paddleocr-vl --pdf text_only.pdf
+
 # 기존 결과에 정규화만 재적용 + 재평가
 uv run python -m autorag_pdf_eval.runner --reeval-only --results-dir ./bench_results/20260305-1528
 
 # 보고서만 생성
 uv run python -m autorag_pdf_eval.runner --report-only --results-dir ./bench_results/20260305-1528
 ```
+
+**CLI 주요 옵션:**
+
+| 옵션 | 설명 |
+|---|---|
+| `--preset` | 프리셋 선택 (위 표 참조) |
+| `--backend` | 단일 백엔드 지정 |
+| `--pdf` | 단일 PDF 파일 지정 |
+| `--mode` | direct / document / hybrid (기본: direct) |
+| `--delay` | 스펙 간 대기 시간 (API rate limit 회피) |
+| `--reeval-only` | 파싱 없이 정규화 재적용 후 재평가 |
+| `--report-only` | 기존 결과로 보고서만 생성 |
+| `--results-dir` | 보고서/재평가 대상 결과 디렉토리 |
+| `--no-report` | 보고서 생성 건너뜀 |
+| `--quiet` | 로그 출력 최소화 |
 
 ---
 
@@ -175,7 +210,7 @@ uv run python -m rag_bench.scripts.run_all_combos --preset quick --pass1-only
 │   │       ├── evaluator.py           # NED/TEDS 평가
 │   │       ├── normalize.py           # 마크다운 정규화 (7개 규칙)
 │   │       ├── report.py              # 보고서 자동 생성
-│   │       ├── spec.py                # BenchSpec + 프리셋
+│   │       ├── spec.py                # BenchSpec + 프리셋 (11개)
 │   │       └── omnidoc_metrics.py     # OmniDocBench 메트릭 (BLEU, METEOR, TEDS)
 │   ├── rag-retrieval/                 # Dense+Sparse 하이브리드 검색
 │   ├── rag-eval/                      # RAGAS 평가 + 보고서
@@ -237,7 +272,7 @@ echo "OPENAI_API_KEY=sk-your-api-key-here" > .env
 ## 테스트
 
 ```bash
-# 전체 테스트 (185개: 단위 77 + E2E 67 + 보고서 19 + 파이프라인 22)
+# 전체 테스트
 uv run pytest packages/*/tests/ -v
 
 # 특정 패키지만
