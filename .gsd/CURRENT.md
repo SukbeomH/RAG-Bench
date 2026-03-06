@@ -1,60 +1,60 @@
 # Current Session Context
 
 ## Session Narrative
-> On 2026-03-05 13:44:26, the developer was working on the **master** branch, modifying 30 files across `.,.gsd,packages/pdf-eval`. The recent work involved: fix: openai_compat mlx-vlm 호환성 수정 + GSD 세션 핸드오프.
+> On 2026-03-06 09:48:52, the developer was working on the **master** branch, modifying 30 files across `.,.gsd,.gsd/memories/session-handoff`. The recent work involved: feat: paddleocr-vl 네이티브 파이프라인 전환 + 페이지별 GT 추가.
 
 ## Context Snapshot
-- **Active Task**: fix: openai_compat mlx-vlm 호환성 수정 + GSD 세션 핸드오프
+- **Active Task**: feat: paddleocr-vl 네이티브 파이프라인 전환 + 페이지별 GT 추가
 - **Branch**: master
 - **Files Changed**: 30
-- **Last Updated**: 2026-03-05 13:44:26
+- **Last Updated**: 2026-03-06 09:48:52
 
 ## Working Files
 ```
+ M .gitignore
  D .gsd/.modified-this-session
  M .gsd/CURRENT.md
- M packages/pdf-eval/pyproject.toml
- M packages/pdf-eval/src/autorag_pdf_eval/omnidoc_metrics.py
- M packages/pdf-eval/src/autorag_pdf_eval/report.py
- M packages/pdf-eval/tests/test_omnidoc_metrics.py
- D packages/pdf-eval/tests/test_report.py
- M packages/pdf-eval/tests/test_unit_eval.py
+ M README.md
+ M isolated_backends/paddleocr/bridge.py
  M servers/mlx_vlm/run.sh
- M uv.lock
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-20-27-master.md
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-28-32-master.md
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-31-52-master.md
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-16-36-48-master.md
-?? .gsd/memories/session-summary/2026-03-04_session-2026-03-04-17-30-45-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-08-36-13-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-13-37-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-15-44-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-18-58-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-32-08-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-36-02-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-36-49-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-41-27-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-53-38-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-55-24-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-56-31-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-09-59-16-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-10-00-05-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-10-07-37-master.md
-?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-10-09-42-master.md
+?? .gsd/memories/session-handoff/2026-03-05_normalize-reeval-refactor.md
+?? .gsd/memories/session-handoff/2026-03-05_paddleocr-vl-pipeline.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-14-50-07-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-15-34-17-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-15-36-30-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-15-43-42-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-15-47-18-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-15-50-15-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-16-01-30-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-16-25-11-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-16-38-41-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-16-53-55-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-17-05-34-master.md
+?? .gsd/memories/session-summary/2026-03-05_session-2026-03-05-17-14-14-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-08-34-14-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-08-34-19-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-15-39-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-19-24-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-22-58-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-26-38-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-29-23-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-30-37-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-36-15-master.md
+?? .gsd/memories/session-summary/2026-03-06_session-2026-03-06-09-38-43-master.md
 ```
 
 ## Recent Commits
 ```
-2d202b2 fix: openai_compat mlx-vlm 호환성 수정 + GSD 세션 핸드오프
-7563d50 feat: OCR 서버 독립 uv 프로젝트화 + mlx-vlm 래퍼 신규 추가
-97c9e33 feat: LangGraph 기반 rag-pipeline 패키지 신규 생성
+c38443c feat: paddleocr-vl 네이티브 파이프라인 전환 + 페이지별 GT 추가
+cb0e9d9 refactor: 정규화 분리 리팩토링 + PDF Bench 파이프라인 normalize 노드 추가
+162bcb8 chore: GSD 세션 핸드오프 — 정규화 모듈 구현 세션
 ```
 
 ## Diff Stats
 ```
- packages/pdf-eval/tests/test_report.py             | 330 -----------------
- packages/pdf-eval/tests/test_unit_eval.py          |  27 +-
- servers/mlx_vlm/run.sh                             |   1 -
- uv.lock                                            |   2 +
- 10 files changed, 475 insertions(+), 514 deletions(-)
+ .gsd/CURRENT.md                       | 76 +++++++++++++++++------------------
+ README.md                             | 24 ++++++++++-
+ isolated_backends/paddleocr/bridge.py | 18 +++++++--
+ servers/mlx_vlm/run.sh                |  1 -
+ 6 files changed, 75 insertions(+), 45 deletions(-)
 ```

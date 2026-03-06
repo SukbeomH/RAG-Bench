@@ -11,8 +11,13 @@ import subprocess
 from pathlib import Path
 
 # Paths
-PADDLEOCR_DIR = Path(__file__).resolve().parent.parent.parent / "PaddleOCR"
-WORKER_SCRIPT = Path(__file__).resolve().parent / "paddleocr_worker.py"
+PADDLEOCR_DIR = Path(
+    os.environ.get(
+        "PADDLEOCR_DIR",
+        str(Path(__file__).resolve().parent.parent.parent / "PaddleOCR"),
+    )
+)
+WORKER_SCRIPT = Path(__file__).resolve().parent / "worker.py"
 
 
 def convert_pdf(pdf_path: str, output_path: str) -> str:
@@ -20,14 +25,19 @@ def convert_pdf(pdf_path: str, output_path: str) -> str:
     Runs the paddleocr doc_parser using the isolated uv Python 3.13 venv.
     Captures JSON output and converts it to a markdown file.
     """
-    cmd = ["uv", "run", "python", str(WORKER_SCRIPT), str(pdf_path)]
+    venv_python = PADDLEOCR_DIR / ".venv" / "bin" / "python"
+    if not venv_python.exists():
+        raise FileNotFoundError(f"PaddleOCR venv not found: {venv_python}")
+    cmd = [str(venv_python), str(WORKER_SCRIPT), str(pdf_path)]
 
     print(
-        "  [PaddleOCR] Running isolated worker: uv run python backends/paddleocr_worker.py",
+        f"  [PaddleOCR] Running isolated worker: {venv_python.name} {WORKER_SCRIPT.name}",
         flush=True,
     )
 
     env = os.environ.copy()
+    # Remove parent VIRTUAL_ENV to avoid uv ignoring the project venv
+    env.pop("VIRTUAL_ENV", None)
     cert = os.environ.get("SSL_CERT_BUNDLE", "")
     if cert and os.path.exists(cert):
         env["SSL_CERT_FILE"] = cert

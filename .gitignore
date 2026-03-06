@@ -75,3 +75,4 @@ pdf_parser/backends/
 
 # Frontend 자동 생성
 packages/rag-frontend/next-env.d.ts
+PaddleOCR/

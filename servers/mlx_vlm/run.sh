@@ -3,5 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 exec uv run python -m mlx_vlm.server \
-    --model PaddlePaddle/PaddleOCR-VL-1.5 \
     --port 8111

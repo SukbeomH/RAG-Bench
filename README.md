@@ -1,6 +1,26 @@
-# AutoRAG - 한국어 RAG 파이프라인 비교 평가
+# 한국어 RAG 파이프라인 비교 평가
 
-한국어 문서(PDF)를 대상으로 **PDF 파싱 → RAG 파이프라인** 전 과정의 성능을 정량 평가하는 모노레포 프로젝트입니다.
+한국어 문서(PDF)를 대상으로 **PDF 파싱 → RAG 파이프라인** 전 과정의 성능을 정량 평가하여, 프로덕션에 투입할 **최적의 모델과 전략을 선정**하는 것이 목표입니다.
+
+### 리서치 목표
+
+| 영역 | 질문 | 평가 방법 |
+|---|---|---|
+| **PDF 파싱** | 어떤 파서(모델)가 가장 정확한가? | OmniDocBench (NED, BLEU, METEOR, TEDS) |
+| **파싱 전략** | Smart Router(페이지별 자동 분류)가 유효한가? | 백엔드별 문서 유형 교차 평가 |
+| **임베딩 모델** | 어떤 Dense/Sparse 모델 조합이 최적인가? | RAGAS 5 카테고리 × 20 조합 |
+| **임베딩 전략** | Hybrid Search, Reranking이 얼마나 효과적인가? | 60개 전략 조합 2-Pass 벤치마크 |
+
+### 리서치 현황
+
+| 영역 | 상태 | 결론 |
+|---|---|---|
+| PDF 파서 선정 | 완료 | Upstage 1위(NED 0.69), PaddleOCR-VL 로컬 1위(NED 0.77~0.83) |
+| 마크다운 정규화 | 완료 | 7개 규칙 normalize.py, 공정 비교 보장 |
+| Dense 임베딩 | 완료 | E5-multilingual 추천 (3/5 카테고리 1위, 로컬) |
+| Sparse 모델 | 완료 | SPLADE 추천 (BM25와 <2%p 차이, 의미 확장) |
+| Reranker | 완료 | ColBERT 확정 (FlashRank 대비 10~30%p 우위) |
+| Smart Router | 미착수 | 페이지별 VLM/Text 자동 분류 라우팅 검증 필요 |
 
 **uv workspace 기반 모노레포** 구조로, 6개 Python 패키지 + Next.js 프론트엔드로 구성됩니다. PDF 파서 벤치마크(OmniDocBench NED/TEDS)와 RAG 전략 벤치마크(RAGAS)를 LangGraph StateGraph 파이프라인으로 통합 실행합니다.
 
