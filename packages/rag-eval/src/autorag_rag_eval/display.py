@@ -10,40 +10,46 @@ from __future__ import annotations
 # Dense 임베딩 모델 표시명
 # ---------------------------------------------------------------------------
 
-DENSE_DISPLAY: dict[str, dict[str, str]] = {
+DENSE_DISPLAY: dict[str, dict] = {
     "bge-m3": {
         "short": "BGE-M3",
         "params": "570M",
+        "params_m": 570,
         "note": "100+ 언어, MIRACL 한국어 SOTA",
         "type": "local",
     },
     "e5": {
         "short": "E5-multilingual",
         "params": "560M",
+        "params_m": 560,
         "note": "다국어 E5, 명령어 prefix 방식",
         "type": "local",
     },
     "kosimcse": {
         "short": "KoSimCSE",
         "params": "110M",
+        "params_m": 110,
         "note": "한국어 SimCSE 대조 학습",
         "type": "local",
     },
     "snowflake": {
         "short": "Snowflake-KO",
         "params": "600M",
+        "params_m": 600,
         "note": "한국어 실무 문서 SOTA",
         "type": "local",
     },
     "text-embedding-3-large": {
         "short": "OpenAI (API)",
         "params": "—",
+        "params_m": None,
         "note": "text-embedding-3-large, 3072차원",
         "type": "api",
     },
     "embedding-query": {
         "short": "Upstage Solar (API)",
         "params": "—",
+        "params_m": None,
         "note": "Upstage Solar Embedding, 4096차원",
         "type": "api",
     },

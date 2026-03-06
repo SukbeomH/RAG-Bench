@@ -922,6 +922,121 @@ def _section6_model_comparison(ranked: dict[str, pd.DataFrame]) -> list[str]:
     return lines
 
 
+def _section6b_param_efficiency(ranked: dict[str, pd.DataFrame]) -> list[str]:
+    """파라미터 대비 성능 효율 분석 섹션."""
+    lines: list[str] = [
+        "## 6B. 파라미터 효율 분석",
+        "",
+        "> 모델 크기(파라미터 수) 대비 성능을 비교합니다.",
+        "> **효율 지수** = (복합 점수 / 파라미터 수(M)) × 1000. 높을수록 적은 파라미터로 높은 성능을 달성.",
+        "> API 모델은 파라미터 수가 비공개이므로 제외합니다.",
+        "",
+    ]
+
+    for cat_idx, (category, df) in enumerate(ranked.items(), 1):
+        label = category.upper()
+
+        # Dense 모델별 평균 복합 점수 계산
+        dense_groups: dict[str, list] = {}
+        for _, row in df.iterrows():
+            s = row["strategy"]
+            for key, meta in DENSE_DISPLAY.items():
+                if key.lower() in s.lower():
+                    dense_groups.setdefault(key, []).append(row)
+                    break
+
+        # 로컬 모델만 필터링 (params_m이 있는 것)
+        efficiency_rows: list[dict] = []
+        for key, rows in dense_groups.items():
+            meta = DENSE_DISPLAY[key]
+            params_m = meta.get("params_m")
+            if params_m is None:
+                continue
+            rdf = pd.DataFrame(rows)
+            avg_composite = float(rdf["composite"].mean())
+            eff = avg_composite / params_m * 1000
+            efficiency_rows.append(
+                {
+                    "name": meta["short"],
+                    "params": meta["params"],
+                    "params_m": params_m,
+                    "composite": avg_composite,
+                    "efficiency": eff,
+                }
+            )
+
+        if not efficiency_rows:
+            continue
+
+        efficiency_rows.sort(key=lambda x: -x["efficiency"])
+
+        lines += [
+            f"### 6B-{cat_idx}. {label} 카테고리",
+            "",
+            "| 순위 | Dense 모델 | 파라미터 | 평균 복합 점수 | 효율 지수 | 비고 |",
+            "|:----:|-----------|:-------:|:------------:|:--------:|:-----|",
+        ]
+
+        top_eff = efficiency_rows[0]["efficiency"]
+        for i, er in enumerate(efficiency_rows):
+            rank = i + 1
+            note = ""
+            if rank == 1:
+                note = "**효율 1위**"
+            else:
+                ratio = er["efficiency"] / top_eff
+                note = f"1위 대비 {ratio:.0%}"
+
+            if rank == 1:
+                lines.append(
+                    f"| **{rank}** | **{er['name']}** | {er['params']} "
+                    f"| **{er['composite']:.4f}** | **{er['efficiency']:.2f}** | {note} |"
+                )
+            else:
+                lines.append(
+                    f"| {rank} | {er['name']} | {er['params']} "
+                    f"| {er['composite']:.4f} | {er['efficiency']:.2f} | {note} |"
+                )
+
+        lines.append("")
+
+        # 인사이트 도출
+        best = efficiency_rows[0]
+        worst = efficiency_rows[-1]
+        eff_ratio = (
+            best["efficiency"] / worst["efficiency"] if worst["efficiency"] > 0 else 0
+        )
+
+        # 품질 순위 vs 효율 순위 비교
+        quality_order = sorted(efficiency_rows, key=lambda x: -x["composite"])
+        quality_top = quality_order[0]["name"]
+        eff_top = best["name"]
+
+        if quality_top == eff_top:
+            lines += [
+                f"> **{eff_top}**이 품질과 효율 모두 1위입니다.",
+                "",
+            ]
+        else:
+            lines += [
+                f"> 품질 1위는 **{quality_top}**, 효율 1위는 **{eff_top}**입니다.",
+                f"> {eff_top}은 {best['params']}로 {quality_top}({quality_order[0]['params']}) 대비 "
+                f"**{quality_order[0]['params_m'] / best['params_m']:.1f}배 적은 파라미터**로 "
+                f"복합 점수 {best['composite']:.4f}를 달성합니다.",
+                "",
+            ]
+
+        if eff_ratio > 2:
+            lines += [
+                f"> 효율 1위({best['name']})와 최하위({worst['name']})의 효율 지수 차이가 "
+                f"**{eff_ratio:.1f}배**로, 모델 크기 대비 성능 차이가 유의미합니다.",
+                "",
+            ]
+
+    lines += ["---", ""]
+    return lines
+
+
 def _section7_recommendation(ranked: dict[str, pd.DataFrame]) -> list[str]:
     lines: list[str] = ["## 7. 최종 모델 선정 가이드", ""]
 
@@ -1189,6 +1304,7 @@ def render_report(
     lines += _section4_metric_detail(ranked)
     lines += _section5_latency(ranked)
     lines += _section6_model_comparison(ranked)
+    lines += _section6b_param_efficiency(ranked)
     lines += _section7_recommendation(ranked)
     lines += _appendix(ranked, raw_results)
 

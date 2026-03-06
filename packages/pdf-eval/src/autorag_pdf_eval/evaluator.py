@@ -1,12 +1,39 @@
 """
-벤치마크 평가 모듈 — OmniDoc 메트릭 기반
+벤치마크 평가 모듈 — OmniDoc 메트릭 기반.
+
+OmniDocBench(CVPR 2025) 프레임워크로 PDF 파서 출력의 정확도를 정량 평가한다.
+파서가 생성한 마크다운(pred)과 수작업 정답(GT)을 비교하여 4종 메트릭을 산출.
 
 평가 지표 (OmniDocScore):
-  - Edit Distance (NED): 텍스트 정확도     → 0~1
-  - BLEU-4: n-gram 정밀도                  → 0~100
-  - METEOR: 정밀도+재현율+어순             → 0~100
-  - TEDS-HTML: 표 구조 유사도              → 0~1
-  - Word Count / Structure: 구조 보존 지표
+  - Edit Distance (NED): 텍스트 정확도          → 0~1 (1=완벽 일치)
+  - BLEU-4: n-gram(1~4) 정밀도 기하평균          → 0~100
+  - METEOR: 정밀도+재현율+어순+동의어            → 0~100
+  - TEDS-HTML: IBM TEDS — HTML 트리 기반 표 구조  → 0~1 (음수=-1은 표 없음)
+
+평가 모드:
+  - **페이지 단위** (evaluate_page): 페이지별 GT가 있을 때. 정밀한 비교.
+  - **문서 단위** (evaluate_document): 전체 텍스트를 하나의 페이지로 취급.
+    페이지 분리가 필요하면 evaluate_page()를 직접 호출하여 BenchResult.pages에 누적.
+
+집계 방식:
+  - BenchResult.avg_* 프로퍼티는 유효한 페이지 점수의 **단순 산술 평균**.
+  - None/음수 값은 제외 후 평균. 유효 값이 없으면 None 반환.
+  - avg_teds_html은 teds_html >= 0 인 페이지만 집계 (음수=-1은 표 미존재 의미).
+
+사용 예::
+
+    from autorag_pdf_eval.evaluator import evaluate_page, evaluate_document, BenchResult
+
+    # 페이지별 평가
+    result = BenchResult(backend="upstage", pdf_name="doc.pdf", mode="api")
+    for page_num, (pred, gt, elapsed) in enumerate(pages, 1):
+        score = evaluate_page(pred, gt, page_num, speed_s=elapsed)
+        result.pages.append(score)
+    print(result.avg_edit_dist, result.avg_teds_html)
+
+    # 문서 전체 평가 (단일 페이지로 취급)
+    result = evaluate_document(pred_all, gt_all, speed_s=5.0,
+                               backend="docling", pdf_name="doc.pdf", mode="local")
 """
 
 from __future__ import annotations
@@ -24,7 +51,15 @@ if TYPE_CHECKING:
 
 @dataclass
 class PageScore:
-    """페이지 단위 평가 결과."""
+    """페이지 단위 평가 결과.
+
+    Attributes:
+        page: 페이지 번호 (1-based).
+        speed_s: 해당 페이지 파싱 소요 시간(초).
+        word_count: 파싱된 텍스트의 단어 수.
+        has_headers/has_tables/has_formulas: 마크다운 구조 존재 여부.
+        omnidoc: OmniDocScore — GT가 있을 때만 채워짐. 없으면 None.
+    """
 
     page: int
     speed_s: float
@@ -37,7 +72,19 @@ class PageScore:
 
 @dataclass
 class BenchResult:
-    """전체 PDF 단위 평가 결과."""
+    """전체 PDF 단위 평가 결과.
+
+    Attributes:
+        backend: 파서 백엔드 이름 (예: "upstage", "paddleocr-vl").
+        pdf_name: 평가 대상 PDF 파일명.
+        mode: 실행 모드 ("api", "local", "bridge" 등).
+        pages: 페이지별 평가 결과 목록.
+
+    avg_* 프로퍼티:
+        각 페이지의 OmniDocScore에서 유효한 값만 모아 산술 평균을 반환한다.
+        유효 값이 없으면 None. avg_teds_html은 teds >= 0인 페이지만 집계
+        (음수=-1은 해당 페이지에 표가 없음을 의미).
+    """
 
     backend: str
     pdf_name: str
@@ -139,7 +186,17 @@ def evaluate_page(
     page_num: int,
     speed_s: float,
 ) -> PageScore:
-    """단일 페이지 평가 — OmniDoc 메트릭만 사용."""
+    """단일 페이지 평가 — OmniDoc 메트릭 산출.
+
+    Args:
+        pred_text: 파서가 생성한 마크다운 텍스트.
+        gt_text: 수작업 정답 텍스트. None이면 OmniDocScore를 계산하지 않음.
+        page_num: 페이지 번호 (1-based).
+        speed_s: 해당 페이지 파싱 소요 시간(초).
+
+    Returns:
+        PageScore — omnidoc 필드는 gt_text가 있을 때만 채워짐.
+    """
     struct = compute_structure(pred_text)
 
     omnidoc = None
