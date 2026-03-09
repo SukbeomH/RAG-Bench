@@ -75,4 +75,15 @@ pdf_parser/backends/
 
 # Frontend 자동 생성
 packages/rag-frontend/next-env.d.ts
-PaddleOCR/
+# PaddleOCR/ — 트래킹 대상
+
+# 벤치마크 결과 (대용량, 로컬 전용)
+bench_results/
+bench_results_old/
+
+# PDF 벤치마크 원본 PDF (심볼릭 링크 → data/benchmark_pdfs)
+packages/pdf-eval/src/benchmark_pdfs
+
+# 서버별 uv.lock (각 서버 독립 venv)
+servers/mlx_vlm/uv.lock
+servers/paddleocr_vl/uv.lock
