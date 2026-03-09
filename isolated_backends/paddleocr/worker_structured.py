@@ -23,6 +23,8 @@ Subprocess worker — PaddleOCR 블록 단위 구조화 JSON 출력.
 import sys
 import os
 import json
+import io
+import base64
 import warnings
 
 warnings.filterwarnings("ignore")
