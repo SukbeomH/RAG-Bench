@@ -87,3 +87,9 @@ packages/pdf-eval/src/benchmark_pdfs
 # 서버별 uv.lock (각 서버 독립 venv)
 servers/mlx_vlm/uv.lock
 servers/paddleocr_vl/uv.lock
+
+# 파서 비교 JSON 결과물 (대용량, 로컬 전용)
+data/benchmark_pdfs/paddleocr_raw/
+data/benchmark_pdfs/paddleocr_upstage/
+data/benchmark_pdfs/upstage_raw/
+output_structure/
