@@ -75,8 +75,9 @@ _LABEL_HTML_TAG: dict[str, str] = {
     "figure_table_chart_title": "figcaption",
 }
 
-# base64 이미지 추출 대상
-_BASE64_LABELS = _TABLE_LABELS | _FIGURE_LABELS | _CHART_LABELS
+# PaddleOCRVL 파이프라인이 bbox crop PIL.Image를 할당하는 label
+# image/header_image/footer_image/seal: 항상, chart: use_chart_recognition=False일 때
+_IMAGE_LABELS = frozenset({"image", "header_image", "footer_image", "seal", "chart"})
 
 # ---------------------------------------------------------------------------
 # optional: markdownify (html→markdown 변환)
@@ -343,14 +344,12 @@ def _convert_block(
     if bbox and page_width > 0 and page_height > 0:
         element["coordinates"] = _bbox_to_coordinates(bbox, page_width, page_height)
 
-    # base64 이미지 — worker에서 이미 직렬화된 경우 또는 PIL 객체
-    b64 = _get_block_field(block, "base64_encoding")
-    if b64:
-        element["base64_encoding"] = b64
-    else:
-        b64 = _extract_base64(block)
-        if b64:
-            element["base64_encoding"] = b64
+    # base64 이미지 — _IMAGE_LABELS 6종은 반드시 base64 필드 포함
+    if label in _IMAGE_LABELS:
+        b64 = _get_block_field(block, "base64_encoding")
+        if not b64:
+            b64 = _extract_base64(block)
+        element["base64_encoding"] = b64 if b64 else None
 
     return element
 

@@ -29,20 +29,9 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# base64 추출 대상 label
-_BASE64_LABELS = frozenset(
-    {
-        "table",
-        "image",
-        "figure",
-        "chart",
-        "flowchart",
-        "seal",
-        "formula",
-        "header_image",
-        "footer_image",
-    }
-)
+# PaddleOCRVL 파이프라인이 bbox crop PIL.Image를 할당하는 label
+# image/header_image/footer_image/seal: 항상, chart: use_chart_recognition=False일 때
+_IMAGE_LABELS = frozenset({"image", "header_image", "footer_image", "seal", "chart"})
 
 _cert = os.environ.get("SSL_CERT_BUNDLE", "")
 if _cert and os.path.exists(_cert):
@@ -98,18 +87,21 @@ def _extract_block(b) -> dict | None:
     if block_order is not None:
         result["block_order"] = int(block_order)
 
-    # base64 이미지 추출 — 메모리에 이미지가 있으면 무조건 저장
-    if img_data is not None:
+    # base64 이미지 추출 — _IMAGE_LABELS 6종은 반드시 base64 포함
+    if str(label) in _IMAGE_LABELS:
         pil_img = None
-        if isinstance(img_data, dict):
-            pil_img = img_data.get("img")
-        elif hasattr(img_data, "save"):  # PIL.Image duck-typing
-            pil_img = img_data
+        if img_data is not None:
+            if isinstance(img_data, dict):
+                pil_img = img_data.get("img")
+            elif hasattr(img_data, "save"):  # PIL.Image duck-typing
+                pil_img = img_data
         if pil_img is not None:
             try:
                 result["base64_encoding"] = _pil_to_base64(pil_img)
             except Exception:
-                pass  # 이미지 변환 실패 시 무시
+                result["base64_encoding"] = None
+        else:
+            result["base64_encoding"] = None
 
     return result
 
