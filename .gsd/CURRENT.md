@@ -1,34 +1,22 @@
 # Current Session Context
 
 ## Session Narrative
-> On 2026-03-10 09:42:11, the developer was working on the **master** branch, modifying 5 files across `.gsd,.gsd/memories/session-summary,isolated_backends/paddleocr`. The recent work involved: chore: base64 버그 수정 세션 핸드오프 문서.
+> On 2026-03-10 16:00, PaddleOCRVL 파이프라인의 _IMAGE_LABELS 실측 검증 및 수정 완료. VL 파이프라인이 layout_parsing과 다른 이미지 할당 로직을 사용함을 확인하고, 5종(image, header_image, footer_image, seal, chart)으로 정정.
 
 ## Context Snapshot
-- **Active Task**: chore: base64 버그 수정 세션 핸드오프 문서
+- **Active Task**: PaddleOCRVL _IMAGE_LABELS 실측 정정 (완료)
 - **Branch**: master
-- **Files Changed**: 5
-- **Last Updated**: 2026-03-10 09:42:11
+- **Last Commit**: bfa723b fix: _IMAGE_LABELS를 PaddleOCRVL 실측 기준 5종으로 정정
+- **Last Updated**: 2026-03-10 16:00
 
-## Working Files
-```
- D .gsd/.modified-this-session
- M .gsd/CURRENT.md
- M isolated_backends/paddleocr/output_formatter.py
-?? .gsd/memories/session-summary/2026-03-09_session-2026-03-09-17-18-30-master.md
-?? .gsd/memories/session-summary/2026-03-10_session-2026-03-10-08-58-08-master.md
-```
+## Key Decisions
+- PaddleOCRVL 파이프라인(paddleocr_vl/pipeline.py)의 실제 이미지 할당 대상: 5종
+- table/formula/figure는 VL에서 이미지 미할당 확인
+- 상세 레퍼런스: docs/paddleocr-vl-image-labels-reference.md
 
 ## Recent Commits
 ```
-d7df65e chore: base64 버그 수정 세션 핸드오프 문서
-872db51 chore: GSD 세션 메모리 + CURRENT.md 업데이트
-777f78d fix: worker_structured.py에 io/base64 import 누락 수정
-```
-
-## Diff Stats
-```
- .gsd/.modified-this-session                     |  0
- .gsd/CURRENT.md                                 | 26 +++++-------
- isolated_backends/paddleocr/output_formatter.py | 55 +++++++++++++++++++++----
- 3 files changed, 59 insertions(+), 22 deletions(-)
+bfa723b fix: _IMAGE_LABELS를 PaddleOCRVL 실측 기준 5종으로 정정
+d6194eb chore: GSD 세션 메모리 + 핸드오프 문서 업데이트
+4db8845 fix: _html_to_markdown fallback에서 table HTML→Markdown 변환 구현
 ```
