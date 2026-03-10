@@ -89,9 +89,55 @@ try:
 except ImportError:
     _markdownify = None  # type: ignore[assignment]
 
+    def _table_html_to_markdown(table_html: str) -> str:
+        """<table> HTML → Markdown 테이블 변환 (colspan 지원)."""
+        # 행 추출
+        rows_raw = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.DOTALL)
+        if not rows_raw:
+            return re.sub(r"<[^>]+>", " ", table_html).strip()
+
+        rows: list[list[str]] = []
+        for row_html in rows_raw:
+            cells: list[str] = []
+            for m in re.finditer(
+                r"<(th|td)[^>]*(?:colspan=[\"']?(\d+)[\"']?)?[^>]*>(.*?)</(?:th|td)>",
+                row_html,
+                flags=re.DOTALL,
+            ):
+                colspan = int(m.group(2)) if m.group(2) else 1
+                cell_text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
+                cells.append(cell_text)
+                for _ in range(colspan - 1):
+                    cells.append("")
+            rows.append(cells)
+
+        if not rows:
+            return re.sub(r"<[^>]+>", " ", table_html).strip()
+
+        # 최대 열 수로 정규화
+        max_cols = max(len(r) for r in rows)
+        for r in rows:
+            while len(r) < max_cols:
+                r.append("")
+
+        # Markdown 테이블 생성
+        lines: list[str] = []
+        header = rows[0]
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("| " + " | ".join("---" for _ in header) + " |")
+        for row in rows[1:]:
+            lines.append("| " + " | ".join(row) + " |")
+        return "\n".join(lines)
+
     def _html_to_markdown(html_str: str) -> str:
         """markdownify 미설치 시 간이 변환."""
-        text = html_str
+        # table → markdown table 변환
+        text = re.sub(
+            r"<table[^>]*>.*?</table>",
+            lambda m: _table_html_to_markdown(m.group(0)),
+            html_str,
+            flags=re.DOTALL,
+        )
         # headings
         for i in range(1, 7):
             text = re.sub(
@@ -100,7 +146,6 @@ except ImportError:
                 text,
                 flags=re.DOTALL,
             )
-        # table 은 그대로 유지 (변환 복잡)
         # <p> → 줄바꿈
         text = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n", text, flags=re.DOTALL)
         # <li> → bullet
@@ -113,11 +158,7 @@ except ImportError:
             flags=re.DOTALL,
         )
         # 나머지 태그 제거
-        text = re.sub(
-            r"<(?!table|/table|tr|/tr|th|/th|td|/td|thead|/thead|tbody|/tbody)[^>]+>",
-            "",
-            text,
-        )
+        text = re.sub(r"<[^>]+>", "", text)
         return text.strip()
 
 
